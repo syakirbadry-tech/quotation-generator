@@ -13,7 +13,7 @@
   var require_pdfTextSource_browser = __commonJS({
     "browser-tool/pdfTextSource.browser.js"(exports, module) {
       "use strict";
-      var SPACE_WIDTH_RATIO = 0.28;
+      var SPACE_WIDTH_RATIO = 0.35;
       var DEFAULT_FONT_SIZE = 10;
       var ROW_Y_TOLERANCE = 2;
       function estimateFontSize(transform) {
@@ -21,6 +21,16 @@
         if (d > 0.01) return d;
         const magnitude = Math.hypot(transform[0], transform[1]);
         return magnitude > 0.01 ? magnitude : DEFAULT_FONT_SIZE;
+      }
+      function dedupeOverlappingFragments(fragments) {
+        const sorted = [...fragments].sort((a, b) => a.x - b.x);
+        const kept = [];
+        for (const frag of sorted) {
+          const prev = kept[kept.length - 1];
+          const isOverlappingDuplicate = prev && prev.text === frag.text && Math.abs(prev.x - frag.x) < 1;
+          if (!isOverlappingDuplicate) kept.push(frag);
+        }
+        return kept;
       }
       function reconstructPageText(items) {
         const rawFragments = items.filter((it) => typeof it.str === "string" && it.str.length > 0).map((it) => ({
@@ -43,10 +53,11 @@
         }
         rows.sort((a, b) => b.y - a.y);
         const lines = rows.map((row) => {
-          row.items.sort((a, b) => a.x - b.x);
+          const realFragments = dedupeOverlappingFragments(row.items.filter((f) => !/^\s+$/.test(f.text)));
+          realFragments.sort((a, b) => a.x - b.x);
           let line = "";
           let cursorX = null;
-          for (const frag of row.items) {
+          for (const frag of realFragments) {
             const spaceWidth = Math.max(1, frag.fontSize * SPACE_WIDTH_RATIO);
             if (cursorX === null) {
               const leadingSpaces = Math.max(0, Math.round(frag.x / spaceWidth));
@@ -57,12 +68,7 @@
               const spaces = gap >= threshold ? Math.max(1, Math.round(gap / spaceWidth)) : 0;
               line += " ".repeat(Math.min(spaces, 200));
             }
-            if (/^\s+$/.test(frag.text)) {
-              const widthSpaces = Math.max(0, Math.round(frag.width / spaceWidth) - 1);
-              line += " ".repeat(Math.min(widthSpaces, 200));
-            } else {
-              line += frag.text;
-            }
+            line += frag.text;
             cursorX = frag.x + frag.width;
           }
           return line.replace(/\s+$/, "");
@@ -1463,7 +1469,7 @@
         if (!value) return null;
         return shortValue(value).replace(/^RM\s*/i, "RM ").replace(/\s*per\s*rider\s*year\b/i, "/yr").replace(/\s*per\s*year\b/i, "/yr").replace(/\s*per\s*day\b/i, "/day");
       }
-      function primaryValue(value) {
+      function primaryValue2(value) {
         if (!value) return null;
         const rmMatch = value.match(/RM\s*[\d,]+(\.\d+)?(\s+per\s+[a-z]+(\s+[a-z]+)?)?/);
         if (rmMatch) return rmMatch[0].replace(/\s+/g, " ").trim();
@@ -1485,7 +1491,7 @@
         coPaymentAmount,
         compactRate,
         bareTierNumber,
-        primaryValue
+        primaryValue: primaryValue2
       };
     }
   });
@@ -1502,7 +1508,7 @@
         coPaymentAmount,
         compactRate,
         bareTierNumber,
-        primaryValue
+        primaryValue: primaryValue2
       } = require_formatters();
       function extractDayTag(value) {
         if (!value) return null;
@@ -1549,7 +1555,7 @@
         return benefitItems.map((item) => {
           const tag = extractDayTag(item.value);
           const tagHtml = tag ? ` <span class="tag">${escapeHtml2(tag)}</span>` : "";
-          const compact = primaryValue(item.value);
+          const compact = primaryValue2(item.value);
           const valueHtml = compact ? escapeHtml2(compact) : missing("shares a merged cell in the PDF - verify against the certificate", "Refer to certificate");
           return `<tr><td class="b">${escapeHtml2(item.label)}${tagHtml}</td><td class="v">${valueHtml}</td></tr>`;
         }).join("\n");
@@ -1757,7 +1763,7 @@
         const roomBoardTag = roomBoardItem ? extractDayTag(roomBoardItem.value) : null;
         const cardPlanLabel = plan.medicalRiderName ? [plan.medicalRiderName, bareTierNumber(plan.medicalPlanTier)].filter(Boolean).join(" ") : null;
         const hospitalSurgicalItem = (benefits.benefitItems || []).find((i) => i.label === "In Hospital and Related Services");
-        const hospitalSurgicalCompact = hospitalSurgicalItem ? primaryValue(hospitalSurgicalItem.value) : null;
+        const hospitalSurgicalCompact = hospitalSurgicalItem ? primaryValue2(hospitalSurgicalItem.value) : null;
         const optionColumns = options.columns || [];
         return `
 <div class="sheet">
@@ -1901,6 +1907,23 @@ ${list}
   var { parseQuotation } = require_parser();
   var { validateQuotation } = require_validate();
   var { renderAgentReviewHtml, renderClientQuotationHtml } = require_renderQuotation();
+  var { primaryValue } = require_formatters();
+  var KNOWN_MERGED_BENEFIT_VALUES = {
+    "Surgical Procedure and Treatment": "As charged",
+    "Post-Hospitalisation Treatment": "As charged",
+    "Outpatient Kidney Dialysis Treatment": "RM1,000,000 per lifetime"
+  };
+  function applyKnownMergedBenefitValues(data) {
+    const items = data && data.benefits && data.benefits.benefitItems;
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      const known = KNOWN_MERGED_BENEFIT_VALUES[item.label];
+      if (known && !primaryValue(item.value)) {
+        item.value = known;
+        item.prefilledFromKnownMergedCell = true;
+      }
+    }
+  }
   var EDITABLE_FIELDS = [
     { section: "Metadata", path: "metadata.productName", label: "Product name" },
     { section: "Metadata", path: "metadata.quotationDate.raw", label: "Quotation date (as printed, DD/MM/YYYY)" },
@@ -2000,6 +2023,7 @@ ${list}
       const pages = await extractPagesFromPdf(new Uint8Array(buffer));
       el.uploadStatus.textContent = "Parsing quotation data...";
       const result = parseQuotation(pages, { sourceFileName: file.name, validityDays: 14 });
+      applyKnownMergedBenefitValues(result.data);
       state.data = result.data;
       state.warnings = result.warnings;
       state.errors = result.errors;
@@ -2083,18 +2107,20 @@ ${list}
     const items = state.data.benefits && state.data.benefits.benefitItems || [];
     const rows = items.map((item, i) => {
       const warn = state.warnings.find((w) => w.field === `benefits.benefitItems.${item.label}`);
+      const note = item.prefilledFromKnownMergedCell ? "Pre-filled: this row shares a merged cell with an adjacent benefit in the source PDF. Value verified against the source document - please confirm before sending." : warn && warn.message;
       return `
       <tr class="${item.value == null ? "row-flagged" : ""}">
         <td>${escapeHtml(item.label)}</td>
         <td><input type="text" data-benefit-index="${i}" value="${escapeHtml(item.value || "")}" class="field-input"></td>
       </tr>
-      ${warn ? `<tr class="note-row"><td colspan="2" class="field-note field-note-warn">${escapeHtml(warn.message)}</td></tr>` : ""}`;
+      ${note ? `<tr class="note-row"><td colspan="2" class="field-note field-note-warn">${escapeHtml(note)}</td></tr>` : ""}`;
     }).join("");
     el.benefitItemsTable.innerHTML = `<table><thead><tr><th>Benefit</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>`;
     el.benefitItemsTable.querySelectorAll("[data-benefit-index]").forEach((input) => {
       input.addEventListener("input", (e) => {
         const idx = Number(e.target.dataset.benefitIndex);
         state.data.benefits.benefitItems[idx].value = e.target.value || null;
+        state.data.benefits.benefitItems[idx].prefilledFromKnownMergedCell = false;
         state.reviewAcknowledged = false;
         updateGateState();
       });

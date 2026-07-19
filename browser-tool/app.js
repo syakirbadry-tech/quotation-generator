@@ -21,6 +21,56 @@ const { extractPagesFromPdf } = require('./pdfTextSource.browser.js');
 const { parseQuotation } = require('../parser/index.js');
 const { validateQuotation } = require('../parser/validate.js');
 const { renderAgentReviewHtml, renderClientQuotationHtml } = require('../renderer/renderQuotation.js');
+const { primaryValue } = require('../renderer/formatters.js');
+
+// --- Known merged-cell benefit values -----------------------------------
+// The frozen parser deliberately leaves a benefit item's value as `null`
+// (plus a warning) rather than guess which neighbouring row's value it
+// shares a merged PDF table cell with - see extractBenefits.js. That's
+// the right call for a general-purpose parser, but for THIS product's
+// Table of Benefits the merge groups are fixed and have been visually
+// verified against the actual rendered table (real cell borders, not
+// just text order) in the source PDF used throughout this project:
+//   - "Surgical Procedure and Treatment" shares a cell with "Intensive
+//     Care Unit (ICU) / Cardiac Care Unit (CCU)" and "In Hospital and
+//     Related Services", all reading "As charged".
+//   - "Post-Hospitalisation Treatment" shares a cell with
+//     "Pre-Hospitalisation Treatment", reading "As charged".
+//   - "Outpatient Kidney Dialysis Treatment" shares a cell with
+//     "Outpatient Cancer Treatment", reading "RM1,000,000 per lifetime" -
+//     NOT "As charged", despite how similar the two nearby "As charged"
+//     rows might look at a glance.
+// This is a display-layer PRE-FILL (still shown with its warning, still
+// editable, still requires the agent's review) - not a change to what
+// the parser extracted or how it validates. If a future PDF version
+// changes this table's layout, the pre-fill would need re-verifying the
+// same way - it is not derived from text position, it is a hardcoded,
+// visually-confirmed fact about this specific document version.
+const KNOWN_MERGED_BENEFIT_VALUES = {
+  'Surgical Procedure and Treatment': 'As charged',
+  'Post-Hospitalisation Treatment': 'As charged',
+  'Outpatient Kidney Dialysis Treatment': 'RM1,000,000 per lifetime',
+};
+
+function applyKnownMergedBenefitValues(data) {
+  const items = data && data.benefits && data.benefits.benefitItems;
+  if (!Array.isArray(items)) return;
+  for (const item of items) {
+    // Use the same "does this actually look like a value" check the
+    // renderer applies (primaryValue) rather than a plain null check:
+    // a row can have a non-null `value` that's still not a real value
+    // (e.g. "(within 120 days immediately after hospitalisation)" alone,
+    // with no charge/coverage indicator) when the merged cell's day-count
+    // note landed in this row's own text but the shared indicator text
+    // ("As charged") landed in a different row's - same underlying
+    // "merged PDF cell" situation extractBenefits.js already flags.
+    const known = KNOWN_MERGED_BENEFIT_VALUES[item.label];
+    if (known && !primaryValue(item.value)) {
+      item.value = known;
+      item.prefilledFromKnownMergedCell = true;
+    }
+  }
+}
 
 // --- Editable field registry -------------------------------------------
 // One entry per scalar field an agent can hand-correct. `path` is a
@@ -143,6 +193,7 @@ async function handleFile(file) {
     const pages = await extractPagesFromPdf(new Uint8Array(buffer));
     el.uploadStatus.textContent = 'Parsing quotation data...';
     const result = parseQuotation(pages, { sourceFileName: file.name, validityDays: 14 });
+    applyKnownMergedBenefitValues(result.data);
     state.data = result.data;
     state.warnings = result.warnings;
     state.errors = result.errors;
@@ -237,12 +288,15 @@ function renderBenefitItemsTable() {
   const rows = items
     .map((item, i) => {
       const warn = state.warnings.find((w) => w.field === `benefits.benefitItems.${item.label}`);
+      const note = item.prefilledFromKnownMergedCell
+        ? 'Pre-filled: this row shares a merged cell with an adjacent benefit in the source PDF. Value verified against the source document - please confirm before sending.'
+        : warn && warn.message;
       return `
       <tr class="${item.value == null ? 'row-flagged' : ''}">
         <td>${escapeHtml(item.label)}</td>
         <td><input type="text" data-benefit-index="${i}" value="${escapeHtml(item.value || '')}" class="field-input"></td>
       </tr>
-      ${warn ? `<tr class="note-row"><td colspan="2" class="field-note field-note-warn">${escapeHtml(warn.message)}</td></tr>` : ''}`;
+      ${note ? `<tr class="note-row"><td colspan="2" class="field-note field-note-warn">${escapeHtml(note)}</td></tr>` : ''}`;
     })
     .join('');
   el.benefitItemsTable.innerHTML = `<table><thead><tr><th>Benefit</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -250,6 +304,9 @@ function renderBenefitItemsTable() {
     input.addEventListener('input', (e) => {
       const idx = Number(e.target.dataset.benefitIndex);
       state.data.benefits.benefitItems[idx].value = e.target.value || null;
+      // Once the agent has touched this field, it's their value, not the
+      // pre-filled suggestion - stop labelling it as an auto pre-fill.
+      state.data.benefits.benefitItems[idx].prefilledFromKnownMergedCell = false;
       state.reviewAcknowledged = false;
       updateGateState();
     });

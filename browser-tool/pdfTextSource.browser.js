@@ -41,13 +41,21 @@
 
 'use strict';
 
-// Empirically, the width of a single space character is roughly a
-// quarter to a third of the font's point size for the proportional
+// Empirically, the width of a single space character is roughly a third
+// to two-fifths of the font's point size for the proportional
 // sans/serif fonts typical in generated PDF reports (Helvetica-ish).
 // This is a heuristic, not a font metric lookup - it only needs to be
 // good enough that a real column gap (tens of points) reliably produces
-// 2+ spaces while ordinary word-spacing (a few points) produces ~1.
-const SPACE_WIDTH_RATIO = 0.28;
+// 2+ spaces while ordinary word-spacing (a few points) produces exactly
+// 1. Calibrated against PruBSN's own generated PDF: a genuine single
+// word-space between two prose fragments measured 3.96pt at an 8.25pt
+// font size (a 0.48 ratio) - the previous 0.28 estimate rounded that up
+// to 2 spaces, which made the parser's column-gap detector mistake an
+// ordinary sentence for a 3-column table row. 0.35 keeps real multi-word
+// gaps (tens of points, seen throughout every table in both the real and
+// synthetic sample documents) safely over the 2-space threshold while
+// keeping ordinary prose word-spacing at 1.
+const SPACE_WIDTH_RATIO = 0.35;
 const DEFAULT_FONT_SIZE = 10;
 const ROW_Y_TOLERANCE = 2; // PDF points
 
@@ -59,6 +67,50 @@ function estimateFontSize(transform) {
   if (d > 0.01) return d;
   const magnitude = Math.hypot(transform[0], transform[1]);
   return magnitude > 0.01 ? magnitude : DEFAULT_FONT_SIZE;
+}
+
+/**
+ * Turns one page's pdf.js `getTextContent().items` into a single
+ * layout-preserving string, in the same spirit as a `pdftotext -layout`
+ * page.
+ *
+ * Text coordinates from pdf.js are in raw PDF space, and PDF generators
+ * routinely add a uniform page margin that has nothing to do with the
+ * MediaBox origin (observed with Chrome's own `--print-to-pdf`: every
+ * fragment on a page sat at x >= ~33pt, MediaBox origin notwithstanding).
+ * `pdftotext -layout` evidently treats the leftmost text actually
+ * present on a page as column 0, rather than trusting the page
+ * geometry - so this normalizes the same way: subtract the minimum x
+ * observed among this page's own fragments. Skipping this step gives
+ * every line - even ones that should be flush-left - the same uniform,
+ * spurious leading indent, which breaks every `^`-anchored regex in the
+ * frozen parser (see extractMetadata.js, extractAgent.js, extractBenefits.js).
+ */
+/**
+ * Some PDF generators simulate a bold weight by drawing the exact same
+ * text run twice (or more) at the identical position, instead of using a
+ * real bold font ("faux bold" / double-strike). Real-world evidence
+ * (PruBSN's own generated PDFs, not just Chrome's print export): a page
+ * footer's "Page 1 of 33" showed up as FOUR byte-identical items (same
+ * string, same x, same y, same width), and "Presented by" /
+ * ": MUHAMMAD ..." each showed up TWICE, byte-identical down to the
+ * width. Left alone, concatenating every item verbatim turns
+ * "Presented by" into "Presented byPresented by" - which not only reads
+ * wrong but breaks anchor matching outright (extractAgent.js's
+ * `/^Presented by\s*:/i` no longer matches once a second "Presented by"
+ * sits where the colon should be). This collapses runs of items that
+ * share the same text and (nearly) the same starting position down to
+ * one occurrence before any spacing/concatenation logic runs.
+ */
+function dedupeOverlappingFragments(fragments) {
+  const sorted = [...fragments].sort((a, b) => a.x - b.x);
+  const kept = [];
+  for (const frag of sorted) {
+    const prev = kept[kept.length - 1];
+    const isOverlappingDuplicate = prev && prev.text === frag.text && Math.abs(prev.x - frag.x) < 1;
+    if (!isOverlappingDuplicate) kept.push(frag);
+  }
+  return kept;
 }
 
 /**
@@ -106,10 +158,24 @@ function reconstructPageText(items) {
   rows.sort((a, b) => b.y - a.y);
 
   const lines = rows.map((row) => {
-    row.items.sort((a, b) => a.x - b.x);
+    // Whitespace-only fragments are dropped entirely rather than
+    // trusted for their own reported width. Two independent real-world
+    // PDFs disagreed about what a whitespace fragment's width means:
+    // Chrome's print export uses it to represent a genuine large visual
+    // gap (bridging two far-apart elements with one stretched glyph),
+    // but PruBSN's own generated PDF produced whitespace fragments with
+    // bogus/inflated widths unrelated to the actual gap to the next real
+    // fragment (e.g. a phantom ~110pt-wide space between "Wakalah" and
+    // "Certificate Charge", two words that are actually ~2pt apart).
+    // Computing spacing purely from real-fragment-to-real-fragment x
+    // gaps (below) produces the correct result in BOTH cases without
+    // needing to trust either PDF's whitespace-glyph metadata.
+    const realFragments = dedupeOverlappingFragments(row.items.filter((f) => !/^\s+$/.test(f.text)));
+    realFragments.sort((a, b) => a.x - b.x);
+
     let line = '';
     let cursorX = null;
-    for (const frag of row.items) {
+    for (const frag of realFragments) {
       const spaceWidth = Math.max(1, frag.fontSize * SPACE_WIDTH_RATIO);
       if (cursorX === null) {
         const leadingSpaces = Math.max(0, Math.round(frag.x / spaceWidth));
@@ -126,21 +192,7 @@ function reconstructPageText(items) {
         const spaces = gap >= threshold ? Math.max(1, Math.round(gap / spaceWidth)) : 0;
         line += ' '.repeat(Math.min(spaces, 200));
       }
-
-      // Chrome's PDF export bridges a large horizontal jump (e.g.
-      // between two independently-positioned elements) with a SINGLE
-      // space character stretched to the width of the whole gap, rather
-      // than emitting the gap as pure positioning with no glyph. Taken
-      // literally that's one space no matter how wide the visual gap
-      // was, which silently merges what should be two separate table
-      // columns into one token. Treat such a fragment's own width as a
-      // space COUNT instead of appending its single literal character.
-      if (/^\s+$/.test(frag.text)) {
-        const widthSpaces = Math.max(0, Math.round(frag.width / spaceWidth) - 1);
-        line += ' '.repeat(Math.min(widthSpaces, 200));
-      } else {
-        line += frag.text;
-      }
+      line += frag.text;
       cursorX = frag.x + frag.width;
     }
     return line.replace(/\s+$/, '');
