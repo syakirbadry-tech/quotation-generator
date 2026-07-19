@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PruBSN Quotation Generator (Agent Tool)</title>
+<style>
+  :root {
+    --teal: #178D93; --teal-dk: #0f6b70; --gold: #C9A227;
+    --ink: #2b2b2b; --meta: #6b6560; --line: #e4ded8; --bg: #FBF2F5;
+    --err: #B3261E; --err-bg: #FDEAEA; --warn: #7a5a12; --warn-bg: #fff8ec; --ok: #1a7a3c; --ok-bg: #eaf7ee;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+  header { padding: 20px 24px; background: #fff; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 18px; color: var(--teal-dk); }
+  header p { margin: 4px 0 0; font-size: 12.5px; color: var(--meta); }
+  main { max-width: 980px; margin: 0 auto; padding: 24px; }
+
+  #stage-upload { text-align: center; padding: 60px 20px; }
+  #drop-zone { border: 2px dashed var(--teal); border-radius: 14px; padding: 60px 20px; background: #fff; cursor: pointer; }
+  #drop-zone.drag-over { background: #eef8f8; }
+  #drop-zone p { margin: 8px 0; color: var(--meta); font-size: 13.5px; }
+  #upload-status { margin-top: 14px; font-size: 13px; color: var(--teal-dk); min-height: 18px; }
+
+  .banner { padding: 12px 16px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; }
+  .banner-error { background: var(--err-bg); color: var(--err); }
+  .banner-warn { background: var(--warn-bg); color: var(--warn); }
+  .banner-ok { background: var(--ok-bg); color: var(--ok); }
+
+  fieldset { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 16px; padding: 14px 18px; background: #fff; }
+  legend { font-weight: 700; color: var(--teal-dk); padding: 0 6px; }
+  .field-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 12.5px; }
+  .field-label { font-weight: 600; color: #444; }
+  .field-input { padding: 8px 10px; border-radius: 7px; border: 1.5px solid var(--line); font-size: 13.5px; }
+  .field-row-error .field-input { border-color: var(--err); }
+  .field-note { font-size: 11.5px; padding: 2px 0; }
+  .field-note-error { color: var(--err); }
+  .field-note-warn { color: var(--warn); }
+  .note-row td { padding: 2px 8px 8px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #f0ebe6; vertical-align: top; }
+  tr.row-flagged td:first-child { color: var(--err); }
+
+  .actions-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-top: 20px; }
+  .actions-bar label { font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .actions-bar input[type=text], .actions-bar input[type=date] { padding: 6px 8px; border-radius: 6px; border: 1.5px solid var(--line); }
+  button { font-size: 13.5px; font-weight: 700; padding: 10px 18px; border-radius: 8px; border: none; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #generate-btn { background: var(--gold); color: #fff; }
+  #revalidate-btn, #start-over-btn { background: #F3F0ED; color: #555; }
+  #download-btn { background: var(--teal); color: #fff; }
+
+  #download-section { margin-top: 20px; }
+  #preview-frame { width: 100%; height: 900px; border: 1px solid var(--line); border-radius: 10px; margin-top: 12px; }
+
+  h2.section-title { font-size: 15px; color: var(--teal-dk); margin: 24px 0 10px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>PruBSN Quotation Generator</h1>
+  <p>Agent tool - runs entirely in this browser tab. Nothing about the PDF or client data is uploaded, stored, or sent anywhere.</p>
+</header>
+
+<main>
+
+  <section id="stage-upload">
+    <div id="drop-zone">
+      <p><b>Drop a PruBSN Product Illustration PDF here, or click to choose a file.</b></p>
+      <p>Processed locally in this tab only.</p>
+      <input type="file" id="file-input" accept="application/pdf,.pdf" style="display:none">
+    </div>
+    <div id="upload-status"></div>
+  </section>
+
+  <section id="stage-review" hidden>
+    <div id="review-summary"></div>
+
+    <h2 class="section-title">Extracted fields</h2>
+    <div id="review-form"></div>
+
+    <h2 class="section-title">Benefits table</h2>
+    <div id="benefit-items-table"></div>
+
+    <h2 class="section-title">Product options</h2>
+    <div id="options-table"></div>
+
+    <div class="actions-bar">
+      <button id="revalidate-btn" type="button">Re-check after edits</button>
+      <label><input type="checkbox" id="ack-checkbox" disabled> I have reviewed this quotation and it is ready to send</label>
+    </div>
+
+    <div class="actions-bar">
+      <label>Internal quotation reference (optional)
+        <input type="text" id="quotation-number-input" placeholder="e.g. AM-2026-0142">
+      </label>
+      <label>Valid until (optional)
+        <input type="date" id="valid-until-input">
+      </label>
+      <button id="generate-btn" type="button" disabled>Generate Client Quotation</button>
+      <button id="start-over-btn" type="button">Start over</button>
+    </div>
+
+    <div id="download-section" hidden>
+      <div class="actions-bar">
+        <button id="download-btn" type="button">Download HTML</button>
+        <span style="font-size:12.5px;color:var(--meta)">This is exactly what the client will receive - preview it below.</span>
+      </div>
+      <iframe id="preview-frame" title="Client quotation preview"></iframe>
+    </div>
+  </section>
+
+</main>
+
+<script src="vendor/pdf.min.js"></script>
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
+</script>
+<script src="dist/app.bundle.js"></script>
+<script>
+  document.getElementById('drop-zone').addEventListener('click', () => document.getElementById('file-input').click());
+</script>
+</body>
+</html>

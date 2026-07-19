@@ -1,6 +1,10 @@
 # OS
 .DS_Store
 
+# Dependencies - large, regeneratable via `npm install`. package-lock.json
+# IS tracked (reproducible installs); the packages themselves are not.
+/node_modules/
+
 # Generated quotations - client-facing output is a build artifact,
 # never a source file, and often contains a real client's name/data.
 /output/
@@ -11,7 +15,11 @@ quotation-preview.html
 # history, income, and bank/beneficiary details. Never commit one, sample
 # or otherwise. Test scripts must reference real sample PDFs by an
 # absolute path outside this repo, never by copying them in here.
+# The ONE exception is the synthetic, fabricated-data fixture used to
+# test the browser tool end-to-end - safe by construction, not a real
+# document. Everything else stays blocked by default.
 *.pdf
+!/test/fixtures/synthetic-quotation.pdf
 
 # Real client data - any exported/dumped parser output, review notes, or
 # working files that contain real client details.

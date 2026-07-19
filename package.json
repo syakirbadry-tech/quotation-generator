@@ -1,0 +1,13 @@
+{
+  "name": "prubsn-quotation-generator",
+  "version": "1.2.0",
+  "private": true,
+  "description": "PruBSN quotation PDF parser, renderer, and browser tool.",
+  "scripts": {
+    "build:browser-tool": "node scripts/build-browser-tool.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "pdfjs-dist": "^3.11.174"
+  }
+}

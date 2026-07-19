@@ -1,0 +1,325 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Synthetic Test Quotation - Not a Real PruBSN Document</title>
+<style>
+  /*
+   * SYNTHETIC TEST FIXTURE - all names, ages, and figures below are
+   * fabricated for Phase 3 browser-tool testing. This file (and the PDF
+   * generated from it) contains no real client data and is safe to
+   * commit to git. It mirrors the section headings and label wording of
+   * a real PruBSN AnugerahMax + Medic TotalCare Product Illustration
+   * closely enough to exercise every parser anchor, but the specific
+   * numbers, name, and agent code are all invented.
+   */
+  /*
+   * Two-tier margin, matching the real PruBSN PDF's actual layout: the
+   * running header/footer anchor lines (Presented by / Date / Version /
+   * "Quotation for ..." / major section headings) print flush against
+   * the physical page edge, while body content sits inset. Several
+   * frozen-parser anchors assume those specific lines are flush-left
+   * (confirmed true against the real PDF) - replicate that here rather
+   * than fight it, so this fixture actually exercises the same anchor
+   * logic a real document does.
+   */
+  @page { size: A4; margin: 0; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 9.5pt; color: #111; margin: 0; }
+  .page { page-break-after: always; position: relative; width: 210mm; min-height: 297mm; box-sizing: border-box; }
+  .page:last-child { page-break-after: auto; }
+  .runhead, h2, .kv, .twocol, .threecol, p, .footer { margin-left: 14mm; margin-right: 14mm; }
+  .footer { position: absolute; bottom: 10mm; left: 0; right: 0; margin-top: 0; font-size: 8pt; border-top: 1px solid #000; padding-top: 4px; }
+  .footer .symcode { float: right; }
+  .cover-title, .cover-for { margin-left: 14mm; margin-right: 14mm; }
+  .cover-by { margin-left: 14mm; }
+  h1 { font-size: 16pt; }
+  h2 { font-size: 12pt; margin-top: 18px; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { text-align: left; vertical-align: top; padding: 2px 6px 2px 0; font-size: 9.5pt; }
+  .kv td:first-child { white-space: nowrap; padding-right: 10px; }
+  .center { text-align: center; }
+  .cover-title { text-align: center; margin-top: 40mm; font-size: 20pt; font-family: Georgia, serif; }
+  .cover-for { text-align: center; margin-top: 20mm; }
+  .cover-by { text-align: center; margin-top: 60mm; }
+  .runhead { font-size: 8pt; font-weight: bold; margin-bottom: 10px; }
+  .twocol { width: 100%; }
+  .twocol td { width: 50%; vertical-align: top; padding-right: 20px; }
+  .threecol td { width: 33%; vertical-align: top; border-left: 1px solid #ccc; padding: 4px 8px; }
+  .threecol td:first-child { border-left: none; }
+</style>
+</head>
+<body>
+
+<!-- PAGE 1: cover -->
+<div class="page">
+  <div class="cover-title">PruBSN AnugerahMax</div>
+  <div class="cover-for">
+    Specially prepared for:<br>
+    Contoh Klien Binti Testing
+  </div>
+  <div class="cover-by">Prepared by: AHMAD BIN CONTOH</div>
+</div>
+
+<!-- PAGE 2: Quotation Details + Benefits breakdown -->
+<div class="page">
+  <div class="runhead">Quotation for Contoh Klien Binti Testing<br>PruBSN AnugerahMax</div>
+
+  <h2>Quotation Details for PruBSN AnugerahMax</h2>
+  <table class="kv">
+    <tr><td>Details</td><td>Person to be Covered</td></tr>
+    <tr><td>Name</td><td>: Contoh Klien Binti Testing</td></tr>
+    <tr><td>Gender</td><td>: Female</td></tr>
+    <tr><td>Smoker</td><td>: Non-Smoker</td></tr>
+    <tr><td>Occupation</td><td>: Class 1</td></tr>
+    <tr><td>Age</td><td>: 30 next birthday</td></tr>
+    <tr><td>Date of birth</td><td>: 01/01/1996</td></tr>
+    <tr><td>Business Proposal</td><td>: No</td></tr>
+    <tr><td>Takaful Plan Purpose</td><td>: Non-Business Purpose</td></tr>
+    <tr><td>Type of Product</td><td>: Regular Contribution Family Takaful</td></tr>
+    <tr><td>Monthly Total Amount Payable</td><td>: RM 162.00</td></tr>
+    <tr><td>Total Annual Contribution</td><td>: RM 1,944.00</td></tr>
+    <tr><td>Payment Mode</td><td>: Debit/Credit Card</td></tr>
+  </table>
+
+  <p>Product Description:<br>
+  PruBSN AnugerahMax plan is a regular contribution family takaful plan. This is placeholder
+  product description text used only to reproduce the section boundary the parser looks for.</p>
+
+  <h2>Benefits:</h2>
+  <table class="kv">
+    <tr><td>Individual Special Account (ISA):</td><td>PruBSN AnugerahMax (Basic)&nbsp;&nbsp;&nbsp;&nbsp;40&nbsp;&nbsp;&nbsp;&nbsp;10,000&nbsp;&nbsp;&nbsp;&nbsp;5.00</td></tr>
+    <tr><td></td><td>Plan 200</td></tr>
+    <tr><td></td><td>Medic TotalCare&nbsp;&nbsp;&nbsp;&nbsp;40&nbsp;&nbsp;&nbsp;&nbsp;Contribution option: Level&nbsp;&nbsp;&nbsp;&nbsp;150.00</td></tr>
+    <tr><td></td><td>SmartSaver300</td></tr>
+    <tr><td></td><td>Protection Contribution&nbsp;&nbsp;&nbsp;&nbsp;155.00</td></tr>
+    <tr><td></td><td>Wakalah Certificate Charge&nbsp;&nbsp;&nbsp;&nbsp;7.00</td></tr>
+    <tr><td></td><td>Total Monthly Amount Payable&nbsp;&nbsp;&nbsp;&nbsp;162.00</td></tr>
+  </table>
+  <p>The benefit(s) payable under eligible certificate is protected by Perbadanan Insurans Deposit Malaysia ("PIDM") up to limits.</p>
+
+  <div class="footer">
+    Presented by : AHMAD BIN CONTOH 9ZZ99999<br>
+    Date : 20/07/2026 <span class="symcode">SYMCODE : NaN</span><br>
+    Version : TEST.0.0.0<br>
+    <span class="center">Page 2 of 7</span>
+  </div>
+</div>
+
+<!-- PAGE 3: A. SUMMARY -->
+<div class="page">
+  <div class="runhead">Quotation for Contoh Klien Binti Testing<br>PruBSN AnugerahMax</div>
+
+  <h2>A. SUMMARY</h2>
+  <p>This is a summary of what this product offers.</p>
+  <p>RM 1,944.00 X 40 Years = RM 77,760</p>
+  <p>Total direct commission 2<br>RM 3,200</p>
+  <table class="kv"><tr><td style="width:30mm">RM 10,000</td><td>If you die or suffer TPD 3</td></tr></table>
+
+  <div class="footer">
+    Presented by : AHMAD BIN CONTOH 9ZZ99999<br>
+    Date : 20/07/2026 <span class="symcode">SYMCODE : NaN</span><br>
+    Version : TEST.0.0.0<br>
+    <span class="center">Page 3 of 7</span>
+  </div>
+</div>
+
+<!-- PAGE 4: B. MARKETING ILLUSTRATION TABLE (boundary only) + Medic TotalCare PDS Step2/3 -->
+<div class="page">
+  <div class="runhead">Quotation for Contoh Klien Binti Testing<br>PruBSN AnugerahMax</div>
+
+  <h2>B. MARKETING ILLUSTRATION TABLE</h2>
+  <p>This table shows the amount of contribution you will be paying each year.</p>
+
+  <h2>Step 2&nbsp;&nbsp;&nbsp;&nbsp;Does it meet your needs?</h2>
+  <table class="twocol">
+    <tr><th>What is covered?</th><th>What is not covered?</th></tr>
+    <tr>
+      <td>
+        Hospital Daily Room &amp; Board :Plan 200<br>
+        Co-payment Option :SmartSaver300<br>
+        Annual Limit :RM200,000<br>
+        Lifetime Limit :No Lifetime Limit
+      </td>
+      <td>
+        Medical conditions you had before joining this test plan (pre-existing condition).
+        Specified illnesses during the first 120 days of coverage in this test plan.
+        Other conditions during the first 30 days, except accidental injuries.
+      </td>
+    </tr>
+  </table>
+  <p>This is not a complete list. Please read the Product Illustration, relevant appendices, and your certificate document carefully for full details on what is covered and what is not covered.</p>
+
+  <h2>Step 3&nbsp;&nbsp;&nbsp;&nbsp;Can you afford the increase in takaful contributions over time?</h2>
+  <p>Takaful Contribution Projection Table for Medical Plan(s)</p>
+  <!-- Absolutely-positioned spans, not a <table>: see the options-table
+       comment above - Chrome's PDF export collapses long runs of
+       repeated space characters into one oversized glyph with an
+       unreliable width, which breaks position-based column-gap
+       detection. Explicit per-column x-positions sidestep that. -->
+  <div style="position:relative; margin-left:14mm; margin-right:14mm; font-size:9.5pt; line-height:1.5;">
+    <div style="position:relative; height:14pt;">
+      <span style="position:absolute; left:0mm;">Age</span>
+      <span style="position:absolute; left:20mm;">Current annualised takaful contribution upon attained age (RM)</span>
+      <span style="position:absolute; left:100mm;">7% per annum (RM)</span>
+      <span style="position:absolute; left:142mm;">10% per annum (RM)</span>
+    </div>
+    <div style="position:relative; height:14pt;">
+      <span style="position:absolute; left:0mm;">30</span>
+      <span style="position:absolute; left:20mm;">1,800</span>
+    </div>
+    <div style="position:relative; height:14pt;">
+      <span style="position:absolute; left:0mm;">35</span>
+      <span style="position:absolute; left:20mm;">1,800</span>
+      <span style="position:absolute; left:100mm;">2,520</span>
+      <span style="position:absolute; left:142mm;">2,880</span>
+    </div>
+    <div style="position:relative; height:14pt;">
+      <span style="position:absolute; left:0mm;">40</span>
+      <span style="position:absolute; left:20mm;">1,800</span>
+      <span style="position:absolute; left:100mm;">3,600</span>
+      <span style="position:absolute; left:142mm;">4,800</span>
+    </div>
+  </div>
+  <p>The projection above is solely for illustration purposes only.</p>
+
+  <div class="footer">
+    Presented by : AHMAD BIN CONTOH 9ZZ99999<br>
+    Date : 20/07/2026 <span class="symcode">SYMCODE : NaN</span><br>
+    Version : TEST.0.0.0<br>
+    <span class="center">Page 4 of 7</span>
+  </div>
+</div>
+
+<!-- PAGE 5: Product Options Table -->
+<div class="page">
+  <div class="runhead">Quotation for Contoh Klien Binti Testing<br>PruBSN AnugerahMax</div>
+
+  <h2>Step 5&nbsp;&nbsp;&nbsp;&nbsp;Have you considered other products that might suit your needs?</h2>
+  <p>Product Options Table</p>
+  <!--
+    Deliberately hand-positioned (not an auto-laid-out <table>) to
+    reproduce the real PruBSN PDF's actual text-extraction pattern: the
+    "Name" row's product identifiers wrap across two lines each, with
+    columns 2/3 sharing single physical lines - exactly the layout
+    quirk extractOptions.js's column-offset calibration is built to
+    handle. An ordinary HTML table lays out very differently and won't
+    exercise that code path at all.
+  -->
+  <div style="position:relative; margin-left:14mm; margin-right:14mm; font-size:9.5pt; line-height:1.5;">
+    <div style="position:relative; height:14pt;">
+      <span style="position:absolute; left:0;">Recommended Product</span>
+      <span style="position:absolute; left:110mm;">Alternative Product Options</span>
+    </div>
+    <div style="position:relative; height:14pt;">
+      <span style="position:absolute; left:70mm;">Option 1</span>
+      <span style="position:absolute; left:135mm;">Option 2</span>
+    </div>
+    <div style="position:relative; height:14pt;"><span style="position:absolute; left:0;">PruBSN AnugerahMax:</span></div>
+    <div style="position:relative; height:14pt;"><span style="position:absolute; left:16mm;">Name</span></div>
+    <div style="position:relative; height:14pt;"><span style="position:absolute; left:2mm;">MTC Plan 200</span></div>
+    <div style="position:relative; height:14pt;">
+      <span style="position:absolute; left:65mm;">PruBSN AnugerahMax:</span>
+      <span style="position:absolute; left:130mm;">PruBSN Asas360:</span>
+    </div>
+    <div style="position:relative; height:14pt;">
+      <span style="position:absolute; left:68mm;">MTC Plan 200</span>
+      <span style="position:absolute; left:132mm;">Health360 Plan 200</span>
+    </div>
+    <div style="position:relative; height:16pt;">
+      <span style="position:absolute; left:8mm;">RM 1,944.00</span>
+      <span style="position:absolute; left:68mm;">RM 1,764.00</span>
+      <span style="position:absolute; left:132mm;">RM 2,460.00</span>
+    </div>
+    <div>Annual Takaful Contribution</div>
+    <div style="height:14pt; color:#fff;">.</div>
+  </div>
+  <div style="position:relative; margin-left:14mm; margin-right:14mm; font-size:9.5pt; line-height:1.5;">
+    <div style="position:relative; height:14pt;"><span style="position:absolute; left:0mm;">Type</span><span style="position:absolute; left:58mm;">Cashless facility</span><span style="position:absolute; left:100mm;">Cashless facility</span><span style="position:absolute; left:142mm;">Cashless facility</span></div>
+    <div style="position:relative; height:14pt;"><span style="position:absolute; left:0mm;">Coverage Term</span><span style="position:absolute; left:58mm;">Until age 70</span><span style="position:absolute; left:100mm;">Until age 70</span><span style="position:absolute; left:142mm;">Until age 70</span></div>
+    <div style="position:relative; height:14pt;"><span style="position:absolute; left:0mm;">Co-payment Option</span><span style="position:absolute; left:58mm;">SmartSaver300</span><span style="position:absolute; left:100mm;">SmartSaver1,000</span><span style="position:absolute; left:142mm;">Deductible RM500</span></div>
+    <div style="position:relative; height:14pt;"><span style="position:absolute; left:0mm;">Hospital Daily Room &amp; Board</span><span style="position:absolute; left:58mm;">RM200 per day</span><span style="position:absolute; left:100mm;">RM200 per day</span><span style="position:absolute; left:142mm;">RM200 per day</span></div>
+    <div style="position:relative; height:14pt;"><span style="position:absolute; left:0mm;">Hospitalisation Treatment</span><span style="position:absolute; left:58mm;">As charged</span><span style="position:absolute; left:100mm;">As charged</span><span style="position:absolute; left:142mm;">As charged</span></div>
+    <div style="position:relative; height:14pt;"><span style="position:absolute; left:0mm;">Annual Limit</span><span style="position:absolute; left:58mm;">RM200,000</span><span style="position:absolute; left:100mm;">RM200,000</span><span style="position:absolute; left:142mm;">No Limit</span></div>
+    <div style="position:relative; height:14pt;"><span style="position:absolute; left:0mm;">Lifetime Limit</span><span style="position:absolute; left:58mm;">No Limit</span><span style="position:absolute; left:100mm;">No Limit</span><span style="position:absolute; left:142mm;">No Limit</span></div>
+  </div>
+
+  <div class="footer">
+    Presented by : AHMAD BIN CONTOH 9ZZ99999<br>
+    Date : 20/07/2026 <span class="symcode">SYMCODE : NaN</span><br>
+    Version : TEST.0.0.0<br>
+    <span class="center">Page 5 of 7</span>
+  </div>
+</div>
+
+<!-- PAGE 6: Appendix Table of Benefits -->
+<div class="page">
+  <div class="runhead">Quotation for Contoh Klien Binti Testing<br>PruBSN AnugerahMax</div>
+
+  <h2>Appendix: Medical Benefit</h2>
+  <p>Table of Benefits</p>
+  <table class="kv">
+    <tr><td>ANNUAL LIMIT</td><td>RM200,000</td></tr>
+    <tr><td>LIFETIME LIMIT</td><td>No Lifetime Limit</td></tr>
+    <tr><td colspan="2"><b>IN-PATIENT CARE BENEFITS</b></td></tr>
+    <tr><td>Hospital Daily Room and Board (maximum 150 days per rider year)</td><td>RM200 per day</td></tr>
+    <tr><td>Intensive Care Unit (ICU) / Cardiac Care Unit (CCU) (maximum 150 days per rider year)</td><td></td></tr>
+    <tr><td>Surgical Procedure and Treatment</td><td></td></tr>
+    <tr><td>In Hospital and Related Services, including: In-hospital Specialist Visit, Daily Guardian Care, Ambulance Fee</td><td>As charged</td></tr>
+    <tr><td colspan="2"><b>OUT-PATIENT CARE BENEFITS</b></td></tr>
+    <tr><td>Day Surgery</td><td>As charged</td></tr>
+    <tr><td>Home Nursing Care (maximum 180 days per lifetime)</td><td>As charged</td></tr>
+    <tr><td>Pre-Hospitalisation Treatment (within 120 days immediately before hospitalisation)</td><td>As charged</td></tr>
+    <tr><td>Post-Hospitalisation Treatment (within 120 days immediately after hospitalisation)</td><td></td></tr>
+    <tr><td>Outpatient Dengue and Infectious Disease Treatment: Dengue Fever, Measles, Chikungunya Fever</td><td>RM2,000 per disability</td></tr>
+    <tr><td colspan="2"><b>MAJOR ILLNESS CARE BENEFITS</b></td></tr>
+    <tr><td>Outpatient Kidney Dialysis Treatment</td><td></td></tr>
+    <tr><td>Outpatient Cancer Treatment, including: Cancer Remission Follow-up Care</td><td>RM1,000,000 per lifetime</td></tr>
+    <tr><td>Additional Annual Limit for: Cancer, Heart Attack; or Kidney Failure</td><td>RM200,000</td></tr>
+    <tr><td>Treatment Allowance for: Chemotherapy, Radiotherapy, Kidney Dialysis; or Post Heart Attack Follow Up</td><td>RM100 per day (up to RM1,000 per rider year and RM10,000 per lifetime)</td></tr>
+    <tr><td colspan="2"><b>EMERGENCY CARE BENEFITS</b></td></tr>
+    <tr><td>Emergency Outpatient Treatment for Accidental Injury</td><td>RM1,500 per rider year</td></tr>
+    <tr><td>Worldwide Emergency Medical Assistance</td><td>Yes</td></tr>
+    <tr><td colspan="2"><b>EXTENDED CARE BENEFITS</b></td></tr>
+    <tr><td>Reimbursement for Vaccination: Vaccinations for Hajj/Umrah, COVID-19, Flu - Influenza</td><td>RM300 per rider year</td></tr>
+    <tr><td>Intraocular Lens, including: Multifocal lens</td><td>RM6,000 per lifetime</td></tr>
+    <tr><td>Government Hospital Allowance</td><td>RM100 per day</td></tr>
+  </table>
+
+  <div class="footer">
+    Presented by : AHMAD BIN CONTOH 9ZZ99999<br>
+    Date : 20/07/2026 <span class="symcode">SYMCODE : NaN</span><br>
+    Version : TEST.0.0.0<br>
+    <span class="center">Page 6 of 7</span>
+  </div>
+</div>
+
+<!-- PAGE 7: Waiting Period and Exclusions -->
+<div class="page">
+  <div class="runhead">Quotation for Contoh Klien Binti Testing<br>PruBSN AnugerahMax</div>
+
+  <h2>Waiting Period and Exclusions</h2>
+  <p>Waiting Period:</p>
+  <p>
+    - 30 days after the effective date of the rider or the date it is revived for any other causes,<br>
+    - 120 days after the effective date of the rider for Specified Illnesses,<br>
+    - 180 days after the effective date of the rider or the date it is revived for Mental Care Treatment (if applicable),
+  </p>
+  <p>Exclusions:</p>
+  <p>Medical benefits are not payable as a consequence of:</p>
+  <p>
+    (a) Pre-existing conditions.<br>
+    (b) Specified illnesses during the first 120 days from the effective date of the rider.<br>
+    (c) Any medical or physical conditions arising within 30 days of waiting period, except for accidental injuries.
+  </p>
+  <p>Note: This is not a full list. Please refer to the certificate document for the exclusions under this certificate.</p>
+
+  <div class="footer">
+    Presented by : AHMAD BIN CONTOH 9ZZ99999<br>
+    Date : 20/07/2026 <span class="symcode">SYMCODE : NaN</span><br>
+    Version : TEST.0.0.0<br>
+    <span class="center">Page 7 of 7</span>
+  </div>
+</div>
+
+</body>
+</html>
