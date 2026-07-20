@@ -314,10 +314,23 @@ function renderQuotationCard(data, mode, agentReview = {}) {
   const { missing, money, textOr } = helpers;
   const agentConfig = getAgentConfig(agent.agentCode) || {};
 
-  const agencyName = agentConfig.agency || textOr(null, 'agency not configured for this agent code', 'our agency');
-  const branchName = agentConfig.branch || '';
-  const preparedByName = agentConfig.name || agent.agentNameOnDocument || missing('agent name not found', 'your servicing agent');
-  const agentLine = [preparedByName, agent.agentCode ? `Agent ${agent.agentCode}` : null].filter(Boolean).join(' · ');
+  // NOTE: `missing()`/`textOr()` already return safe, ready-to-insert HTML
+  // (an escaped value wrapped in a styled span) - never re-run escapeHtml()
+  // on their output, only on a genuine plain-text value. Mixing the two
+  // caused a real, reproducible bug: for any agent code absent from
+  // agents.js (e.g. a synthetic/test PDF), the fallback HTML span was
+  // escaped a second time at the template site below and showed up to the
+  // client as literal `<span class="na">...</span>` markup instead of
+  // styled text.
+  const agencyPlain = agentConfig.agency || null;
+  const agencyName = agencyPlain ? escapeHtml(agencyPlain) : textOr(null, 'agency not configured for this agent code', 'our agency');
+  const branchName = agentConfig.branch ? escapeHtml(agentConfig.branch) : '';
+  const preparedByName = agentConfig.name
+    ? escapeHtml(agentConfig.name)
+    : agent.agentNameOnDocument
+      ? escapeHtml(agent.agentNameOnDocument)
+      : missing('agent name not found', 'your servicing agent');
+  const agentLine = [preparedByName, agent.agentCode ? `Agent ${escapeHtml(agent.agentCode)}` : null].filter(Boolean).join(' · ');
   const dealershipLine = [agentConfig.branch, agentConfig.agency, agentConfig.location].filter(Boolean).join(' · ');
 
   // --- Quotation No / Valid until: client mode only shows these if the
@@ -345,7 +358,6 @@ function renderQuotationCard(data, mode, agentReview = {}) {
     }
   }
 
-  const planLabel = [plan.medicalRiderName, plan.medicalPlanTier].filter(Boolean).join(' ') || missing('plan not found');
   const planSubtitle = [metadata.productName, [plan.medicalRiderName, plan.medicalPlanTier ? `(${plan.medicalPlanTier})` : null].filter(Boolean).join(' ')]
     .filter(Boolean)
     .join(' · ');
@@ -372,20 +384,20 @@ function renderQuotationCard(data, mode, agentReview = {}) {
 <div class="sheet">
 
   <div class="head">
-    <svg class="mark" viewBox="0 0 100 100" aria-label="${escapeHtml(agencyName)}">
+    <svg class="mark" viewBox="0 0 100 100" aria-label="${escapeHtml(agencyPlain || 'our agency')}">
       <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0" stop-color="#FDB913"/><stop offset="1" stop-color="#D4AF37"/></linearGradient></defs>
       <rect width="100" height="100" rx="14" fill="#000"/>
       <path d="M50 20 L70 66 L58 66 L50 44 L42 66 L30 66 Z" fill="url(#g)"/>
       <path d="M62 40 L80 80 L68 80 L58 56 Z" fill="url(#g)" opacity=".55"/>
     </svg>
-    <div class="co">${escapeHtml(agencyName)}<small>${escapeHtml(branchName)}</small></div>
+    <div class="co">${agencyName}<small>${branchName}</small></div>
     <div class="rt">${headerLines.join('<br>')}</div>
   </div>
 
   <div class="hero">
     <div class="medcard">
-      <div class="brandrow"><span class="g">${escapeHtml(agencyName)}</span><span class="type">Medical Card</span></div>
+      <div class="brandrow"><span class="g">${agencyName}</span><span class="type">Medical Card</span></div>
       <div class="chip"></div>
       <div class="name">${escapeHtml(client.fullName || 'CLIENT NAME')}</div>
       <div class="foot">
@@ -528,4 +540,4 @@ function renderClientQuotationHtml(parseResult, agentReview = {}) {
   return documentShell(`Medical Card Quotation — ${clientName || 'Client'}`, card);
 }
 
-module.exports = { renderAgentReviewHtml, renderClientQuotationHtml };
+module.exports = { renderAgentReviewHtml, renderClientQuotationHtml, renderBlockedHtml, SHARED_STYLE };

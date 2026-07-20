@@ -1,8 +1,8 @@
 # PruBSN Quotation Generator
 
-A modular toolchain that turns a PruBSN AnugerahMax + Medic TotalCare "Product Illustration" PDF into a data-driven client quotation, and carries that quotation through a client-facing application form to a submission destination (Airtable) — without ever running a server.
+A modular toolchain that turns 1-3 PruBSN AnugerahMax + Medic TotalCare "Product Illustration" PDFs into data-driven client quotations — with an automatic side-by-side comparison when more than one is uploaded — and carries them through a 7-step client-facing application form to a submission destination (Airtable), without ever running a server.
 
-It replaces the previous manual workflow, where an agent hand-copied numbers out of a 33-page PDF into a bespoke, one-off HTML file per client.
+It replaces the previous manual workflow, where an agent hand-copied numbers out of a 33-page PDF into a bespoke, one-off HTML file per client. `browser-tool/index.html` is the production entry point: upload → parse → agent review → generate quotation(s) + comparison → client applies (with document upload) → submit → download/print.
 
 ## Overview
 
@@ -20,8 +20,9 @@ Everything runs in the browser or via Node scripts for development — there is 
 - **Never invents data** — a field that can't be confidently located comes back `null` with a warning, not a guess or a copied neighboring value.
 - **Cross-field validation** — a dedicated layer checks arithmetic and consistency (e.g. monthly × 12 = annual, plan tier ↔ annual limit) after all extraction is done.
 - **Data-driven renderer** — consumes only the parser's `{ data, warnings, errors }` output; no parsing logic of its own.
-- **Zero-install browser tool** — a single HTML file (pdf.js vendored, no CDN calls) an agent opens directly: drag-and-drop a PDF, review/edit flagged fields, generate and download the client quotation. No file ever leaves the agent's machine during parsing.
-- **In-document client application flow** — the generated quotation itself carries a multi-step "Continue Application" form (personal info, address, employment, beneficiary) that the client fills in when they open the file.
+- **Multi-quotation comparison** — upload 2 or 3 PDFs and `renderer/renderComparison.js` produces an automatic side-by-side comparison (key figures + full benefit-by-benefit table); never shown for a single quotation.
+- **Zero-install browser tool** — a single HTML file (pdf.js vendored, no CDN calls) an agent opens directly: drag-and-drop up to 3 PDFs, review/edit flagged fields per quotation (tabbed), generate and download/print the client quotation(s). No file ever leaves the agent's machine during parsing.
+- **In-document client application flow** — the generated quotation itself carries a 7-step "Continue Application" form (Personal Information, Employment Details, Family Information, Medical History, Plan Selection, Documents Upload, Bank Details) that the client fills in when they open the file. Plan Selection shows the agent's real generated quotation(s) as pickable cards, never a hardcoded price list.
 - **Durable, adapter-based submission pipeline** — a localStorage-backed retry queue plus a pluggable destination adapter (Airtable webhook today; console/mock adapters for testing), so a failed submit can be retried without losing the client's answers.
 - **No client-facing credential leaks** — the Airtable integration is a scoped webhook-trigger URL configured entirely inside Airtable's own UI, not a base-wide read/write API token embedded in view-sourceable HTML.
 
@@ -38,8 +39,9 @@ quotation-generator/
 │   ├── index.js              public API surface
 │   └── pdfTextSource.node.js dev/test-only PDF→text backend (pdftotext)
 │
-├── renderer/                 Phase 2 (frozen) — structured data → quotation HTML
-│   ├── renderQuotation.js
+├── renderer/                  structured data → quotation/comparison HTML
+│   ├── renderQuotation.js     Phase 2 (frozen except verified bug fixes) — single quotation
+│   ├── renderComparison.js    Phase 7 — 2-3 quotations side-by-side
 │   ├── formatters.js
 │   └── render-sample.js
 │
@@ -177,7 +179,8 @@ See [CHANGELOG.md](CHANGELOG.md) for full release notes. Summary:
 | 1.2.1 | `v1.2.1-browser-real-pdf-fix` | Fixed real-PDF extraction bugs (faux-bold duplication, whitespace-width, column-gap miscount) |
 | 1.5.0 | `v1.5.0-mvp` | Client application form (Phase 4) + durable submission pipeline (Phase 5) |
 | 1.6.0 | `v1.6.0-phase6-airtable` | Live Airtable submission destination wired into the client runtime |
+| 1.7.0 | `v1.7.0-phase7-production-ui` | Production UI rebuild: multi-quotation upload + comparison, full 7-step client form, print/PDF export |
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for what's next. In short: closing out the deferred security fix for the legacy client intake form, multi-agent UI polish, broader real-PDF/product-tier verification, and submission-pipeline observability.
+See [ROADMAP.md](ROADMAP.md) for what's next. In short: rotating the exposed legacy-form Airtable token and retiring that file, updating the Airtable Automation's field mapping for the Phase 7 payload, multi-agent UI polish, broader real-PDF/product-tier verification, and submission-pipeline observability.

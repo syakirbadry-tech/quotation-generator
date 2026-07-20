@@ -53,12 +53,12 @@ const fakeFormState = {
 
 console.log('=== SubmissionPayload: shape + backward compatibility ===');
 {
-  const payload = buildSubmissionPayload(fakePrefillData, fakeFormState, { submissionId: 'sub-1' });
-  check('version is stamped', payload.version, '1.0');
+  const payload = buildSubmissionPayload(fakePrefillData, fakeFormState, {}, { submissionId: 'sub-1' });
+  check('version is stamped', payload.version, '1.1');
   check('quotation is passed through unchanged from prefillData', payload.quotation, fakePrefillData.quotation);
   ok('applicant merges personal + address + employment fields', payload.applicant.fullName === 'Test Client' && payload.applicant.address === '123 Jalan Test' && payload.applicant.occupation === 'Engineer');
   ok('applicant does not itself carry a nested beneficiary key', !('beneficiary' in payload.applicant));
-  check('beneficiaries is an array wrapping the single Phase 4 beneficiary object', payload.beneficiaries, [{ name: 'Jane Doe', relationship: 'Spouse', percentage: '100' }]);
+  check('beneficiaries is an array wrapping the single Phase 4 beneficiary object, extended with the 7-step form\'s beneficiary NRIC', payload.beneficiaries, [{ name: 'Jane Doe', relationship: 'Spouse', percentage: '100', nric: '' }]);
   check('metadata.submissionId round-trips the id passed in', payload.metadata.submissionId, 'sub-1');
   check('metadata.quotationId comes from the quotation number', payload.metadata.quotationId, 'Q-TEST-001');
   check('metadata.generatedAt comes from buildPrefillData.js metadata', payload.metadata.generatedAt, '2026-07-20T01:00:00.000Z');
@@ -71,12 +71,16 @@ console.log('=== SubmissionPayload: shape + backward compatibility ===');
   ok('agent contact fields (phone/email) are not included - out of scope for attribution', !('phone' in payload.agent) && !('email' in payload.agent));
 
   const partialAgentPrefill = { ...fakePrefillData, agent: { name: 'Solo Agent', agency: null, branch: null, phone: '', email: '' } };
-  const partialAgentPayload = buildSubmissionPayload(partialAgentPrefill, fakeFormState, { submissionId: 'sub-1b' });
+  const partialAgentPayload = buildSubmissionPayload(partialAgentPrefill, fakeFormState, {}, { submissionId: 'sub-1b' });
   check('unknown agent fields are omitted, not sent as null/placeholder', partialAgentPayload.agent, { name: 'Solo Agent' });
 
   const noAgentPrefill = { ...fakePrefillData, agent: undefined };
-  const noAgentPayload = buildSubmissionPayload(noAgentPrefill, fakeFormState, { submissionId: 'sub-1c' });
+  const noAgentPayload = buildSubmissionPayload(noAgentPrefill, fakeFormState, {}, { submissionId: 'sub-1c' });
   check('missing prefillData.agent entirely still produces a safe empty object, never throws', noAgentPayload.agent, {});
+
+  const documentsPayload = buildSubmissionPayload(fakePrefillData, fakeFormState, { nricFront: { filename: 'ic.jpg', mimeType: 'image/jpeg', base64: 'ZmFrZQ==' } }, { submissionId: 'sub-1d' });
+  check('documents section carries through base64-encoded uploads keyed by field name', documentsPayload.documents, { nricFront: { filename: 'ic.jpg', mimeType: 'image/jpeg', base64: 'ZmFrZQ==' } });
+  check('a submission with no documents still gets a (empty) documents object, never undefined', payload.documents, {});
 
   // Backward compatibility: the frozen Phase 4 function this wraps must
   // still work completely unmodified and produce its original shape.

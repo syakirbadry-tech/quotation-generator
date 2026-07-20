@@ -15,6 +15,15 @@
  * those fields intentionally start blank for the client to fill in.
  * Unfilled agent contact fields are genuine unknowns (empty string in
  * parser/agents.js), never fabricated here either.
+ *
+ * Multi-quotation support: an agent may generate 1-3 quotations in one
+ * session (see app.js) to let a client compare options. `allData` is an
+ * array (length 1-3) of parsed quotation `data` objects in the same
+ * order they'll be shown in the comparison; `primaryData` (the one whose
+ * client document this prefill is embedded into) drives applicant
+ * identity fields. The Plan Selection step in the generated client form
+ * picks among `plans` - the REAL generated quotations, never a
+ * hardcoded price list.
  */
 
 'use strict';
@@ -29,13 +38,28 @@ function buildRidersList(plan) {
   return [`${plan.medicalRiderName}${tierPart}${coPayPart}`];
 }
 
+function planSummaryFor(d) {
+  const plan = (d && d.plan) || {};
+  const contributions = (d && d.contributions) || {};
+  const benefits = (d && d.benefits) || {};
+  const roomBoardItem = (benefits.benefitItems || []).find((i) => i.label === 'Hospital Daily Room and Board');
+  const monthlyContribution = formatMoney(contributions.totalMonthlyContribution);
+  return {
+    planName: [plan.medicalRiderName, plan.medicalPlanTier].filter(Boolean).join(' ') || plan.basicPlanName || null,
+    monthlyContribution: monthlyContribution != null ? `RM ${monthlyContribution}` : null,
+    roomAndBoard: roomBoardItem ? roomBoardItem.value : null,
+    annualLimit: benefits.annualLimit || null,
+  };
+}
+
 /**
- * @param {object} data parsed quotation data (state.data in app.js)
- * @param {object} agentReview { acknowledged, quotationNumber, validUntilIso } as set by the agent in the review step
- * @returns {object} { quotation, agent, client } - the only things clientRuntime.js is allowed to see
+ * @param {object|object[]} dataOrArray a single parsed quotation `data` object, or an array of 1-3 (for comparison sessions)
+ * @param {object} agentReview { acknowledged, quotationNumber, validUntilIso } as set by the agent in the review step, for the primary/first quotation
+ * @returns {object} { quotation, plans, agent, client } - the only things clientRuntime.js is allowed to see
  */
-function buildPrefillData(data, agentReview) {
-  const d = data || {};
+function buildPrefillData(dataOrArray, agentReview) {
+  const allData = Array.isArray(dataOrArray) ? dataOrArray : [dataOrArray];
+  const d = allData[0] || {};
   const review = agentReview || {};
 
   const plan = d.plan || {};
@@ -57,6 +81,10 @@ function buildPrefillData(data, agentReview) {
       monthlyContribution: monthlyContribution != null ? `RM ${monthlyContribution}` : null,
       riders: buildRidersList(plan),
     },
+    // Real generated quotation(s), in comparison order - drives the Plan
+    // Selection step's card picker. Length 1 when the agent generated a
+    // single quotation (no comparison), 2-3 when they compared options.
+    plans: allData.map(planSummaryFor),
     agent: {
       name: agentCfg.name || (d.agent && d.agent.agentNameOnDocument) || null,
       agency: agentCfg.agency || null,

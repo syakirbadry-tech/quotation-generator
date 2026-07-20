@@ -41,6 +41,31 @@ const ACTIVE_DESTINATION = AirtableDestination.configure({
   webhookUrl: 'https://hooks.airtable.com/workflows/v1/genericWebhook/appcA4lwc8KrLNxwM/wflQdJbGW3L2C8hoC/wtr78zDfdM03qbWWI'
 });
 
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB per document, enforced client-side before it ever hits the webhook payload
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Malaysian NRIC's first 6 digits are YYMMDD - a courtesy auto-fill, always left editable, never overwriting a value the client already typed by hand. */
+function deriveDobFromNric(nricValue) {
+  const digits = String(nricValue || '').replace(/\D/g, '').slice(0, 6);
+  if (digits.length !== 6) return null;
+  const yy = parseInt(digits.slice(0, 2), 10);
+  const mm = parseInt(digits.slice(2, 4), 10);
+  const dd = parseInt(digits.slice(4, 6), 10);
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  const currentYY = new Date().getFullYear() % 100;
+  const century = yy <= currentYY ? 2000 : 1900;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${century + yy}-${pad(mm)}-${pad(dd)}`;
+}
+
 function generateSubmissionId() {
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -89,6 +114,7 @@ function initApplicationFlow(rootEl, prefillData) {
   const state = {
     currentStep: 0,
     values: buildInitialValues(prefillData),
+    files: {}, // Documents step File objects, keyed by field name - never merged into `values`
     errors: {},
     submissionId: null,
     submissionPayload: null,
@@ -115,9 +141,9 @@ function initApplicationFlow(rootEl, prefillData) {
 
   function render() {
     const bodyHtml = state.currentStep < REVIEW_STEP
-      ? ApplicationForm.renderStepHtml(state.currentStep, state.values, state.errors)
+      ? ApplicationForm.renderStepHtml(state.currentStep, state.values, state.errors, { files: state.files, plans: prefillData && prefillData.plans })
       : state.currentStep === REVIEW_STEP
-        ? ReviewPage.renderReviewHtml(prefillData, state.values)
+        ? ReviewPage.renderReviewHtml(prefillData, state.values, state.files)
         : ConfirmationPage.renderConfirmationHtml(buildConfirmationView());
 
     rootEl.innerHTML = `
@@ -143,11 +169,36 @@ function initApplicationFlow(rootEl, prefillData) {
     const container = rootEl.querySelector('.paf-step');
     if (!container) return;
     Object.assign(state.values, ApplicationForm.collectStepValues(state.currentStep, container));
+    // Courtesy auto-fill: Malaysian NRIC's first 6 digits are YYMMDD. Never
+    // overwrites a date the client already entered by hand.
+    if (!state.values.dateOfBirth) {
+      const derived = deriveDobFromNric(state.values.nric);
+      if (derived) state.values.dateOfBirth = derived;
+    }
+  }
+
+  /** Documents step has no plain-value fields to validate via ApplicationForm.validateStep - it validates File presence in state.files instead. */
+  function validateDocumentsStep() {
+    const errors = {};
+    for (const name of ApplicationForm.stepFileFieldNames(state.currentStep)) {
+      const file = state.files[name];
+      if (!file) errors[name] = 'Please upload this document.';
+      else if (file.size > MAX_FILE_BYTES) errors[name] = 'File is too large - please upload a file under 5MB.';
+    }
+    return errors;
   }
 
   function handleNext() {
     persistCurrentStepValues();
-    const errors = ApplicationForm.validateStep(state.currentStep, state.values);
+    const errors = state.currentStep === ApplicationForm.DOCUMENTS_STEP_INDEX
+      ? validateDocumentsStep()
+      : ApplicationForm.validateStep(state.currentStep, state.values);
+    // The Plan Selection card picker isn't a `[name=...]` form control (see
+    // stepFieldNames' comment), so its required-ness isn't covered by
+    // ApplicationForm.validateStep - check it separately here.
+    if (state.currentStep === ApplicationForm.PLAN_STEP_INDEX && !state.values.plan) {
+      errors.plan = 'Please select a plan.';
+    }
     if (Object.keys(errors).length > 0) {
       state.errors = errors;
       render();
@@ -173,12 +224,26 @@ function initApplicationFlow(rootEl, prefillData) {
   async function handleSubmit() {
     if (state.submissionStatus === 'pending') return; // guards a double-click/rapid re-click race
     if (!state.submissionId) state.submissionId = generateSubmissionId();
-    if (!state.submissionPayload) {
-      state.submissionPayload = buildSubmissionPayload(prefillData, state.values, { submissionId: state.submissionId });
-    }
 
     state.submissionStatus = 'pending';
     goToStep(CONFIRMATION_STEP); // shows a "Submitting..." view immediately
+
+    if (!state.submissionPayload) {
+      // Documents are converted to base64 once, on the first submit attempt
+      // (not on every render) - the same payload, files included, is then
+      // reused verbatim on any retry, same as every other field.
+      const documents = {};
+      for (const [name, file] of Object.entries(state.files)) {
+        try {
+          documents[name] = { filename: file.name, mimeType: file.type || 'application/octet-stream', base64: await fileToBase64(file) };
+        } catch (e) {
+          // A file that fails to read client-side is treated as not provided
+          // rather than aborting the whole submission - the earlier
+          // Documents-step gate already required it to exist and be <5MB.
+        }
+      }
+      state.submissionPayload = buildSubmissionPayload(prefillData, state.values, documents, { submissionId: state.submissionId });
+    }
 
     const result = await SubmissionService.submit(state.submissionPayload, { destination: ACTIVE_DESTINATION });
     state.submissionResult = result;
@@ -208,6 +273,31 @@ function initApplicationFlow(rootEl, prefillData) {
       btn.addEventListener('click', (evt) => {
         persistCurrentStepValues();
         goToStep(Number(evt.currentTarget.getAttribute('data-goto-step')));
+      });
+    });
+    rootEl.querySelectorAll('[data-file-field]').forEach((input) => {
+      input.addEventListener('change', (evt) => {
+        const name = evt.currentTarget.getAttribute('data-file-field');
+        const file = evt.currentTarget.files && evt.currentTarget.files[0];
+        if (!file) return;
+        state.files[name] = file;
+        if (state.errors[name]) delete state.errors[name];
+        render();
+      });
+    });
+    rootEl.querySelectorAll('[data-plan-index]').forEach((card) => {
+      const select = () => {
+        const idx = Number(card.getAttribute('data-plan-index'));
+        const plans = (prefillData && prefillData.plans) || [];
+        const chosen = plans[idx];
+        if (!chosen) return;
+        state.values.plan = chosen.planName || `Option ${idx + 1}`;
+        if (state.errors.plan) delete state.errors.plan;
+        render();
+      };
+      card.addEventListener('click', select);
+      card.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Enter' || evt.key === ' ') { evt.preventDefault(); select(); }
       });
     });
   }

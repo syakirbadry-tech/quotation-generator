@@ -25,7 +25,11 @@ const { buildSubmission } = require('../application/submission');
 
 const PARSER_VERSION = 'v1.0-phase1-parser';
 const RENDERER_VERSION = 'v1.1-phase2-renderer';
-const PAYLOAD_VERSION = '1.0';
+// 1.1 additively extends the 1.0 shape with `employment`, `family`,
+// `medicalHistory`, `plan`, `bank`, and `documents` - the Phase 7 7-step
+// form's fields beyond the original 4-step Phase 4/5 shape. Every 1.0
+// field is still present at the same path; nothing was renamed or moved.
+const PAYLOAD_VERSION = '1.1';
 const SUBMISSION_SOURCE = 'quotation-generator-client-application';
 
 /**
@@ -49,13 +53,62 @@ function buildAgentInfo(prefillData) {
   return agent;
 }
 
+/** Step 2 (Employment Details) fields beyond the frozen submission.js's `occupation`/`employer`/`annualIncome`. */
+function buildEmployment(formState) {
+  const f = formState || {};
+  return {
+    employmentType: f.employmentType || '',
+    fieldOfWork: f.fieldOfWork || '',
+    employerName: f.employerName || '',
+    workAddress: f.workAddress || '',
+    monthlyIncome: f.monthlyIncome || '',
+  };
+}
+
+/** Step 3 (Family Information) - entirely new in the 7-step form, no Phase 4/5 equivalent. */
+function buildFamily(formState) {
+  const f = formState || {};
+  return {
+    maritalStatus: f.maritalStatus || '',
+    spouseName: f.spouseName || '',
+    spouseNric: f.spouseNric || '',
+    numChildren: f.numChildren || '',
+    childrenDetails: f.childrenDetails || '',
+  };
+}
+
+/** Step 4 (Medical History) - entirely new in the 7-step form; underwriting-relevant, never inferred/guessed. */
+function buildMedicalHistory(formState) {
+  const f = formState || {};
+  return {
+    height: f.height || '',
+    weight: f.weight || '',
+    smokingStatus: f.smokingStatus || '',
+    preExistingConditions: f.preExisting || '',
+    currentMedications: f.medications || '',
+    allergies: f.allergies || '',
+    previousSurgeryOrHospitalisation: f.surgery || '',
+  };
+}
+
+/** Step 6 (Bank Details) - entirely new in the 7-step form. */
+function buildBank(formState) {
+  const f = formState || {};
+  return {
+    bankName: f.bankName || '',
+    accountNumber: f.accountNumber || '',
+    accountHolderName: f.accountHolderName || '',
+  };
+}
+
 /**
- * @param {object} prefillData compose-time object from buildPrefillData.js: { quotation, agent, client, metadata? }
- * @param {object} formState merged field values across all 4 application steps
+ * @param {object} prefillData compose-time object from buildPrefillData.js: { quotation, plans, agent, client, metadata? }
+ * @param {object} formState merged field values across all 6 application steps (Review excluded)
+ * @param {object} documents base64-encoded upload payload from clientRuntime.js: { nricFront?, nricRear?, selfie? }, each { filename, mimeType, base64 }
  * @param {{ submissionId: string }} options a stable id generated once per Review-step entry, reused across retries
- * @returns {object} { version, quotation, agent, applicant, beneficiaries, metadata }
+ * @returns {object} { version, quotation, agent, applicant, beneficiaries, employment, family, medicalHistory, bank, documents, metadata }
  */
-function buildSubmissionPayload(prefillData, formState, options) {
+function buildSubmissionPayload(prefillData, formState, documents, options) {
   const { submissionId } = options || {};
   const legacy = buildSubmission(prefillData, formState);
   const { beneficiary, ...applicationRest } = legacy.application;
@@ -65,16 +118,24 @@ function buildSubmissionPayload(prefillData, formState, options) {
     ...applicationRest,
   };
 
-  const beneficiaries = beneficiary && beneficiary.name ? [beneficiary] : [];
+  const beneficiaries = beneficiary && beneficiary.name
+    ? [{ ...beneficiary, nric: (formState && formState.beneficiaryNric) || '' }]
+    : [];
 
   const generatedMeta = (prefillData && prefillData.metadata) || {};
 
   return {
     version: PAYLOAD_VERSION,
     quotation: legacy.quotation,
+    selectedPlan: (formState && formState.plan) || null,
     agent: buildAgentInfo(prefillData),
     applicant,
     beneficiaries,
+    employment: buildEmployment(formState),
+    family: buildFamily(formState),
+    medicalHistory: buildMedicalHistory(formState),
+    bank: buildBank(formState),
+    documents: documents || {},
     metadata: {
       submissionId: submissionId || null,
       quotationId: (legacy.quotation && legacy.quotation.quotationNumber) || null,

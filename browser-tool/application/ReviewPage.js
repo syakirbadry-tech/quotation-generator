@@ -62,18 +62,32 @@ function renderAgentInfo(agent) {
     </section>`;
 }
 
+/** Renders one field's review row - `file` fields read from `files` (never `values`), `plan-cards` shows the chosen plan name as plain text. */
+function fieldSummaryRow(field, values, files) {
+  if (field.type === 'file') {
+    const file = files[field.name];
+    return summaryRow(field.label, file ? escapeHtml(file.name) : '<span class="paf-na">Not uploaded</span>');
+  }
+  if (field.type === 'plan-cards') {
+    return summaryRow(field.label, na(values[field.name]));
+  }
+  return summaryRow(field.label, na(values[field.name]));
+}
+
 /**
- * @param {object} prefillData compose-time object from buildPrefillData.js: { quotation, agent, client }
- * @param {object} formValues merged field values across all 4 steps (see ApplicationForm.js STEP_DEFS for keys)
+ * @param {object} prefillData compose-time object from buildPrefillData.js: { quotation, plans, agent, client }
+ * @param {object} formValues merged field values across all 6 steps (see ApplicationForm.js STEP_DEFS for keys)
+ * @param {object} files Documents step File objects, keyed by field name (state.files from clientRuntime.js)
  * @returns {string} HTML for the whole review step (no Submit button - clientRuntime.js owns step nav/actions)
  */
-function renderReviewHtml(prefillData, formValues) {
+function renderReviewHtml(prefillData, formValues, files) {
   const data = prefillData || {};
   const values = formValues || {};
+  const uploadedFiles = files || {};
 
   const clientSections = STEP_DEFS.map((step, stepIndex) => {
     const rows = step.fields
-      .map((f) => summaryRow(f.label, na(values[f.name])))
+      .map((f) => fieldSummaryRow(f, values, uploadedFiles))
       .join('');
     return `
       <section class="paf-review-section">

@@ -79,6 +79,32 @@ const APPLICATION_STYLE = `
   .paf-fields{grid-template-columns:1fr}
   .paf-shell{padding:20px 16px}
 }
+
+/* File upload control (Documents step) */
+.paf-file-field{grid-column:1/-1}
+.paf-upload{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1.5px dashed var(--line);
+  border-radius:10px;cursor:pointer;background:var(--rose-soft);transition:border-color .15s ease}
+.paf-upload:hover{border-color:var(--teal)}
+.paf-upload-done{border-style:solid;border-color:var(--teal);background:#f2faf9}
+.paf-upload-icon{width:32px;height:32px;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:#E9F5F5;color:var(--teal);font-size:15px;font-weight:700}
+.paf-upload-done .paf-upload-icon{background:var(--teal);color:#fff}
+.paf-upload-text{font-size:13px;color:var(--ink);word-break:break-all}
+.paf-upload-input{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+
+/* Plan Selection cards - built from the agent's real generated quotation(s) */
+.paf-plan-cards{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.paf-plan-card{position:relative;border:2px solid var(--line);border-radius:12px;padding:16px;cursor:pointer;
+  transition:all .15s ease;background:#fff}
+.paf-plan-card:hover{border-color:var(--teal)}
+.paf-plan-card-picked{border-color:var(--teal);background:#f2faf9;box-shadow:0 6px 18px rgba(23,141,147,.15)}
+.paf-plan-badge{position:absolute;top:-10px;left:14px;background:linear-gradient(90deg,var(--gold-a),var(--gold-b));
+  color:#fff;font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 10px;border-radius:999px}
+.paf-plan-name{font-weight:600;font-size:13px;margin-top:4px}
+.paf-plan-price{font-family:var(--serif);font-size:19px;color:var(--teal);margin-top:8px}
+.paf-plan-price small{font-family:var(--sans);font-size:11px;color:var(--meta);font-weight:400}
+.paf-plan-meta{font-size:11px;color:var(--meta);margin-top:6px}
+.paf-plan-empty{grid-column:1/-1;font-size:13px;color:var(--meta);font-style:italic}
 `;
 
 function isRealQuotation(html) {

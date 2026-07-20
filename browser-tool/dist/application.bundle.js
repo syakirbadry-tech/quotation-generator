@@ -45,22 +45,54 @@
         return /^\d{5}$/.test(String(value).trim());
       }
       var FIELD_RULES = {
+        // --- Step 1: Personal Information ---
         fullName: { required: true, message: "Full name is required." },
         nric: { required: true, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },
         dateOfBirth: { required: true, message: "Date of birth is required." },
         gender: { required: true, message: "Please select a gender." },
+        race: { required: true, message: "Please select a race." },
+        religion: { required: true, message: "Please select a religion." },
         mobileNumber: { required: true, validate: isValidMalaysianPhone, message: "Enter a valid Malaysian mobile number (e.g. 012-3456789)." },
         email: { required: true, validate: isValidEmail, message: "Enter a valid email address." },
-        address: { required: true, message: "Address is required." },
-        postcode: { required: true, validate: isValidPostcode, message: "Enter a valid 5-digit postcode." },
-        city: { required: true, message: "City is required." },
-        state: { required: true, message: "Please select a state." },
+        address: { required: true, message: "Residential address is required." },
+        // --- Step 2: Employment Details ---
+        employmentType: { required: true, message: "Please select an employment type." },
         occupation: { required: true, message: "Occupation is required." },
+        fieldOfWork: { required: false, message: "" },
+        employerName: { required: false, message: "" },
+        workAddress: { required: false, message: "" },
+        monthlyIncome: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid monthly income." },
+        // Legacy alias kept so an older prefilled/cached value doesn't get silently dropped.
+        annualIncome: { required: false, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid annual income." },
         employer: { required: false, message: "" },
-        annualIncome: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid annual income." },
+        // --- Step 3: Family Information ---
+        maritalStatus: { required: true, message: "Please select a marital status." },
+        spouseName: { required: false, message: "" },
+        spouseNric: { required: false, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },
+        numChildren: { required: false, validate: (v) => Number.isFinite(Number(v)) && Number(v) >= 0, message: "Enter a valid number of children." },
+        childrenDetails: { required: false, message: "" },
+        // --- Step 4: Medical History ---
+        height: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid height in cm." },
+        weight: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid weight in kg." },
+        smokingStatus: { required: true, message: "Please select a smoking status." },
+        preExisting: { required: false, message: "" },
+        medications: { required: false, message: "" },
+        allergies: { required: false, message: "" },
+        surgery: { required: false, message: "" },
+        // --- Step 5: Plan Selection + Beneficiary ---
+        plan: { required: true, message: "Please select a plan." },
         beneficiaryName: { required: true, message: "Beneficiary name is required." },
+        beneficiaryNric: { required: true, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },
         beneficiaryRelationship: { required: true, message: "Beneficiary relationship is required." },
-        beneficiaryPercentage: { required: true, validate: isValidPercentage, message: "Enter a percentage between 1 and 100." }
+        beneficiaryPercentage: { required: true, validate: isValidPercentage, message: "Enter a percentage between 1 and 100." },
+        // --- Step 7: Bank Details ---
+        bankName: { required: true, message: "Bank name is required." },
+        accountNumber: { required: true, message: "Account number is required." },
+        accountHolderName: { required: true, message: "Account holder name is required." },
+        // Retained for a legacy Address-step shape, unused by the current 7-step layout.
+        postcode: { required: false, validate: isValidPostcode, message: "Enter a valid 5-digit postcode." },
+        city: { required: false, message: "City is required." },
+        state: { required: false, message: "Please select a state." }
       };
       function validateField(name, value) {
         const rule = FIELD_RULES[name];
@@ -103,24 +135,6 @@
       function escapeHtml(value) {
         return String(value == null ? "" : value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
       }
-      var MALAYSIAN_STATES = [
-        "Johor",
-        "Kedah",
-        "Kelantan",
-        "Melaka",
-        "Negeri Sembilan",
-        "Pahang",
-        "Perak",
-        "Perlis",
-        "Pulau Pinang",
-        "Sabah",
-        "Sarawak",
-        "Selangor",
-        "Terengganu",
-        "Wilayah Persekutuan Kuala Lumpur",
-        "Wilayah Persekutuan Labuan",
-        "Wilayah Persekutuan Putrajaya"
-      ];
       var STEP_DEFS = [
         {
           id: "personal",
@@ -131,46 +145,95 @@
             { name: "nric", label: "NRIC", type: "text", placeholder: "900101-01-1234" },
             { name: "dateOfBirth", label: "Date of Birth", type: "date" },
             { name: "gender", label: "Gender", type: "select", options: ["Male", "Female"] },
-            { name: "mobileNumber", label: "Mobile Number", type: "tel", placeholder: "012-3456789" },
-            { name: "email", label: "Email", type: "email", placeholder: "name@example.com" }
-          ]
-        },
-        {
-          id: "address",
-          title: "Address",
-          subtitle: "Where can we reach you by post?",
-          fields: [
-            { name: "address", label: "Address", type: "textarea" },
-            { name: "postcode", label: "Postcode", type: "text", placeholder: "05100" },
-            { name: "city", label: "City", type: "text" },
-            { name: "state", label: "State", type: "select", options: MALAYSIAN_STATES }
+            { name: "race", label: "Race", type: "select", options: ["Malay", "Chinese", "Indian", "Others"] },
+            { name: "religion", label: "Religion", type: "select", options: ["Islam", "Christianity", "Buddhism", "Hinduism", "Others"] },
+            { name: "email", label: "Email", type: "email", placeholder: "name@example.com" },
+            { name: "mobileNumber", label: "Phone Number", type: "tel", placeholder: "012-3456789" },
+            { name: "address", label: "Residential Address", type: "textarea" }
           ]
         },
         {
           id: "employment",
-          title: "Employment",
+          title: "Employment Details",
           subtitle: "A few details about your work.",
           fields: [
+            { name: "employmentType", label: "Employment Type", type: "select", options: ["Employed", "Self-Employed", "Business Owner", "Unemployed", "Retired", "Student"] },
             { name: "occupation", label: "Occupation", type: "text" },
-            { name: "employer", label: "Employer", type: "text", optional: true },
-            { name: "annualIncome", label: "Annual Income (RM)", type: "number", placeholder: "60000" }
+            { name: "fieldOfWork", label: "Field of Work", type: "text", optional: true },
+            { name: "employerName", label: "Employer's Name", type: "text", optional: true },
+            { name: "monthlyIncome", label: "Monthly Income (RM)", type: "number", placeholder: "5000" },
+            { name: "workAddress", label: "Work Place Address", type: "textarea", optional: true }
           ]
         },
         {
-          id: "beneficiary",
-          title: "Beneficiary",
-          subtitle: "Who should receive the benefit payout?",
+          id: "family",
+          title: "Family Information",
+          subtitle: "Tell us about your immediate family.",
           fields: [
+            { name: "maritalStatus", label: "Marital Status", type: "select", options: ["Single", "Married", "Divorced", "Widowed"] },
+            { name: "spouseName", label: "Spouse Name", type: "text", optional: true },
+            { name: "spouseNric", label: "Spouse NRIC", type: "text", placeholder: "900101-01-1234", optional: true },
+            { name: "numChildren", label: "Number of Children", type: "number", optional: true },
+            { name: "childrenDetails", label: "Children Details", type: "textarea", optional: true }
+          ]
+        },
+        {
+          id: "medical",
+          title: "Medical History",
+          subtitle: "This helps underwriting assess your application accurately.",
+          fields: [
+            { name: "height", label: "Height (cm)", type: "number", placeholder: "170" },
+            { name: "weight", label: "Weight (kg)", type: "number", placeholder: "65" },
+            { name: "smokingStatus", label: "Smoking Status", type: "select", options: ["Non-Smoker", "Smoker", "Former Smoker"] },
+            { name: "preExisting", label: "Pre-existing Medical Conditions", type: "textarea", optional: true, placeholder: "None, if not applicable" },
+            { name: "medications", label: "Current Medications", type: "textarea", optional: true, placeholder: "None, if not applicable" },
+            { name: "allergies", label: "Allergies", type: "textarea", optional: true, placeholder: "None, if not applicable" },
+            { name: "surgery", label: "Previous Surgery / Hospitalisation", type: "textarea", optional: true, placeholder: "None, if not applicable" }
+          ]
+        },
+        {
+          id: "plan",
+          title: "Plan Selection",
+          subtitle: "Choose the plan you would like to proceed with, and tell us who should receive the benefit.",
+          fields: [
+            { name: "plan", label: "Plan", type: "plan-cards" },
             { name: "beneficiaryName", label: "Beneficiary Name", type: "text" },
+            { name: "beneficiaryNric", label: "Beneficiary NRIC", type: "text", placeholder: "900101-01-1234" },
             { name: "beneficiaryRelationship", label: "Relationship", type: "text", placeholder: "e.g. Spouse, Child, Parent" },
-            { name: "beneficiaryPercentage", label: "Percentage (%)", type: "number", placeholder: "100" }
+            { name: "beneficiaryPercentage", label: "Benefit Weightage (%)", type: "number", placeholder: "100" }
+          ]
+        },
+        {
+          id: "documents",
+          title: "Documents Upload",
+          subtitle: "Upload clear photos so your agent can verify your identity.",
+          fields: [
+            { name: "nricFront", label: "NRIC Front Photo", type: "file" },
+            { name: "nricRear", label: "NRIC Rear Photo", type: "file" },
+            { name: "selfie", label: "Selfie with IC Photo", type: "file" }
+          ]
+        },
+        {
+          id: "bank",
+          title: "Bank Details",
+          subtitle: "Where should refunds or payouts be sent?",
+          fields: [
+            { name: "bankName", label: "Bank Name", type: "text" },
+            { name: "accountNumber", label: "Account Number", type: "text" },
+            { name: "accountHolderName", label: "Account Holder Name", type: "text" }
           ]
         }
       ];
       var TOTAL_STEPS = STEP_DEFS.length;
+      var DOCUMENTS_STEP_INDEX = STEP_DEFS.findIndex((s) => s.id === "documents");
+      var PLAN_STEP_INDEX = STEP_DEFS.findIndex((s) => s.id === "plan");
       function stepFieldNames(stepIndex) {
         const step = STEP_DEFS[stepIndex];
-        return step ? step.fields.map((f) => f.name) : [];
+        return step ? step.fields.filter((f) => f.type !== "file" && f.type !== "plan-cards").map((f) => f.name) : [];
+      }
+      function stepFileFieldNames(stepIndex) {
+        const step = STEP_DEFS[stepIndex];
+        return step ? step.fields.filter((f) => f.type === "file").map((f) => f.name) : [];
       }
       function fieldHtml(field, value, error) {
         const id = `paf-field-${field.name}`;
@@ -192,10 +255,50 @@
       ${error ? `<div class="paf-error" id="${errorId}">${escapeHtml(error)}</div>` : ""}
     </div>`;
       }
-      function renderStepHtml(stepIndex, values, errors) {
+      function fileFieldHtml(field, file, error) {
+        const hasFile = !!file;
+        return `
+    <div class="paf-field paf-file-field">
+      <label class="paf-label" for="paf-file-${field.name}">${escapeHtml(field.label)}</label>
+      <label class="paf-upload${hasFile ? " paf-upload-done" : ""}${error ? " paf-input-error" : ""}" for="paf-file-${field.name}">
+        <span class="paf-upload-icon" aria-hidden="true">${hasFile ? "&#10003;" : "+"}</span>
+        <span class="paf-upload-text">${hasFile ? escapeHtml(file.name) : "Click to upload &mdash; JPG, PNG, or PDF (max 5MB)"}</span>
+      </label>
+      <input type="file" id="paf-file-${field.name}" name="${field.name}" class="paf-upload-input" data-file-field="${field.name}" accept="image/*,.pdf">
+      ${error ? `<div class="paf-error">${escapeHtml(error)}</div>` : ""}
+    </div>`;
+      }
+      function planCardsHtml(plans, selectedIndex, error) {
+        const list = Array.isArray(plans) && plans.length ? plans : [];
+        if (!list.length) {
+          return `<div class="paf-plan-empty">Your agent has not attached a plan to this application yet.</div>`;
+        }
+        const cards = list.map((p, i) => {
+          const picked = selectedIndex === i;
+          return `
+      <div class="paf-plan-card${picked ? " paf-plan-card-picked" : ""}" data-plan-index="${i}" role="button" tabindex="0">
+        ${list.length > 1 && i === 0 ? '<div class="paf-plan-badge">Recommended</div>' : ""}
+        <div class="paf-plan-name">${escapeHtml(p.planName || `Option ${i + 1}`)}</div>
+        <div class="paf-plan-price">${p.monthlyContribution ? escapeHtml(p.monthlyContribution) : "&mdash;"}<small>/mo</small></div>
+        <div class="paf-plan-meta">${[p.roomAndBoard, p.annualLimit].filter(Boolean).map(escapeHtml).join(" &middot; ")}</div>
+      </div>`;
+        }).join("");
+        return `<div class="paf-plan-cards" data-field="plan">${cards}</div>${error ? `<div class="paf-error">${escapeHtml(error)}</div>` : ""}`;
+      }
+      function renderStepHtml(stepIndex, values, errors, context) {
         const step = STEP_DEFS[stepIndex];
         if (!step) return "";
-        const fieldsHtml = step.fields.map((f) => fieldHtml(f, values[f.name] || "", (errors || {})[f.name])).join("");
+        const files = context && context.files || {};
+        const plans = context && context.plans || [];
+        const errs = errors || {};
+        const fieldsHtml = step.fields.map((f) => {
+          if (f.type === "file") return fileFieldHtml(f, files[f.name], errs[f.name]);
+          if (f.type === "plan-cards") {
+            const selectedIndex = plans.findIndex((p) => p.planName === values.plan);
+            return planCardsHtml(plans, selectedIndex === -1 ? null : selectedIndex, errs.plan);
+          }
+          return fieldHtml(f, values[f.name] || "", errs[f.name]);
+        }).join("");
         return `
     <div class="paf-step" data-step-id="${step.id}">
       <h3 class="paf-step-title">${escapeHtml(step.title)}</h3>
@@ -218,8 +321,10 @@
       var PruBSNApplicationForm = {
         STEP_DEFS,
         TOTAL_STEPS,
-        MALAYSIAN_STATES,
+        DOCUMENTS_STEP_INDEX,
+        PLAN_STEP_INDEX,
         stepFieldNames,
+        stepFileFieldNames,
         renderStepHtml,
         collectStepValues,
         validateStep
@@ -271,11 +376,22 @@
       ${summaryRow("Contact", na(a.phone || a.email))}
     </section>`;
       }
-      function renderReviewHtml(prefillData, formValues) {
+      function fieldSummaryRow(field, values, files) {
+        if (field.type === "file") {
+          const file = files[field.name];
+          return summaryRow(field.label, file ? escapeHtml(file.name) : '<span class="paf-na">Not uploaded</span>');
+        }
+        if (field.type === "plan-cards") {
+          return summaryRow(field.label, na(values[field.name]));
+        }
+        return summaryRow(field.label, na(values[field.name]));
+      }
+      function renderReviewHtml(prefillData, formValues, files) {
         const data = prefillData || {};
         const values = formValues || {};
+        const uploadedFiles = files || {};
         const clientSections = STEP_DEFS.map((step, stepIndex) => {
-          const rows = step.fields.map((f) => summaryRow(f.label, na(values[f.name]))).join("");
+          const rows = step.fields.map((f) => fieldSummaryRow(f, values, uploadedFiles)).join("");
           return `
       <section class="paf-review-section">
         <h4 class="paf-review-heading">
@@ -426,7 +542,7 @@
       var { buildSubmission } = require_submission();
       var PARSER_VERSION = "v1.0-phase1-parser";
       var RENDERER_VERSION = "v1.1-phase2-renderer";
-      var PAYLOAD_VERSION = "1.0";
+      var PAYLOAD_VERSION = "1.1";
       var SUBMISSION_SOURCE = "quotation-generator-client-application";
       function buildAgentInfo(prefillData) {
         const source = prefillData && prefillData.agent || {};
@@ -436,7 +552,47 @@
         if (source.branch) agent.branch = source.branch;
         return agent;
       }
-      function buildSubmissionPayload(prefillData, formState, options) {
+      function buildEmployment(formState) {
+        const f = formState || {};
+        return {
+          employmentType: f.employmentType || "",
+          fieldOfWork: f.fieldOfWork || "",
+          employerName: f.employerName || "",
+          workAddress: f.workAddress || "",
+          monthlyIncome: f.monthlyIncome || ""
+        };
+      }
+      function buildFamily(formState) {
+        const f = formState || {};
+        return {
+          maritalStatus: f.maritalStatus || "",
+          spouseName: f.spouseName || "",
+          spouseNric: f.spouseNric || "",
+          numChildren: f.numChildren || "",
+          childrenDetails: f.childrenDetails || ""
+        };
+      }
+      function buildMedicalHistory(formState) {
+        const f = formState || {};
+        return {
+          height: f.height || "",
+          weight: f.weight || "",
+          smokingStatus: f.smokingStatus || "",
+          preExistingConditions: f.preExisting || "",
+          currentMedications: f.medications || "",
+          allergies: f.allergies || "",
+          previousSurgeryOrHospitalisation: f.surgery || ""
+        };
+      }
+      function buildBank(formState) {
+        const f = formState || {};
+        return {
+          bankName: f.bankName || "",
+          accountNumber: f.accountNumber || "",
+          accountHolderName: f.accountHolderName || ""
+        };
+      }
+      function buildSubmissionPayload(prefillData, formState, documents, options) {
         const { submissionId } = options || {};
         const legacy = buildSubmission(prefillData, formState);
         const { beneficiary, ...applicationRest } = legacy.application;
@@ -444,14 +600,20 @@
           ...legacy.client,
           ...applicationRest
         };
-        const beneficiaries = beneficiary && beneficiary.name ? [beneficiary] : [];
+        const beneficiaries = beneficiary && beneficiary.name ? [{ ...beneficiary, nric: formState && formState.beneficiaryNric || "" }] : [];
         const generatedMeta = prefillData && prefillData.metadata || {};
         return {
           version: PAYLOAD_VERSION,
           quotation: legacy.quotation,
+          selectedPlan: formState && formState.plan || null,
           agent: buildAgentInfo(prefillData),
           applicant,
           beneficiaries,
+          employment: buildEmployment(formState),
+          family: buildFamily(formState),
+          medicalHistory: buildMedicalHistory(formState),
+          bank: buildBank(formState),
+          documents: documents || {},
           metadata: {
             submissionId: submissionId || null,
             quotationId: legacy.quotation && legacy.quotation.quotationNumber || null,
@@ -705,6 +867,27 @@
       var ACTIVE_DESTINATION = AirtableDestination.configure({
         webhookUrl: "https://hooks.airtable.com/workflows/v1/genericWebhook/appcA4lwc8KrLNxwM/wflQdJbGW3L2C8hoC/wtr78zDfdM03qbWWI"
       });
+      var MAX_FILE_BYTES = 5 * 1024 * 1024;
+      function fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(",")[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+      function deriveDobFromNric(nricValue) {
+        const digits = String(nricValue || "").replace(/\D/g, "").slice(0, 6);
+        if (digits.length !== 6) return null;
+        const yy = parseInt(digits.slice(0, 2), 10);
+        const mm = parseInt(digits.slice(2, 4), 10);
+        const dd = parseInt(digits.slice(4, 6), 10);
+        if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+        const currentYY = (/* @__PURE__ */ new Date()).getFullYear() % 100;
+        const century = yy <= currentYY ? 2e3 : 1900;
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${century + yy}-${pad(mm)}-${pad(dd)}`;
+      }
       function generateSubmissionId() {
         if (typeof crypto !== "undefined" && crypto.getRandomValues) {
           const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -741,6 +924,8 @@
         const state = {
           currentStep: 0,
           values: buildInitialValues(prefillData),
+          files: {},
+          // Documents step File objects, keyed by field name - never merged into `values`
           errors: {},
           submissionId: null,
           submissionPayload: null,
@@ -762,7 +947,7 @@
           };
         }
         function render() {
-          const bodyHtml = state.currentStep < REVIEW_STEP ? ApplicationForm.renderStepHtml(state.currentStep, state.values, state.errors) : state.currentStep === REVIEW_STEP ? ReviewPage.renderReviewHtml(prefillData, state.values) : ConfirmationPage.renderConfirmationHtml(buildConfirmationView());
+          const bodyHtml = state.currentStep < REVIEW_STEP ? ApplicationForm.renderStepHtml(state.currentStep, state.values, state.errors, { files: state.files, plans: prefillData && prefillData.plans }) : state.currentStep === REVIEW_STEP ? ReviewPage.renderReviewHtml(prefillData, state.values, state.files) : ConfirmationPage.renderConfirmationHtml(buildConfirmationView());
           rootEl.innerHTML = `
       <div class="paf-shell">
         ${state.currentStep <= REVIEW_STEP ? '<button type="button" class="paf-back-link" data-action="close">&larr; Back to quotation</button>' : ""}
@@ -783,10 +968,26 @@
           const container = rootEl.querySelector(".paf-step");
           if (!container) return;
           Object.assign(state.values, ApplicationForm.collectStepValues(state.currentStep, container));
+          if (!state.values.dateOfBirth) {
+            const derived = deriveDobFromNric(state.values.nric);
+            if (derived) state.values.dateOfBirth = derived;
+          }
+        }
+        function validateDocumentsStep() {
+          const errors = {};
+          for (const name of ApplicationForm.stepFileFieldNames(state.currentStep)) {
+            const file = state.files[name];
+            if (!file) errors[name] = "Please upload this document.";
+            else if (file.size > MAX_FILE_BYTES) errors[name] = "File is too large - please upload a file under 5MB.";
+          }
+          return errors;
         }
         function handleNext() {
           persistCurrentStepValues();
-          const errors = ApplicationForm.validateStep(state.currentStep, state.values);
+          const errors = state.currentStep === ApplicationForm.DOCUMENTS_STEP_INDEX ? validateDocumentsStep() : ApplicationForm.validateStep(state.currentStep, state.values);
+          if (state.currentStep === ApplicationForm.PLAN_STEP_INDEX && !state.values.plan) {
+            errors.plan = "Please select a plan.";
+          }
           if (Object.keys(errors).length > 0) {
             state.errors = errors;
             render();
@@ -802,11 +1003,18 @@
         async function handleSubmit() {
           if (state.submissionStatus === "pending") return;
           if (!state.submissionId) state.submissionId = generateSubmissionId();
-          if (!state.submissionPayload) {
-            state.submissionPayload = buildSubmissionPayload(prefillData, state.values, { submissionId: state.submissionId });
-          }
           state.submissionStatus = "pending";
           goToStep(CONFIRMATION_STEP);
+          if (!state.submissionPayload) {
+            const documents = {};
+            for (const [name, file] of Object.entries(state.files)) {
+              try {
+                documents[name] = { filename: file.name, mimeType: file.type || "application/octet-stream", base64: await fileToBase64(file) };
+              } catch (e) {
+              }
+            }
+            state.submissionPayload = buildSubmissionPayload(prefillData, state.values, documents, { submissionId: state.submissionId });
+          }
           const result = await SubmissionService.submit(state.submissionPayload, { destination: ACTIVE_DESTINATION });
           state.submissionResult = result;
           state.submissionStatus = result.status;
@@ -833,6 +1041,34 @@
             btn.addEventListener("click", (evt) => {
               persistCurrentStepValues();
               goToStep(Number(evt.currentTarget.getAttribute("data-goto-step")));
+            });
+          });
+          rootEl.querySelectorAll("[data-file-field]").forEach((input) => {
+            input.addEventListener("change", (evt) => {
+              const name = evt.currentTarget.getAttribute("data-file-field");
+              const file = evt.currentTarget.files && evt.currentTarget.files[0];
+              if (!file) return;
+              state.files[name] = file;
+              if (state.errors[name]) delete state.errors[name];
+              render();
+            });
+          });
+          rootEl.querySelectorAll("[data-plan-index]").forEach((card) => {
+            const select = () => {
+              const idx = Number(card.getAttribute("data-plan-index"));
+              const plans = prefillData && prefillData.plans || [];
+              const chosen = plans[idx];
+              if (!chosen) return;
+              state.values.plan = chosen.planName || `Option ${idx + 1}`;
+              if (state.errors.plan) delete state.errors.plan;
+              render();
+            };
+            card.addEventListener("click", select);
+            card.addEventListener("keydown", (evt) => {
+              if (evt.key === "Enter" || evt.key === " ") {
+                evt.preventDefault();
+                select();
+              }
             });
           });
         }

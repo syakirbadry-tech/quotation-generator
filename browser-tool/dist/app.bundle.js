@@ -1729,10 +1729,11 @@
         const helpers = buildHelpers(mode);
         const { missing, money, textOr } = helpers;
         const agentConfig = getAgentConfig(agent.agentCode) || {};
-        const agencyName = agentConfig.agency || textOr(null, "agency not configured for this agent code", "our agency");
-        const branchName = agentConfig.branch || "";
-        const preparedByName = agentConfig.name || agent.agentNameOnDocument || missing("agent name not found", "your servicing agent");
-        const agentLine = [preparedByName, agent.agentCode ? `Agent ${agent.agentCode}` : null].filter(Boolean).join(" \xB7 ");
+        const agencyPlain = agentConfig.agency || null;
+        const agencyName = agencyPlain ? escapeHtml2(agencyPlain) : textOr(null, "agency not configured for this agent code", "our agency");
+        const branchName = agentConfig.branch ? escapeHtml2(agentConfig.branch) : "";
+        const preparedByName = agentConfig.name ? escapeHtml2(agentConfig.name) : agent.agentNameOnDocument ? escapeHtml2(agent.agentNameOnDocument) : missing("agent name not found", "your servicing agent");
+        const agentLine = [preparedByName, agent.agentCode ? `Agent ${escapeHtml2(agent.agentCode)}` : null].filter(Boolean).join(" \xB7 ");
         const dealershipLine = [agentConfig.branch, agentConfig.agency, agentConfig.location].filter(Boolean).join(" \xB7 ");
         const quotationDateFormatted = metadata.quotationDate ? formatDateLong(metadata.quotationDate.iso) : null;
         const headerLines = [];
@@ -1755,7 +1756,6 @@
             headerLines.push(`<b>Valid until</b> ${escapeHtml2(formatDateLong(agentReview.validUntilIso))}`);
           }
         }
-        const planLabel = [plan.medicalRiderName, plan.medicalPlanTier].filter(Boolean).join(" ") || missing("plan not found");
         const planSubtitle = [metadata.productName, [plan.medicalRiderName, plan.medicalPlanTier ? `(${plan.medicalPlanTier})` : null].filter(Boolean).join(" ")].filter(Boolean).join(" \xB7 ");
         const sourceNote = mode === "client" && quotationDateFormatted ? `<div class="src-note">Interactive quotation prepared from the PruBSN Product Illustration dated ${escapeHtml2(quotationDateFormatted)}.</div>` : "";
         const roomBoardItem = (benefits.benefitItems || []).find((i) => i.label === "Hospital Daily Room and Board");
@@ -1769,20 +1769,20 @@
 <div class="sheet">
 
   <div class="head">
-    <svg class="mark" viewBox="0 0 100 100" aria-label="${escapeHtml2(agencyName)}">
+    <svg class="mark" viewBox="0 0 100 100" aria-label="${escapeHtml2(agencyPlain || "our agency")}">
       <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0" stop-color="#FDB913"/><stop offset="1" stop-color="#D4AF37"/></linearGradient></defs>
       <rect width="100" height="100" rx="14" fill="#000"/>
       <path d="M50 20 L70 66 L58 66 L50 44 L42 66 L30 66 Z" fill="url(#g)"/>
       <path d="M62 40 L80 80 L68 80 L58 56 Z" fill="url(#g)" opacity=".55"/>
     </svg>
-    <div class="co">${escapeHtml2(agencyName)}<small>${escapeHtml2(branchName)}</small></div>
+    <div class="co">${agencyName}<small>${branchName}</small></div>
     <div class="rt">${headerLines.join("<br>")}</div>
   </div>
 
   <div class="hero">
     <div class="medcard">
-      <div class="brandrow"><span class="g">${escapeHtml2(agencyName)}</span><span class="type">Medical Card</span></div>
+      <div class="brandrow"><span class="g">${agencyName}</span><span class="type">Medical Card</span></div>
       <div class="chip"></div>
       <div class="name">${escapeHtml2(client.fullName || "CLIENT NAME")}</div>
       <div class="foot">
@@ -1898,7 +1898,176 @@ ${list}
         const card = renderQuotationCard(data, "client", agentReview);
         return documentShell(`Medical Card Quotation \u2014 ${clientName || "Client"}`, card);
       }
-      module.exports = { renderAgentReviewHtml: renderAgentReviewHtml2, renderClientQuotationHtml: renderClientQuotationHtml2 };
+      module.exports = { renderAgentReviewHtml: renderAgentReviewHtml2, renderClientQuotationHtml: renderClientQuotationHtml2, renderBlockedHtml, SHARED_STYLE };
+    }
+  });
+
+  // renderer/renderComparison.js
+  var require_renderComparison = __commonJS({
+    "renderer/renderComparison.js"(exports, module) {
+      "use strict";
+      var { getAgentConfig } = require_agents();
+      var {
+        escapeHtml: escapeHtml2,
+        formatMoney,
+        coPaymentAmount,
+        compactRate,
+        primaryValue: primaryValue2
+      } = require_formatters();
+      var { renderBlockedHtml, SHARED_STYLE } = require_renderQuotation();
+      var COMPARISON_STYLE = `
+  .cmp-wrap{width:100%;max-width:${"1000px"};background:var(--card);border-radius:16px;
+    box-shadow:0 22px 60px -26px rgba(23,141,147,.4);overflow:hidden;margin-top:18px}
+  .cmp-head{padding:22px 30px 16px;text-align:center;border-bottom:3px solid transparent;
+    border-image:linear-gradient(90deg,var(--gold-a),var(--gold-b)) 1}
+  .cmp-head h2{font-family:var(--serif);color:var(--teal);font-size:19px;margin:0}
+  .cmp-head p{font-size:12px;color:var(--meta);margin:5px 0 0}
+  .cmp-body{padding:20px 26px 30px;overflow-x:auto}
+  table.cmp{width:100%;border-collapse:collapse;font-size:12.5px;min-width:480px}
+  table.cmp th, table.cmp td{padding:10px 12px;border-bottom:1px solid #f3eef1;text-align:left;vertical-align:top}
+  table.cmp thead th{font-family:var(--serif);color:var(--teal-dk);font-size:13.5px;border-bottom:2px solid var(--line)}
+  table.cmp tbody th{color:#555;font-weight:600;white-space:nowrap}
+  table.cmp td{color:#333}
+  table.cmp td.cmp-best{color:var(--teal-dk);font-weight:700;background:rgba(23,141,147,.06);border-radius:6px}
+  table.cmp td.cmp-best::after{content:" \\2713";color:var(--teal)}
+  .cmp-plan-name{font-family:var(--serif);font-size:13.5px;color:var(--ink)}
+  .cmp-plan-sub{font-size:10.5px;color:var(--meta);margin-top:2px}
+  h3.cmp-sec{font-family:var(--serif);color:var(--teal);font-size:14px;margin:26px 0 8px}
+  .cmp-note{margin-top:20px;background:#fff8ec;border:1px solid #f3d8a0;border-radius:10px;
+    padding:11px 14px;font-size:11px;color:#7a5a12;line-height:1.6}
+`;
+      function textOr(value, clientText) {
+        return value ? escapeHtml2(value) : `<span class="na">${escapeHtml2(clientText || "Refer to certificate")}</span>`;
+      }
+      function money(n) {
+        const formatted = formatMoney(n);
+        return formatted == null ? `<span class="na">Refer to certificate</span>` : `RM ${formatted}`;
+      }
+      function indexOfLowest(values) {
+        const numeric = values.map((v, i) => ({ v, i })).filter((x) => Number.isFinite(x.v));
+        if (numeric.length < 2) return null;
+        const min = Math.min(...numeric.map((x) => x.v));
+        const winners = numeric.filter((x) => x.v === min);
+        return winners.length === 1 ? winners[0].i : null;
+      }
+      function planLabel(data) {
+        const plan = data && data.plan || {};
+        return [plan.medicalRiderName, plan.medicalPlanTier].filter(Boolean).join(" ") || null;
+      }
+      function planSubtitle(data) {
+        const metadata = data && data.metadata || {};
+        const plan = data && data.plan || {};
+        return [metadata.productName, plan.coPaymentOption].filter(Boolean).join(" \xB7 ") || null;
+      }
+      function roomBoardValue(data) {
+        const items = data && data.benefits && data.benefits.benefitItems || [];
+        const item = items.find((i) => i.label === "Hospital Daily Room and Board");
+        return item ? compactRate(item.value) : null;
+      }
+      function unionBenefitLabels(allData) {
+        const seen = /* @__PURE__ */ new Set();
+        const labels = [];
+        for (const data of allData) {
+          const items = data && data.benefits && data.benefits.benefitItems || [];
+          for (const item of items) {
+            if (!seen.has(item.label)) {
+              seen.add(item.label);
+              labels.push(item.label);
+            }
+          }
+        }
+        return labels;
+      }
+      function benefitValueFor(data, label) {
+        const items = data && data.benefits && data.benefits.benefitItems || [];
+        const item = items.find((i) => i.label === label);
+        return item ? primaryValue2(item.value) : null;
+      }
+      function allEqual(values) {
+        return values.every((v) => v === values[0]);
+      }
+      function renderKeyFiguresTable(allData) {
+        const monthly = allData.map((d) => (d.contributions || {}).totalMonthlyContribution);
+        const annual = allData.map((d) => (d.contributions || {}).totalAnnualContribution);
+        const bestMonthly = indexOfLowest(monthly);
+        const bestAnnual = indexOfLowest(annual);
+        const headerCells = allData.map((d, i) => `<th>${escapeHtml2(`Option ${i + 1}`)}</th>`).join("");
+        const planRow = `<tr><th>Plan</th>${allData.map((d) => `<td><div class="cmp-plan-name">${textOr(planLabel(d))}</div><div class="cmp-plan-sub">${escapeHtml2(planSubtitle(d) || "")}</div></td>`).join("")}</tr>`;
+        const monthlyRow = `<tr><th>Monthly Contribution</th>${allData.map((d, i) => `<td${i === bestMonthly ? ' class="cmp-best"' : ""}>${money(monthly[i])}</td>`).join("")}</tr>`;
+        const annualRow = `<tr><th>Annual Contribution</th>${allData.map((d, i) => `<td${i === bestAnnual ? ' class="cmp-best"' : ""}>${money(annual[i])}</td>`).join("")}</tr>`;
+        const roomBoardRow = `<tr><th>Room &amp; Board</th>${allData.map((d) => `<td>${textOr(roomBoardValue(d))}</td>`).join("")}</tr>`;
+        const annualLimitRow = `<tr><th>Annual Limit</th>${allData.map((d) => `<td>${textOr((d.benefits || {}).annualLimit)}</td>`).join("")}</tr>`;
+        const lifetimeLimitRow = `<tr><th>Lifetime Limit</th>${allData.map((d) => `<td>${textOr((d.benefits || {}).lifetimeLimit)}</td>`).join("")}</tr>`;
+        const coPayRow = `<tr><th>Co-payment</th>${allData.map((d) => {
+          const opt = (d.plan || {}).coPaymentOption;
+          const amt = coPaymentAmount(opt);
+          return `<td>${textOr(opt)}${amt ? `<div class="cmp-plan-sub">RM ${escapeHtml2(amt)} per disability</div>` : ""}</td>`;
+        }).join("")}</tr>`;
+        const coverageRow = `<tr><th>Coverage Term</th>${allData.map((d) => `<td>${(d.plan || {}).coverageToAge != null ? `to Age ${(d.plan || {}).coverageToAge}` : `<span class="na">Refer to certificate</span>`}</td>`).join("")}</tr>`;
+        return `
+    <table class="cmp">
+      <thead><tr><th></th>${headerCells}</tr></thead>
+      <tbody>${planRow}${monthlyRow}${annualRow}${roomBoardRow}${annualLimitRow}${lifetimeLimitRow}${coPayRow}${coverageRow}</tbody>
+    </table>`;
+      }
+      function renderBenefitsTable(allData) {
+        const labels = unionBenefitLabels(allData);
+        if (!labels.length) return "";
+        const headerCells = allData.map((d, i) => `<th>${escapeHtml2(`Option ${i + 1}`)}</th>`).join("");
+        const rows = labels.map((label) => {
+          const values = allData.map((d) => benefitValueFor(d, label));
+          const differs = !allEqual(values);
+          return `<tr><th>${escapeHtml2(label)}</th>${values.map((v) => `<td${differs && v ? ' class="cmp-best"' : ""}>${textOr(v)}</td>`).join("")}</tr>`;
+        }).join("");
+        return `
+    <h3 class="cmp-sec">Benefit-by-benefit comparison</h3>
+    <table class="cmp"><thead><tr><th></th>${headerCells}</tr></thead><tbody>${rows}</tbody></table>`;
+      }
+      function comparisonCard(allData) {
+        const clientName = allData[0] && allData[0].client && allData[0].client.fullName || null;
+        const agentConfig = getAgentConfig(allData[0] && allData[0].agent && allData[0].agent.agentCode) || {};
+        return `
+<div class="cmp-wrap">
+  <div class="cmp-head">
+    <h2>Comparing ${allData.length} Options</h2>
+    <p>${clientName ? `Prepared for ${escapeHtml2(clientName)}` : "Prepared for you"}${agentConfig.name ? ` by ${escapeHtml2(agentConfig.name)}` : ""}</p>
+  </div>
+  <div class="cmp-body">
+    ${renderKeyFiguresTable(allData)}
+    ${renderBenefitsTable(allData)}
+    <div class="cmp-note"><b>Please note.</b> Figures above are illustrations, not a contract of takaful, and are subject to underwriting approval by Prudential BSN Takaful Berhad. The highlighted option in each row is the lower contribution amount only - it does not account for coverage differences shown in the benefits table below it.</div>
+  </div>
+</div>`;
+      }
+      function documentShell(title, bodyHtml) {
+        return `<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml2(title)}</title>
+<style>${SHARED_STYLE}${COMPARISON_STYLE}</style>
+<body style="display:flex;flex-direction:column;align-items:center">
+${bodyHtml}
+</body>`;
+      }
+      function renderComparisonHtml2(parseResults, agentReviews) {
+        const results = parseResults || [];
+        const reviews = agentReviews || [];
+        const blockingErrors = [];
+        results.forEach((r, i) => {
+          if (r && r.errors && r.errors.length) {
+            blockingErrors.push(...r.errors.map((e) => `Option ${i + 1} - ${e.field}: ${e.message}`));
+          }
+          if (!reviews[i] || !reviews[i].acknowledged) {
+            blockingErrors.push(`Option ${i + 1} has not been reviewed and acknowledged by the agent yet.`);
+          }
+        });
+        if (blockingErrors.length) {
+          return renderBlockedHtml(blockingErrors);
+        }
+        const allData = results.map((r) => r.data);
+        return documentShell(`Comparing ${allData.length} Options`, comparisonCard(allData));
+      }
+      module.exports = { renderComparisonHtml: renderComparisonHtml2 };
     }
   });
 
@@ -1914,8 +2083,22 @@ ${list}
         const coPayPart = plan.coPaymentOption ? ` (${plan.coPaymentOption})` : "";
         return [`${plan.medicalRiderName}${tierPart}${coPayPart}`];
       }
-      function buildPrefillData2(data, agentReview) {
-        const d = data || {};
+      function planSummaryFor(d) {
+        const plan = d && d.plan || {};
+        const contributions = d && d.contributions || {};
+        const benefits = d && d.benefits || {};
+        const roomBoardItem = (benefits.benefitItems || []).find((i) => i.label === "Hospital Daily Room and Board");
+        const monthlyContribution = formatMoney(contributions.totalMonthlyContribution);
+        return {
+          planName: [plan.medicalRiderName, plan.medicalPlanTier].filter(Boolean).join(" ") || plan.basicPlanName || null,
+          monthlyContribution: monthlyContribution != null ? `RM ${monthlyContribution}` : null,
+          roomAndBoard: roomBoardItem ? roomBoardItem.value : null,
+          annualLimit: benefits.annualLimit || null
+        };
+      }
+      function buildPrefillData2(dataOrArray, agentReview) {
+        const allData = Array.isArray(dataOrArray) ? dataOrArray : [dataOrArray];
+        const d = allData[0] || {};
         const review = agentReview || {};
         const plan = d.plan || {};
         const contributions = d.contributions || {};
@@ -1933,6 +2116,10 @@ ${list}
             monthlyContribution: monthlyContribution != null ? `RM ${monthlyContribution}` : null,
             riders: buildRidersList(plan)
           },
+          // Real generated quotation(s), in comparison order - drives the Plan
+          // Selection step's card picker. Length 1 when the agent generated a
+          // single quotation (no comparison), 2-3 when they compared options.
+          plans: allData.map(planSummaryFor),
           agent: {
             name: agentCfg.name || d.agent && d.agent.agentNameOnDocument || null,
             agency: agentCfg.agency || null,
@@ -2023,13 +2210,39 @@ ${list}
   .paf-fields{grid-template-columns:1fr}
   .paf-shell{padding:20px 16px}
 }
+
+/* File upload control (Documents step) */
+.paf-file-field{grid-column:1/-1}
+.paf-upload{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1.5px dashed var(--line);
+  border-radius:10px;cursor:pointer;background:var(--rose-soft);transition:border-color .15s ease}
+.paf-upload:hover{border-color:var(--teal)}
+.paf-upload-done{border-style:solid;border-color:var(--teal);background:#f2faf9}
+.paf-upload-icon{width:32px;height:32px;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:#E9F5F5;color:var(--teal);font-size:15px;font-weight:700}
+.paf-upload-done .paf-upload-icon{background:var(--teal);color:#fff}
+.paf-upload-text{font-size:13px;color:var(--ink);word-break:break-all}
+.paf-upload-input{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+
+/* Plan Selection cards - built from the agent's real generated quotation(s) */
+.paf-plan-cards{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.paf-plan-card{position:relative;border:2px solid var(--line);border-radius:12px;padding:16px;cursor:pointer;
+  transition:all .15s ease;background:#fff}
+.paf-plan-card:hover{border-color:var(--teal)}
+.paf-plan-card-picked{border-color:var(--teal);background:#f2faf9;box-shadow:0 6px 18px rgba(23,141,147,.15)}
+.paf-plan-badge{position:absolute;top:-10px;left:14px;background:linear-gradient(90deg,var(--gold-a),var(--gold-b));
+  color:#fff;font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 10px;border-radius:999px}
+.paf-plan-name{font-weight:600;font-size:13px;margin-top:4px}
+.paf-plan-price{font-family:var(--serif);font-size:19px;color:var(--teal);margin-top:8px}
+.paf-plan-price small{font-family:var(--sans);font-size:11px;color:var(--meta);font-weight:400}
+.paf-plan-meta{font-size:11px;color:var(--meta);margin-top:6px}
+.paf-plan-empty{grid-column:1/-1;font-size:13px;color:var(--meta);font-style:italic}
 `;
       function isRealQuotation(html) {
         return typeof html === "string" && html.includes('class="sheet"');
       }
       function composeClientDocument2(quotationHtml, prefillData) {
         if (!isRealQuotation(quotationHtml)) return quotationHtml;
-        const runtimeSource = true ? '"use strict";\n(() => {\n  var __getOwnPropNames = Object.getOwnPropertyNames;\n  var __commonJS = (cb, mod) => function __require() {\n    try {\n      return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;\n    } catch (e) {\n      throw mod = 0, e;\n    }\n  };\n\n  // browser-tool/application/validation.js\n  var require_validation = __commonJS({\n    "browser-tool/application/validation.js"(exports, module) {\n      "use strict";\n      function required(value) {\n        return value != null && String(value).trim().length > 0;\n      }\n      function isValidEmail(value) {\n        if (!value) return false;\n        return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(value).trim());\n      }\n      function isValidMalaysianPhone(value) {\n        if (!value) return false;\n        const digits = String(value).replace(/[\\s-]/g, "").replace(/^\\+?60/, "0");\n        return /^01\\d{8,9}$/.test(digits);\n      }\n      function isValidNRIC(value) {\n        if (!value) return false;\n        const digits = String(value).replace(/[\\s-]/g, "");\n        return /^\\d{12}$/.test(digits);\n      }\n      function formatNRIC(value) {\n        const digits = String(value || "").replace(/[\\s-]/g, "");\n        if (digits.length !== 12) return value || "";\n        return `${digits.slice(0, 6)}-${digits.slice(6, 8)}-${digits.slice(8, 12)}`;\n      }\n      function isValidPercentage(value) {\n        if (value === "" || value == null) return false;\n        const n = Number(value);\n        return Number.isFinite(n) && n > 0 && n <= 100;\n      }\n      function isValidPostcode(value) {\n        if (!value) return false;\n        return /^\\d{5}$/.test(String(value).trim());\n      }\n      var FIELD_RULES = {\n        fullName: { required: true, message: "Full name is required." },\n        nric: { required: true, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },\n        dateOfBirth: { required: true, message: "Date of birth is required." },\n        gender: { required: true, message: "Please select a gender." },\n        mobileNumber: { required: true, validate: isValidMalaysianPhone, message: "Enter a valid Malaysian mobile number (e.g. 012-3456789)." },\n        email: { required: true, validate: isValidEmail, message: "Enter a valid email address." },\n        address: { required: true, message: "Address is required." },\n        postcode: { required: true, validate: isValidPostcode, message: "Enter a valid 5-digit postcode." },\n        city: { required: true, message: "City is required." },\n        state: { required: true, message: "Please select a state." },\n        occupation: { required: true, message: "Occupation is required." },\n        employer: { required: false, message: "" },\n        annualIncome: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid annual income." },\n        beneficiaryName: { required: true, message: "Beneficiary name is required." },\n        beneficiaryRelationship: { required: true, message: "Beneficiary relationship is required." },\n        beneficiaryPercentage: { required: true, validate: isValidPercentage, message: "Enter a percentage between 1 and 100." }\n      };\n      function validateField(name, value) {\n        const rule = FIELD_RULES[name];\n        if (!rule) return null;\n        if (rule.required && !required(value)) return rule.message;\n        if (required(value) && rule.validate && !rule.validate(value)) return rule.message;\n        return null;\n      }\n      function validateFields(names, values) {\n        const errors = {};\n        for (const name of names) {\n          const msg = validateField(name, values[name]);\n          if (msg) errors[name] = msg;\n        }\n        return errors;\n      }\n      var PruBSNValidation = {\n        required,\n        isValidEmail,\n        isValidMalaysianPhone,\n        isValidNRIC,\n        formatNRIC,\n        isValidPercentage,\n        isValidPostcode,\n        validateField,\n        validateFields,\n        FIELD_RULES\n      };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNValidation;\n      }\n    }\n  });\n\n  // browser-tool/application/ApplicationForm.js\n  var require_ApplicationForm = __commonJS({\n    "browser-tool/application/ApplicationForm.js"(exports, module) {\n      "use strict";\n      var { validateFields } = require_validation();\n      function escapeHtml(value) {\n        return String(value == null ? "" : value).replace(/[&<>"\']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" })[ch]);\n      }\n      var MALAYSIAN_STATES = [\n        "Johor",\n        "Kedah",\n        "Kelantan",\n        "Melaka",\n        "Negeri Sembilan",\n        "Pahang",\n        "Perak",\n        "Perlis",\n        "Pulau Pinang",\n        "Sabah",\n        "Sarawak",\n        "Selangor",\n        "Terengganu",\n        "Wilayah Persekutuan Kuala Lumpur",\n        "Wilayah Persekutuan Labuan",\n        "Wilayah Persekutuan Putrajaya"\n      ];\n      var STEP_DEFS = [\n        {\n          id: "personal",\n          title: "Personal Information",\n          subtitle: "Tell us a little about yourself.",\n          fields: [\n            { name: "fullName", label: "Full Name", type: "text", autocomplete: "name" },\n            { name: "nric", label: "NRIC", type: "text", placeholder: "900101-01-1234" },\n            { name: "dateOfBirth", label: "Date of Birth", type: "date" },\n            { name: "gender", label: "Gender", type: "select", options: ["Male", "Female"] },\n            { name: "mobileNumber", label: "Mobile Number", type: "tel", placeholder: "012-3456789" },\n            { name: "email", label: "Email", type: "email", placeholder: "name@example.com" }\n          ]\n        },\n        {\n          id: "address",\n          title: "Address",\n          subtitle: "Where can we reach you by post?",\n          fields: [\n            { name: "address", label: "Address", type: "textarea" },\n            { name: "postcode", label: "Postcode", type: "text", placeholder: "05100" },\n            { name: "city", label: "City", type: "text" },\n            { name: "state", label: "State", type: "select", options: MALAYSIAN_STATES }\n          ]\n        },\n        {\n          id: "employment",\n          title: "Employment",\n          subtitle: "A few details about your work.",\n          fields: [\n            { name: "occupation", label: "Occupation", type: "text" },\n            { name: "employer", label: "Employer", type: "text", optional: true },\n            { name: "annualIncome", label: "Annual Income (RM)", type: "number", placeholder: "60000" }\n          ]\n        },\n        {\n          id: "beneficiary",\n          title: "Beneficiary",\n          subtitle: "Who should receive the benefit payout?",\n          fields: [\n            { name: "beneficiaryName", label: "Beneficiary Name", type: "text" },\n            { name: "beneficiaryRelationship", label: "Relationship", type: "text", placeholder: "e.g. Spouse, Child, Parent" },\n            { name: "beneficiaryPercentage", label: "Percentage (%)", type: "number", placeholder: "100" }\n          ]\n        }\n      ];\n      var TOTAL_STEPS = STEP_DEFS.length;\n      function stepFieldNames(stepIndex) {\n        const step = STEP_DEFS[stepIndex];\n        return step ? step.fields.map((f) => f.name) : [];\n      }\n      function fieldHtml(field, value, error) {\n        const id = `paf-field-${field.name}`;\n        const errorId = `${id}-error`;\n        const commonAttrs = `id="${id}" name="${field.name}" class="paf-input${error ? " paf-input-error" : ""}"` + (field.autocomplete ? ` autocomplete="${field.autocomplete}"` : "") + (error ? ` aria-invalid="true" aria-describedby="${errorId}"` : "");\n        let control;\n        if (field.type === "select") {\n          const options = field.options.map((opt) => `<option value="${escapeHtml(opt)}"${value === opt ? " selected" : ""}>${escapeHtml(opt)}</option>`).join("");\n          control = `<select ${commonAttrs}><option value="">Select...</option>${options}</select>`;\n        } else if (field.type === "textarea") {\n          control = `<textarea ${commonAttrs} rows="3" placeholder="${escapeHtml(field.placeholder || "")}">${escapeHtml(value)}</textarea>`;\n        } else {\n          control = `<input type="${field.type}" ${commonAttrs} value="${escapeHtml(value)}" placeholder="${escapeHtml(field.placeholder || "")}">`;\n        }\n        return `\n    <div class="paf-field">\n      <label class="paf-label" for="${id}">${escapeHtml(field.label)}${field.optional ? \' <span class="paf-optional">(optional)</span>\' : ""}</label>\n      ${control}\n      ${error ? `<div class="paf-error" id="${errorId}">${escapeHtml(error)}</div>` : ""}\n    </div>`;\n      }\n      function renderStepHtml(stepIndex, values, errors) {\n        const step = STEP_DEFS[stepIndex];\n        if (!step) return "";\n        const fieldsHtml = step.fields.map((f) => fieldHtml(f, values[f.name] || "", (errors || {})[f.name])).join("");\n        return `\n    <div class="paf-step" data-step-id="${step.id}">\n      <h3 class="paf-step-title">${escapeHtml(step.title)}</h3>\n      <p class="paf-step-subtitle">${escapeHtml(step.subtitle)}</p>\n      <div class="paf-fields">${fieldsHtml}</div>\n    </div>`;\n      }\n      function collectStepValues(stepIndex, containerEl) {\n        const names = stepFieldNames(stepIndex);\n        const values = {};\n        for (const name of names) {\n          const el = containerEl.querySelector(`[name="${name}"]`);\n          values[name] = el ? el.value : "";\n        }\n        return values;\n      }\n      function validateStep(stepIndex, values) {\n        return validateFields(stepFieldNames(stepIndex), values);\n      }\n      var PruBSNApplicationForm = {\n        STEP_DEFS,\n        TOTAL_STEPS,\n        MALAYSIAN_STATES,\n        stepFieldNames,\n        renderStepHtml,\n        collectStepValues,\n        validateStep\n      };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNApplicationForm;\n      }\n    }\n  });\n\n  // browser-tool/application/ReviewPage.js\n  var require_ReviewPage = __commonJS({\n    "browser-tool/application/ReviewPage.js"(exports, module) {\n      "use strict";\n      var { STEP_DEFS } = require_ApplicationForm();\n      function escapeHtml(value) {\n        return String(value == null ? "" : value).replace(/[&<>"\']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" })[ch]);\n      }\n      function na(value) {\n        return value == null || String(value).trim() === "" ? \'<span class="paf-na">Not provided</span>\' : escapeHtml(value);\n      }\n      function summaryRow(label, value) {\n        return `<div class="paf-summary-row"><span class="paf-summary-label">${escapeHtml(label)}</span><span class="paf-summary-value">${value}</span></div>`;\n      }\n      function renderQuotationSummary(quotation) {\n        const q = quotation || {};\n        const riders = Array.isArray(q.riders) && q.riders.length ? `<ul class="paf-rider-list">${q.riders.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : \'<span class="paf-na">None selected</span>\';\n        return `\n    <section class="paf-review-section">\n      <h4 class="paf-review-heading">Quotation Summary</h4>\n      ${summaryRow("Quotation Number", na(q.quotationNumber))}\n      ${summaryRow("Valid Until", na(q.validUntil))}\n      ${summaryRow("Selected Plan", na(q.planName))}\n      ${summaryRow("Monthly Contribution", na(q.monthlyContribution))}\n      <div class="paf-summary-row paf-summary-row-block">\n        <span class="paf-summary-label">Optional Riders</span>\n        <div class="paf-summary-value">${riders}</div>\n      </div>\n    </section>`;\n      }\n      function renderAgentInfo(agent) {\n        const a = agent || {};\n        return `\n    <section class="paf-review-section">\n      <h4 class="paf-review-heading">Agent Information <span class="paf-readonly-tag">Read-only</span></h4>\n      ${summaryRow("Agent Name", na(a.name))}\n      ${summaryRow("Agency", na(a.agency))}\n      ${summaryRow("Branch", na(a.branch))}\n      ${summaryRow("Contact", na(a.phone || a.email))}\n    </section>`;\n      }\n      function renderReviewHtml(prefillData, formValues) {\n        const data = prefillData || {};\n        const values = formValues || {};\n        const clientSections = STEP_DEFS.map((step, stepIndex) => {\n          const rows = step.fields.map((f) => summaryRow(f.label, na(values[f.name]))).join("");\n          return `\n      <section class="paf-review-section">\n        <h4 class="paf-review-heading">\n          ${escapeHtml(step.title)}\n          <button type="button" class="paf-edit-link" data-goto-step="${stepIndex}">Edit</button>\n        </h4>\n        ${rows}\n      </section>`;\n        }).join("");\n        return `\n    <div class="paf-step paf-review" data-step-id="review">\n      <h3 class="paf-step-title">Review Your Application</h3>\n      <p class="paf-step-subtitle">Please check everything below before submitting. You can edit any section.</p>\n      ${renderQuotationSummary(data.quotation)}\n      ${renderAgentInfo(data.agent)}\n      ${clientSections}\n    </div>`;\n      }\n      var PruBSNReviewPage = { renderReviewHtml };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNReviewPage;\n      }\n    }\n  });\n\n  // browser-tool/application/ConfirmationPage.js\n  var require_ConfirmationPage = __commonJS({\n    "browser-tool/application/ConfirmationPage.js"(exports, module) {\n      "use strict";\n      function escapeHtml(value) {\n        return String(value == null ? "" : value).replace(/[&<>"\']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" })[ch]);\n      }\n      function na(value) {\n        return value == null || String(value).trim() === "" ? \'<span class="paf-na">Not available</span>\' : escapeHtml(value);\n      }\n      function summaryRow(label, value) {\n        return `<div class="paf-summary-row"><span class="paf-summary-label">${escapeHtml(label)}</span><span class="paf-summary-value">${value}</span></div>`;\n      }\n      var ERROR_MESSAGES = {\n        validation: "There was a problem with your application details.",\n        timeout: "The connection timed out before a response was received.",\n        network: "We couldn\'t reach the server. Please check your internet connection.",\n        not_configured: "Submission is not available right now. Please contact your agent.",\n        http_error: "The server rejected the submission.",\n        server: "The submission service was unavailable.",\n        unknown: "Something went wrong while submitting your application."\n      };\n      function friendlyErrorMessage(error) {\n        const type = error && error.type;\n        return type && ERROR_MESSAGES[type] || ERROR_MESSAGES.unknown;\n      }\n      function renderPending() {\n        return `\n    <div class="paf-step paf-confirmation" data-step-id="confirmation">\n      <div class="paf-confirm-icon" aria-hidden="true">&#8943;</div>\n      <h3 class="paf-step-title">Submitting Your Application&hellip;</h3>\n      <p class="paf-step-subtitle">Please wait a moment. Do not close this window.</p>\n    </div>`;\n      }\n      function renderSuccess(view) {\n        const submittedAt = view.submittedAt ? new Date(view.submittedAt).toLocaleString() : null;\n        return `\n    <div class="paf-step paf-confirmation" data-step-id="confirmation">\n      <div class="paf-confirm-icon" aria-hidden="true">&#10003;</div>\n      <h3 class="paf-step-title">Application Submitted</h3>\n      <p class="paf-step-subtitle">Thank you. Your application has been received.</p>\n      <div class="paf-review-section">\n        ${summaryRow("Reference Number", na(view.reference))}\n        ${summaryRow("Submission Time", submittedAt ? escapeHtml(submittedAt) : na(null))}\n        ${summaryRow("Submission Status", "Confirmed")}\n        ${summaryRow("Agent Name", na(view.agentName))}\n      </div>\n      <p class="paf-confirm-note">Your agent will follow up to complete processing of this application.</p>\n    </div>`;\n      }\n      function renderFailed(view) {\n        return `\n    <div class="paf-step paf-confirmation" data-step-id="confirmation">\n      <div class="paf-confirm-icon" aria-hidden="true">&#10007;</div>\n      <h3 class="paf-step-title">Submission Failed</h3>\n      <p class="paf-step-subtitle">${escapeHtml(friendlyErrorMessage(view.error))}</p>\n      <p class="paf-confirm-note">Your details have been saved on this device. Retrying will not ask you to fill in the form again.</p>\n      <div class="paf-nav">\n        <span></span>\n        <button type="button" class="paf-btn paf-btn-primary" data-action="retry">Retry Submission</button>\n      </div>\n    </div>`;\n      }\n      function renderConfirmationHtml(view) {\n        const v = view || {};\n        if (v.status === "success") return renderSuccess(v);\n        if (v.status === "failed") return renderFailed(v);\n        return renderPending();\n      }\n      var PruBSNConfirmationPage = { renderConfirmationHtml };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNConfirmationPage;\n      }\n    }\n  });\n\n  // browser-tool/application/submission.js\n  var require_submission = __commonJS({\n    "browser-tool/application/submission.js"(exports, module) {\n      "use strict";\n      function buildSubmission(prefillData, formState) {\n        const quotation = prefillData && prefillData.quotation || {};\n        const client = {\n          fullName: formState.fullName || "",\n          nric: formState.nric || "",\n          dateOfBirth: formState.dateOfBirth || "",\n          gender: formState.gender || "",\n          mobileNumber: formState.mobileNumber || "",\n          email: formState.email || ""\n        };\n        const application = {\n          address: formState.address || "",\n          postcode: formState.postcode || "",\n          city: formState.city || "",\n          state: formState.state || "",\n          occupation: formState.occupation || "",\n          employer: formState.employer || "",\n          annualIncome: formState.annualIncome || "",\n          beneficiary: {\n            name: formState.beneficiaryName || "",\n            relationship: formState.beneficiaryRelationship || "",\n            percentage: formState.beneficiaryPercentage || ""\n          }\n        };\n        return {\n          quotation,\n          client,\n          application,\n          timestamp: (/* @__PURE__ */ new Date()).toISOString()\n        };\n      }\n      var PruBSNSubmission = { buildSubmission };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNSubmission;\n      }\n    }\n  });\n\n  // browser-tool/models/SubmissionPayload.js\n  var require_SubmissionPayload = __commonJS({\n    "browser-tool/models/SubmissionPayload.js"(exports, module) {\n      "use strict";\n      var { buildSubmission } = require_submission();\n      var PARSER_VERSION = "v1.0-phase1-parser";\n      var RENDERER_VERSION = "v1.1-phase2-renderer";\n      var PAYLOAD_VERSION = "1.0";\n      var SUBMISSION_SOURCE = "quotation-generator-client-application";\n      function buildAgentInfo(prefillData) {\n        const source = prefillData && prefillData.agent || {};\n        const agent = {};\n        if (source.name) agent.name = source.name;\n        if (source.agency) agent.agency = source.agency;\n        if (source.branch) agent.branch = source.branch;\n        return agent;\n      }\n      function buildSubmissionPayload(prefillData, formState, options) {\n        const { submissionId } = options || {};\n        const legacy = buildSubmission(prefillData, formState);\n        const { beneficiary, ...applicationRest } = legacy.application;\n        const applicant = {\n          ...legacy.client,\n          ...applicationRest\n        };\n        const beneficiaries = beneficiary && beneficiary.name ? [beneficiary] : [];\n        const generatedMeta = prefillData && prefillData.metadata || {};\n        return {\n          version: PAYLOAD_VERSION,\n          quotation: legacy.quotation,\n          agent: buildAgentInfo(prefillData),\n          applicant,\n          beneficiaries,\n          metadata: {\n            submissionId: submissionId || null,\n            quotationId: legacy.quotation && legacy.quotation.quotationNumber || null,\n            parserVersion: PARSER_VERSION,\n            rendererVersion: RENDERER_VERSION,\n            generatedAt: generatedMeta.generatedAt || null,\n            submittedAt: (/* @__PURE__ */ new Date()).toISOString(),\n            product: legacy.quotation && legacy.quotation.planName || null,\n            source: SUBMISSION_SOURCE\n          }\n        };\n      }\n      var PruBSNSubmissionPayload = { buildSubmissionPayload, PARSER_VERSION, RENDERER_VERSION, PAYLOAD_VERSION };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNSubmissionPayload;\n      }\n    }\n  });\n\n  // browser-tool/queue/SubmissionQueue.js\n  var require_SubmissionQueue = __commonJS({\n    "browser-tool/queue/SubmissionQueue.js"(exports, module) {\n      "use strict";\n      var STORAGE_KEY = "prubsn_submission_queue_v1";\n      function hasWorkingLocalStorage() {\n        try {\n          if (typeof localStorage === "undefined") return false;\n          const probeKey = `${STORAGE_KEY}_probe`;\n          localStorage.setItem(probeKey, "1");\n          localStorage.removeItem(probeKey);\n          return true;\n        } catch (e) {\n          return false;\n        }\n      }\n      function createQueue() {\n        const persistent = hasWorkingLocalStorage();\n        let memoryEntries = [];\n        if (!persistent && typeof console !== "undefined") {\n          console.warn("SubmissionQueue: localStorage is unavailable in this context; falling back to in-memory-only queue (entries will not survive a page reload).");\n        }\n        function readAll() {\n          if (!persistent) return memoryEntries;\n          try {\n            const raw = localStorage.getItem(STORAGE_KEY);\n            return raw ? JSON.parse(raw) : [];\n          } catch (e) {\n            return [];\n          }\n        }\n        function writeAll(entries) {\n          if (!persistent) {\n            memoryEntries = entries;\n            return;\n          }\n          try {\n            localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));\n          } catch (e) {\n          }\n        }\n        function enqueue(submissionId, payload, error) {\n          const entries = readAll();\n          const existing = entries.find((e) => e.submissionId === submissionId);\n          const now = (/* @__PURE__ */ new Date()).toISOString();\n          if (existing) {\n            existing.payload = payload;\n            existing.lastError = error || null;\n            existing.attempts += 1;\n            existing.updatedAt = now;\n          } else {\n            entries.push({\n              submissionId,\n              payload,\n              resolved: false,\n              attempts: 1,\n              lastError: error || null,\n              createdAt: now,\n              updatedAt: now\n            });\n          }\n          writeAll(entries);\n        }\n        function markResolved(submissionId, reference) {\n          const entries = readAll();\n          const existing = entries.find((e) => e.submissionId === submissionId);\n          const now = (/* @__PURE__ */ new Date()).toISOString();\n          if (existing) {\n            existing.resolved = true;\n            existing.reference = reference || null;\n            existing.updatedAt = now;\n          } else {\n            entries.push({\n              submissionId,\n              payload: null,\n              resolved: true,\n              reference: reference || null,\n              attempts: 1,\n              lastError: null,\n              createdAt: now,\n              updatedAt: now\n            });\n          }\n          writeAll(entries);\n        }\n        function hasResolved(submissionId) {\n          const existing = readAll().find((e) => e.submissionId === submissionId);\n          return Boolean(existing && existing.resolved);\n        }\n        function getReference(submissionId) {\n          const existing = readAll().find((e) => e.submissionId === submissionId);\n          return existing && existing.resolved ? existing.reference : null;\n        }\n        function listPending() {\n          return readAll().filter((e) => !e.resolved);\n        }\n        function isPersistent() {\n          return persistent;\n        }\n        return { enqueue, markResolved, hasResolved, getReference, listPending, isPersistent };\n      }\n      var PruBSNSubmissionQueue = { createQueue };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNSubmissionQueue;\n      }\n    }\n  });\n\n  // browser-tool/services/SubmissionService.js\n  var require_SubmissionService = __commonJS({\n    "browser-tool/services/SubmissionService.js"(exports, module) {\n      "use strict";\n      var { createQueue } = require_SubmissionQueue();\n      var defaultQueue = createQueue();\n      function classifyError(err) {\n        const type = err && err.type || "unknown";\n        const message = err && err.message || "Submission failed for an unknown reason.";\n        return { type, message };\n      }\n      function validatePayload(payload) {\n        if (!payload || typeof payload !== "object") return "Payload is missing.";\n        if (!payload.metadata || !payload.metadata.submissionId) return "Payload is missing metadata.submissionId.";\n        if (!payload.applicant || typeof payload.applicant !== "object") return "Payload is missing applicant details.";\n        if (!Array.isArray(payload.beneficiaries)) return "Payload is missing a beneficiaries array.";\n        return null;\n      }\n      async function submit(payload, options) {\n        const { destination, queue = defaultQueue } = options || {};\n        if (!destination || typeof destination.send !== "function") {\n          throw new Error("SubmissionService.submit: a destination with a send() function is required.");\n        }\n        const submissionId = payload && payload.metadata && payload.metadata.submissionId;\n        const validationMessage = validatePayload(payload);\n        if (validationMessage) {\n          const error = { type: "validation", message: validationMessage };\n          if (submissionId) queue.enqueue(submissionId, payload, error);\n          return { status: "failed", submissionId: submissionId || null, error, queued: Boolean(submissionId) };\n        }\n        if (queue.hasResolved(submissionId)) {\n          return { status: "success", submissionId, reference: queue.getReference(submissionId), deduped: true };\n        }\n        queue.enqueue(submissionId, payload, null);\n        try {\n          const result = await destination.send(payload);\n          queue.markResolved(submissionId, result && result.reference);\n          return { status: "success", submissionId, reference: result && result.reference };\n        } catch (err) {\n          const error = classifyError(err);\n          queue.enqueue(submissionId, payload, error);\n          return { status: "failed", submissionId, error, queued: true };\n        }\n      }\n      function listPending(queue = defaultQueue) {\n        return queue.listPending();\n      }\n      var SubmissionService = { submit, listPending, defaultQueue };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = SubmissionService;\n      }\n    }\n  });\n\n  // browser-tool/destinations/AirtableDestination.js\n  var require_AirtableDestination = __commonJS({\n    "browser-tool/destinations/AirtableDestination.js"(exports, module) {\n      "use strict";\n      var webhookUrl = null;\n      var DEFAULT_TIMEOUT_MS = 15e3;\n      function configure(options) {\n        webhookUrl = options && options.webhookUrl || null;\n      }\n      function createTypedError(type, message) {\n        const err = new Error(message);\n        err.type = type;\n        return err;\n      }\n      function fallbackReference(payload) {\n        const submissionId = payload && payload.metadata && payload.metadata.submissionId;\n        return submissionId ? `AT-${String(submissionId).slice(0, 8).toUpperCase()}` : `AT-${Date.now().toString(36).toUpperCase()}`;\n      }\n      async function send(payload) {\n        if (!webhookUrl) {\n          throw createTypedError("not_configured", "AirtableDestination: webhookUrl is not set. See this file\'s header for setup steps.");\n        }\n        const controller = typeof AbortController !== "undefined" ? new AbortController() : null;\n        const timer = controller ? setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS) : null;\n        let response;\n        try {\n          response = await fetch(webhookUrl, {\n            method: "POST",\n            headers: { "Content-Type": "application/json" },\n            body: JSON.stringify(payload),\n            signal: controller ? controller.signal : void 0\n          });\n        } catch (err) {\n          if (err && err.name === "AbortError") {\n            throw createTypedError("timeout", "AirtableDestination: request timed out.");\n          }\n          throw createTypedError("network", `AirtableDestination: network error - ${err && err.message ? err.message : err}`);\n        } finally {\n          if (timer) clearTimeout(timer);\n        }\n        if (!response.ok) {\n          throw createTypedError("http_error", `AirtableDestination: webhook responded with HTTP ${response.status}`);\n        }\n        let body = null;\n        try {\n          body = await response.json();\n        } catch (e) {\n        }\n        return { reference: body && body.reference || fallbackReference(payload) };\n      }\n      var AirtableDestination = { name: "airtable", send, configure };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = AirtableDestination;\n      }\n    }\n  });\n\n  // browser-tool/application/clientRuntime.js\n  var require_clientRuntime = __commonJS({\n    "browser-tool/application/clientRuntime.js"(exports, module) {\n      var ApplicationForm = require_ApplicationForm();\n      var ReviewPage = require_ReviewPage();\n      var ConfirmationPage = require_ConfirmationPage();\n      var { buildSubmissionPayload } = require_SubmissionPayload();\n      var SubmissionService = require_SubmissionService();\n      var AirtableDestination = require_AirtableDestination();\n      var REVIEW_STEP = ApplicationForm.TOTAL_STEPS;\n      var CONFIRMATION_STEP = ApplicationForm.TOTAL_STEPS + 1;\n      var STEP_LABELS = ApplicationForm.STEP_DEFS.map((s) => s.title).concat(["Review"]);\n      var ACTIVE_DESTINATION = AirtableDestination.configure({\n        webhookUrl: "https://hooks.airtable.com/workflows/v1/genericWebhook/appcA4lwc8KrLNxwM/wflQdJbGW3L2C8hoC/wtr78zDfdM03qbWWI"\n      });\n      function generateSubmissionId() {\n        if (typeof crypto !== "undefined" && crypto.getRandomValues) {\n          const bytes = crypto.getRandomValues(new Uint8Array(16));\n          bytes[6] = bytes[6] & 15 | 64;\n          bytes[8] = bytes[8] & 63 | 128;\n          const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");\n          return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;\n        }\n        return `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;\n      }\n      function buildInitialValues(prefillData) {\n        const client = prefillData && prefillData.client || {};\n        return {\n          fullName: client.fullName || "",\n          dateOfBirth: client.dateOfBirthIso || "",\n          gender: client.gender || ""\n        };\n      }\n      function renderProgressHtml(currentStep) {\n        const items = STEP_LABELS.map((label, i) => {\n          const status = i < currentStep ? "done" : i === currentStep ? "current" : "upcoming";\n          return `<li class="paf-progress-item paf-progress-${status}"><span class="paf-progress-dot">${i + 1}</span><span class="paf-progress-label">${label}</span></li>`;\n        }).join("");\n        return `<ol class="paf-progress">${items}</ol>`;\n      }\n      function renderNavHtml(currentStep) {\n        if (currentStep === CONFIRMATION_STEP) return "";\n        const backBtn = currentStep > 0 ? \'<button type="button" class="paf-btn paf-btn-secondary" data-action="back">Back</button>\' : "<span></span>";\n        const forwardBtn = currentStep === REVIEW_STEP ? \'<button type="button" class="paf-btn paf-btn-primary" data-action="submit">Submit Application</button>\' : \'<button type="button" class="paf-btn paf-btn-primary" data-action="next">Next</button>\';\n        return `<div class="paf-nav">${backBtn}${forwardBtn}</div>`;\n      }\n      function initApplicationFlow(rootEl, prefillData) {\n        if (!rootEl) return;\n        const state = {\n          currentStep: 0,\n          values: buildInitialValues(prefillData),\n          errors: {},\n          submissionId: null,\n          submissionPayload: null,\n          submissionStatus: "idle",\n          // \'idle\' | \'pending\' | \'success\' | \'failed\'\n          submissionResult: null\n          // last SubmissionService.submit() result\n        };\n        const continueBtn = document.getElementById("paf-continue-btn");\n        const quotationCard = document.querySelector(".sheet");\n        function buildConfirmationView() {\n          const result = state.submissionResult;\n          return {\n            status: state.submissionStatus,\n            reference: result && result.reference,\n            submittedAt: state.submissionPayload && state.submissionPayload.metadata.submittedAt,\n            agentName: prefillData && prefillData.agent && prefillData.agent.name,\n            error: result && result.error\n          };\n        }\n        function render() {\n          const bodyHtml = state.currentStep < REVIEW_STEP ? ApplicationForm.renderStepHtml(state.currentStep, state.values, state.errors) : state.currentStep === REVIEW_STEP ? ReviewPage.renderReviewHtml(prefillData, state.values) : ConfirmationPage.renderConfirmationHtml(buildConfirmationView());\n          rootEl.innerHTML = `\n      <div class="paf-shell">\n        ${state.currentStep <= REVIEW_STEP ? \'<button type="button" class="paf-back-link" data-action="close">&larr; Back to quotation</button>\' : ""}\n        ${state.currentStep <= REVIEW_STEP ? renderProgressHtml(state.currentStep) : ""}\n        <div class="paf-step-body">${bodyHtml}</div>\n        ${renderNavHtml(state.currentStep)}\n      </div>`;\n          attachHandlers();\n        }\n        function goToStep(index) {\n          const alreadyThere = state.currentStep === index;\n          state.currentStep = index;\n          render();\n          if (!alreadyThere) rootEl.scrollIntoView({ block: "start", behavior: "smooth" });\n        }\n        function persistCurrentStepValues() {\n          if (state.currentStep >= REVIEW_STEP) return;\n          const container = rootEl.querySelector(".paf-step");\n          if (!container) return;\n          Object.assign(state.values, ApplicationForm.collectStepValues(state.currentStep, container));\n        }\n        function handleNext() {\n          persistCurrentStepValues();\n          const errors = ApplicationForm.validateStep(state.currentStep, state.values);\n          if (Object.keys(errors).length > 0) {\n            state.errors = errors;\n            render();\n            return;\n          }\n          state.errors = {};\n          goToStep(state.currentStep + 1);\n        }\n        function handleBack() {\n          persistCurrentStepValues();\n          goToStep(Math.max(0, state.currentStep - 1));\n        }\n        async function handleSubmit() {\n          if (state.submissionStatus === "pending") return;\n          if (!state.submissionId) state.submissionId = generateSubmissionId();\n          if (!state.submissionPayload) {\n            state.submissionPayload = buildSubmissionPayload(prefillData, state.values, { submissionId: state.submissionId });\n          }\n          state.submissionStatus = "pending";\n          goToStep(CONFIRMATION_STEP);\n          const result = await SubmissionService.submit(state.submissionPayload, { destination: ACTIVE_DESTINATION });\n          state.submissionResult = result;\n          state.submissionStatus = result.status;\n          render();\n        }\n        function handleClose() {\n          persistCurrentStepValues();\n          rootEl.hidden = true;\n          if (quotationCard) quotationCard.hidden = false;\n          if (continueBtn) continueBtn.hidden = false;\n        }\n        function attachHandlers() {\n          rootEl.querySelectorAll("[data-action]").forEach((btn) => {\n            btn.addEventListener("click", (evt) => {\n              const action = evt.currentTarget.getAttribute("data-action");\n              if (action === "next") handleNext();\n              else if (action === "back") handleBack();\n              else if (action === "submit") handleSubmit();\n              else if (action === "retry") handleSubmit();\n              else if (action === "close") handleClose();\n            });\n          });\n          rootEl.querySelectorAll("[data-goto-step]").forEach((btn) => {\n            btn.addEventListener("click", (evt) => {\n              persistCurrentStepValues();\n              goToStep(Number(evt.currentTarget.getAttribute("data-goto-step")));\n            });\n          });\n        }\n        function openFlow() {\n          if (quotationCard) quotationCard.hidden = true;\n          if (continueBtn) continueBtn.hidden = true;\n          rootEl.hidden = false;\n          render();\n          rootEl.scrollIntoView({ block: "start", behavior: "smooth" });\n        }\n        if (continueBtn) {\n          continueBtn.addEventListener("click", openFlow);\n        }\n      }\n      if (typeof window !== "undefined") {\n        window.__prubsnInitApplicationFlow = initApplicationFlow;\n      }\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = { initApplicationFlow };\n      }\n    }\n  });\n  require_clientRuntime();\n})();\n' : "";
+        const runtimeSource = true ? '"use strict";\n(() => {\n  var __getOwnPropNames = Object.getOwnPropertyNames;\n  var __commonJS = (cb, mod) => function __require() {\n    try {\n      return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;\n    } catch (e) {\n      throw mod = 0, e;\n    }\n  };\n\n  // browser-tool/application/validation.js\n  var require_validation = __commonJS({\n    "browser-tool/application/validation.js"(exports, module) {\n      "use strict";\n      function required(value) {\n        return value != null && String(value).trim().length > 0;\n      }\n      function isValidEmail(value) {\n        if (!value) return false;\n        return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(value).trim());\n      }\n      function isValidMalaysianPhone(value) {\n        if (!value) return false;\n        const digits = String(value).replace(/[\\s-]/g, "").replace(/^\\+?60/, "0");\n        return /^01\\d{8,9}$/.test(digits);\n      }\n      function isValidNRIC(value) {\n        if (!value) return false;\n        const digits = String(value).replace(/[\\s-]/g, "");\n        return /^\\d{12}$/.test(digits);\n      }\n      function formatNRIC(value) {\n        const digits = String(value || "").replace(/[\\s-]/g, "");\n        if (digits.length !== 12) return value || "";\n        return `${digits.slice(0, 6)}-${digits.slice(6, 8)}-${digits.slice(8, 12)}`;\n      }\n      function isValidPercentage(value) {\n        if (value === "" || value == null) return false;\n        const n = Number(value);\n        return Number.isFinite(n) && n > 0 && n <= 100;\n      }\n      function isValidPostcode(value) {\n        if (!value) return false;\n        return /^\\d{5}$/.test(String(value).trim());\n      }\n      var FIELD_RULES = {\n        // --- Step 1: Personal Information ---\n        fullName: { required: true, message: "Full name is required." },\n        nric: { required: true, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },\n        dateOfBirth: { required: true, message: "Date of birth is required." },\n        gender: { required: true, message: "Please select a gender." },\n        race: { required: true, message: "Please select a race." },\n        religion: { required: true, message: "Please select a religion." },\n        mobileNumber: { required: true, validate: isValidMalaysianPhone, message: "Enter a valid Malaysian mobile number (e.g. 012-3456789)." },\n        email: { required: true, validate: isValidEmail, message: "Enter a valid email address." },\n        address: { required: true, message: "Residential address is required." },\n        // --- Step 2: Employment Details ---\n        employmentType: { required: true, message: "Please select an employment type." },\n        occupation: { required: true, message: "Occupation is required." },\n        fieldOfWork: { required: false, message: "" },\n        employerName: { required: false, message: "" },\n        workAddress: { required: false, message: "" },\n        monthlyIncome: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid monthly income." },\n        // Legacy alias kept so an older prefilled/cached value doesn\'t get silently dropped.\n        annualIncome: { required: false, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid annual income." },\n        employer: { required: false, message: "" },\n        // --- Step 3: Family Information ---\n        maritalStatus: { required: true, message: "Please select a marital status." },\n        spouseName: { required: false, message: "" },\n        spouseNric: { required: false, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },\n        numChildren: { required: false, validate: (v) => Number.isFinite(Number(v)) && Number(v) >= 0, message: "Enter a valid number of children." },\n        childrenDetails: { required: false, message: "" },\n        // --- Step 4: Medical History ---\n        height: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid height in cm." },\n        weight: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid weight in kg." },\n        smokingStatus: { required: true, message: "Please select a smoking status." },\n        preExisting: { required: false, message: "" },\n        medications: { required: false, message: "" },\n        allergies: { required: false, message: "" },\n        surgery: { required: false, message: "" },\n        // --- Step 5: Plan Selection + Beneficiary ---\n        plan: { required: true, message: "Please select a plan." },\n        beneficiaryName: { required: true, message: "Beneficiary name is required." },\n        beneficiaryNric: { required: true, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },\n        beneficiaryRelationship: { required: true, message: "Beneficiary relationship is required." },\n        beneficiaryPercentage: { required: true, validate: isValidPercentage, message: "Enter a percentage between 1 and 100." },\n        // --- Step 7: Bank Details ---\n        bankName: { required: true, message: "Bank name is required." },\n        accountNumber: { required: true, message: "Account number is required." },\n        accountHolderName: { required: true, message: "Account holder name is required." },\n        // Retained for a legacy Address-step shape, unused by the current 7-step layout.\n        postcode: { required: false, validate: isValidPostcode, message: "Enter a valid 5-digit postcode." },\n        city: { required: false, message: "City is required." },\n        state: { required: false, message: "Please select a state." }\n      };\n      function validateField(name, value) {\n        const rule = FIELD_RULES[name];\n        if (!rule) return null;\n        if (rule.required && !required(value)) return rule.message;\n        if (required(value) && rule.validate && !rule.validate(value)) return rule.message;\n        return null;\n      }\n      function validateFields(names, values) {\n        const errors = {};\n        for (const name of names) {\n          const msg = validateField(name, values[name]);\n          if (msg) errors[name] = msg;\n        }\n        return errors;\n      }\n      var PruBSNValidation = {\n        required,\n        isValidEmail,\n        isValidMalaysianPhone,\n        isValidNRIC,\n        formatNRIC,\n        isValidPercentage,\n        isValidPostcode,\n        validateField,\n        validateFields,\n        FIELD_RULES\n      };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNValidation;\n      }\n    }\n  });\n\n  // browser-tool/application/ApplicationForm.js\n  var require_ApplicationForm = __commonJS({\n    "browser-tool/application/ApplicationForm.js"(exports, module) {\n      "use strict";\n      var { validateFields } = require_validation();\n      function escapeHtml(value) {\n        return String(value == null ? "" : value).replace(/[&<>"\']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" })[ch]);\n      }\n      var STEP_DEFS = [\n        {\n          id: "personal",\n          title: "Personal Information",\n          subtitle: "Tell us a little about yourself.",\n          fields: [\n            { name: "fullName", label: "Full Name", type: "text", autocomplete: "name" },\n            { name: "nric", label: "NRIC", type: "text", placeholder: "900101-01-1234" },\n            { name: "dateOfBirth", label: "Date of Birth", type: "date" },\n            { name: "gender", label: "Gender", type: "select", options: ["Male", "Female"] },\n            { name: "race", label: "Race", type: "select", options: ["Malay", "Chinese", "Indian", "Others"] },\n            { name: "religion", label: "Religion", type: "select", options: ["Islam", "Christianity", "Buddhism", "Hinduism", "Others"] },\n            { name: "email", label: "Email", type: "email", placeholder: "name@example.com" },\n            { name: "mobileNumber", label: "Phone Number", type: "tel", placeholder: "012-3456789" },\n            { name: "address", label: "Residential Address", type: "textarea" }\n          ]\n        },\n        {\n          id: "employment",\n          title: "Employment Details",\n          subtitle: "A few details about your work.",\n          fields: [\n            { name: "employmentType", label: "Employment Type", type: "select", options: ["Employed", "Self-Employed", "Business Owner", "Unemployed", "Retired", "Student"] },\n            { name: "occupation", label: "Occupation", type: "text" },\n            { name: "fieldOfWork", label: "Field of Work", type: "text", optional: true },\n            { name: "employerName", label: "Employer\'s Name", type: "text", optional: true },\n            { name: "monthlyIncome", label: "Monthly Income (RM)", type: "number", placeholder: "5000" },\n            { name: "workAddress", label: "Work Place Address", type: "textarea", optional: true }\n          ]\n        },\n        {\n          id: "family",\n          title: "Family Information",\n          subtitle: "Tell us about your immediate family.",\n          fields: [\n            { name: "maritalStatus", label: "Marital Status", type: "select", options: ["Single", "Married", "Divorced", "Widowed"] },\n            { name: "spouseName", label: "Spouse Name", type: "text", optional: true },\n            { name: "spouseNric", label: "Spouse NRIC", type: "text", placeholder: "900101-01-1234", optional: true },\n            { name: "numChildren", label: "Number of Children", type: "number", optional: true },\n            { name: "childrenDetails", label: "Children Details", type: "textarea", optional: true }\n          ]\n        },\n        {\n          id: "medical",\n          title: "Medical History",\n          subtitle: "This helps underwriting assess your application accurately.",\n          fields: [\n            { name: "height", label: "Height (cm)", type: "number", placeholder: "170" },\n            { name: "weight", label: "Weight (kg)", type: "number", placeholder: "65" },\n            { name: "smokingStatus", label: "Smoking Status", type: "select", options: ["Non-Smoker", "Smoker", "Former Smoker"] },\n            { name: "preExisting", label: "Pre-existing Medical Conditions", type: "textarea", optional: true, placeholder: "None, if not applicable" },\n            { name: "medications", label: "Current Medications", type: "textarea", optional: true, placeholder: "None, if not applicable" },\n            { name: "allergies", label: "Allergies", type: "textarea", optional: true, placeholder: "None, if not applicable" },\n            { name: "surgery", label: "Previous Surgery / Hospitalisation", type: "textarea", optional: true, placeholder: "None, if not applicable" }\n          ]\n        },\n        {\n          id: "plan",\n          title: "Plan Selection",\n          subtitle: "Choose the plan you would like to proceed with, and tell us who should receive the benefit.",\n          fields: [\n            { name: "plan", label: "Plan", type: "plan-cards" },\n            { name: "beneficiaryName", label: "Beneficiary Name", type: "text" },\n            { name: "beneficiaryNric", label: "Beneficiary NRIC", type: "text", placeholder: "900101-01-1234" },\n            { name: "beneficiaryRelationship", label: "Relationship", type: "text", placeholder: "e.g. Spouse, Child, Parent" },\n            { name: "beneficiaryPercentage", label: "Benefit Weightage (%)", type: "number", placeholder: "100" }\n          ]\n        },\n        {\n          id: "documents",\n          title: "Documents Upload",\n          subtitle: "Upload clear photos so your agent can verify your identity.",\n          fields: [\n            { name: "nricFront", label: "NRIC Front Photo", type: "file" },\n            { name: "nricRear", label: "NRIC Rear Photo", type: "file" },\n            { name: "selfie", label: "Selfie with IC Photo", type: "file" }\n          ]\n        },\n        {\n          id: "bank",\n          title: "Bank Details",\n          subtitle: "Where should refunds or payouts be sent?",\n          fields: [\n            { name: "bankName", label: "Bank Name", type: "text" },\n            { name: "accountNumber", label: "Account Number", type: "text" },\n            { name: "accountHolderName", label: "Account Holder Name", type: "text" }\n          ]\n        }\n      ];\n      var TOTAL_STEPS = STEP_DEFS.length;\n      var DOCUMENTS_STEP_INDEX = STEP_DEFS.findIndex((s) => s.id === "documents");\n      var PLAN_STEP_INDEX = STEP_DEFS.findIndex((s) => s.id === "plan");\n      function stepFieldNames(stepIndex) {\n        const step = STEP_DEFS[stepIndex];\n        return step ? step.fields.filter((f) => f.type !== "file" && f.type !== "plan-cards").map((f) => f.name) : [];\n      }\n      function stepFileFieldNames(stepIndex) {\n        const step = STEP_DEFS[stepIndex];\n        return step ? step.fields.filter((f) => f.type === "file").map((f) => f.name) : [];\n      }\n      function fieldHtml(field, value, error) {\n        const id = `paf-field-${field.name}`;\n        const errorId = `${id}-error`;\n        const commonAttrs = `id="${id}" name="${field.name}" class="paf-input${error ? " paf-input-error" : ""}"` + (field.autocomplete ? ` autocomplete="${field.autocomplete}"` : "") + (error ? ` aria-invalid="true" aria-describedby="${errorId}"` : "");\n        let control;\n        if (field.type === "select") {\n          const options = field.options.map((opt) => `<option value="${escapeHtml(opt)}"${value === opt ? " selected" : ""}>${escapeHtml(opt)}</option>`).join("");\n          control = `<select ${commonAttrs}><option value="">Select...</option>${options}</select>`;\n        } else if (field.type === "textarea") {\n          control = `<textarea ${commonAttrs} rows="3" placeholder="${escapeHtml(field.placeholder || "")}">${escapeHtml(value)}</textarea>`;\n        } else {\n          control = `<input type="${field.type}" ${commonAttrs} value="${escapeHtml(value)}" placeholder="${escapeHtml(field.placeholder || "")}">`;\n        }\n        return `\n    <div class="paf-field">\n      <label class="paf-label" for="${id}">${escapeHtml(field.label)}${field.optional ? \' <span class="paf-optional">(optional)</span>\' : ""}</label>\n      ${control}\n      ${error ? `<div class="paf-error" id="${errorId}">${escapeHtml(error)}</div>` : ""}\n    </div>`;\n      }\n      function fileFieldHtml(field, file, error) {\n        const hasFile = !!file;\n        return `\n    <div class="paf-field paf-file-field">\n      <label class="paf-label" for="paf-file-${field.name}">${escapeHtml(field.label)}</label>\n      <label class="paf-upload${hasFile ? " paf-upload-done" : ""}${error ? " paf-input-error" : ""}" for="paf-file-${field.name}">\n        <span class="paf-upload-icon" aria-hidden="true">${hasFile ? "&#10003;" : "+"}</span>\n        <span class="paf-upload-text">${hasFile ? escapeHtml(file.name) : "Click to upload &mdash; JPG, PNG, or PDF (max 5MB)"}</span>\n      </label>\n      <input type="file" id="paf-file-${field.name}" name="${field.name}" class="paf-upload-input" data-file-field="${field.name}" accept="image/*,.pdf">\n      ${error ? `<div class="paf-error">${escapeHtml(error)}</div>` : ""}\n    </div>`;\n      }\n      function planCardsHtml(plans, selectedIndex, error) {\n        const list = Array.isArray(plans) && plans.length ? plans : [];\n        if (!list.length) {\n          return `<div class="paf-plan-empty">Your agent has not attached a plan to this application yet.</div>`;\n        }\n        const cards = list.map((p, i) => {\n          const picked = selectedIndex === i;\n          return `\n      <div class="paf-plan-card${picked ? " paf-plan-card-picked" : ""}" data-plan-index="${i}" role="button" tabindex="0">\n        ${list.length > 1 && i === 0 ? \'<div class="paf-plan-badge">Recommended</div>\' : ""}\n        <div class="paf-plan-name">${escapeHtml(p.planName || `Option ${i + 1}`)}</div>\n        <div class="paf-plan-price">${p.monthlyContribution ? escapeHtml(p.monthlyContribution) : "&mdash;"}<small>/mo</small></div>\n        <div class="paf-plan-meta">${[p.roomAndBoard, p.annualLimit].filter(Boolean).map(escapeHtml).join(" &middot; ")}</div>\n      </div>`;\n        }).join("");\n        return `<div class="paf-plan-cards" data-field="plan">${cards}</div>${error ? `<div class="paf-error">${escapeHtml(error)}</div>` : ""}`;\n      }\n      function renderStepHtml(stepIndex, values, errors, context) {\n        const step = STEP_DEFS[stepIndex];\n        if (!step) return "";\n        const files = context && context.files || {};\n        const plans = context && context.plans || [];\n        const errs = errors || {};\n        const fieldsHtml = step.fields.map((f) => {\n          if (f.type === "file") return fileFieldHtml(f, files[f.name], errs[f.name]);\n          if (f.type === "plan-cards") {\n            const selectedIndex = plans.findIndex((p) => p.planName === values.plan);\n            return planCardsHtml(plans, selectedIndex === -1 ? null : selectedIndex, errs.plan);\n          }\n          return fieldHtml(f, values[f.name] || "", errs[f.name]);\n        }).join("");\n        return `\n    <div class="paf-step" data-step-id="${step.id}">\n      <h3 class="paf-step-title">${escapeHtml(step.title)}</h3>\n      <p class="paf-step-subtitle">${escapeHtml(step.subtitle)}</p>\n      <div class="paf-fields">${fieldsHtml}</div>\n    </div>`;\n      }\n      function collectStepValues(stepIndex, containerEl) {\n        const names = stepFieldNames(stepIndex);\n        const values = {};\n        for (const name of names) {\n          const el = containerEl.querySelector(`[name="${name}"]`);\n          values[name] = el ? el.value : "";\n        }\n        return values;\n      }\n      function validateStep(stepIndex, values) {\n        return validateFields(stepFieldNames(stepIndex), values);\n      }\n      var PruBSNApplicationForm = {\n        STEP_DEFS,\n        TOTAL_STEPS,\n        DOCUMENTS_STEP_INDEX,\n        PLAN_STEP_INDEX,\n        stepFieldNames,\n        stepFileFieldNames,\n        renderStepHtml,\n        collectStepValues,\n        validateStep\n      };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNApplicationForm;\n      }\n    }\n  });\n\n  // browser-tool/application/ReviewPage.js\n  var require_ReviewPage = __commonJS({\n    "browser-tool/application/ReviewPage.js"(exports, module) {\n      "use strict";\n      var { STEP_DEFS } = require_ApplicationForm();\n      function escapeHtml(value) {\n        return String(value == null ? "" : value).replace(/[&<>"\']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" })[ch]);\n      }\n      function na(value) {\n        return value == null || String(value).trim() === "" ? \'<span class="paf-na">Not provided</span>\' : escapeHtml(value);\n      }\n      function summaryRow(label, value) {\n        return `<div class="paf-summary-row"><span class="paf-summary-label">${escapeHtml(label)}</span><span class="paf-summary-value">${value}</span></div>`;\n      }\n      function renderQuotationSummary(quotation) {\n        const q = quotation || {};\n        const riders = Array.isArray(q.riders) && q.riders.length ? `<ul class="paf-rider-list">${q.riders.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : \'<span class="paf-na">None selected</span>\';\n        return `\n    <section class="paf-review-section">\n      <h4 class="paf-review-heading">Quotation Summary</h4>\n      ${summaryRow("Quotation Number", na(q.quotationNumber))}\n      ${summaryRow("Valid Until", na(q.validUntil))}\n      ${summaryRow("Selected Plan", na(q.planName))}\n      ${summaryRow("Monthly Contribution", na(q.monthlyContribution))}\n      <div class="paf-summary-row paf-summary-row-block">\n        <span class="paf-summary-label">Optional Riders</span>\n        <div class="paf-summary-value">${riders}</div>\n      </div>\n    </section>`;\n      }\n      function renderAgentInfo(agent) {\n        const a = agent || {};\n        return `\n    <section class="paf-review-section">\n      <h4 class="paf-review-heading">Agent Information <span class="paf-readonly-tag">Read-only</span></h4>\n      ${summaryRow("Agent Name", na(a.name))}\n      ${summaryRow("Agency", na(a.agency))}\n      ${summaryRow("Branch", na(a.branch))}\n      ${summaryRow("Contact", na(a.phone || a.email))}\n    </section>`;\n      }\n      function fieldSummaryRow(field, values, files) {\n        if (field.type === "file") {\n          const file = files[field.name];\n          return summaryRow(field.label, file ? escapeHtml(file.name) : \'<span class="paf-na">Not uploaded</span>\');\n        }\n        if (field.type === "plan-cards") {\n          return summaryRow(field.label, na(values[field.name]));\n        }\n        return summaryRow(field.label, na(values[field.name]));\n      }\n      function renderReviewHtml(prefillData, formValues, files) {\n        const data = prefillData || {};\n        const values = formValues || {};\n        const uploadedFiles = files || {};\n        const clientSections = STEP_DEFS.map((step, stepIndex) => {\n          const rows = step.fields.map((f) => fieldSummaryRow(f, values, uploadedFiles)).join("");\n          return `\n      <section class="paf-review-section">\n        <h4 class="paf-review-heading">\n          ${escapeHtml(step.title)}\n          <button type="button" class="paf-edit-link" data-goto-step="${stepIndex}">Edit</button>\n        </h4>\n        ${rows}\n      </section>`;\n        }).join("");\n        return `\n    <div class="paf-step paf-review" data-step-id="review">\n      <h3 class="paf-step-title">Review Your Application</h3>\n      <p class="paf-step-subtitle">Please check everything below before submitting. You can edit any section.</p>\n      ${renderQuotationSummary(data.quotation)}\n      ${renderAgentInfo(data.agent)}\n      ${clientSections}\n    </div>`;\n      }\n      var PruBSNReviewPage = { renderReviewHtml };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNReviewPage;\n      }\n    }\n  });\n\n  // browser-tool/application/ConfirmationPage.js\n  var require_ConfirmationPage = __commonJS({\n    "browser-tool/application/ConfirmationPage.js"(exports, module) {\n      "use strict";\n      function escapeHtml(value) {\n        return String(value == null ? "" : value).replace(/[&<>"\']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" })[ch]);\n      }\n      function na(value) {\n        return value == null || String(value).trim() === "" ? \'<span class="paf-na">Not available</span>\' : escapeHtml(value);\n      }\n      function summaryRow(label, value) {\n        return `<div class="paf-summary-row"><span class="paf-summary-label">${escapeHtml(label)}</span><span class="paf-summary-value">${value}</span></div>`;\n      }\n      var ERROR_MESSAGES = {\n        validation: "There was a problem with your application details.",\n        timeout: "The connection timed out before a response was received.",\n        network: "We couldn\'t reach the server. Please check your internet connection.",\n        not_configured: "Submission is not available right now. Please contact your agent.",\n        http_error: "The server rejected the submission.",\n        server: "The submission service was unavailable.",\n        unknown: "Something went wrong while submitting your application."\n      };\n      function friendlyErrorMessage(error) {\n        const type = error && error.type;\n        return type && ERROR_MESSAGES[type] || ERROR_MESSAGES.unknown;\n      }\n      function renderPending() {\n        return `\n    <div class="paf-step paf-confirmation" data-step-id="confirmation">\n      <div class="paf-confirm-icon" aria-hidden="true">&#8943;</div>\n      <h3 class="paf-step-title">Submitting Your Application&hellip;</h3>\n      <p class="paf-step-subtitle">Please wait a moment. Do not close this window.</p>\n    </div>`;\n      }\n      function renderSuccess(view) {\n        const submittedAt = view.submittedAt ? new Date(view.submittedAt).toLocaleString() : null;\n        return `\n    <div class="paf-step paf-confirmation" data-step-id="confirmation">\n      <div class="paf-confirm-icon" aria-hidden="true">&#10003;</div>\n      <h3 class="paf-step-title">Application Submitted</h3>\n      <p class="paf-step-subtitle">Thank you. Your application has been received.</p>\n      <div class="paf-review-section">\n        ${summaryRow("Reference Number", na(view.reference))}\n        ${summaryRow("Submission Time", submittedAt ? escapeHtml(submittedAt) : na(null))}\n        ${summaryRow("Submission Status", "Confirmed")}\n        ${summaryRow("Agent Name", na(view.agentName))}\n      </div>\n      <p class="paf-confirm-note">Your agent will follow up to complete processing of this application.</p>\n    </div>`;\n      }\n      function renderFailed(view) {\n        return `\n    <div class="paf-step paf-confirmation" data-step-id="confirmation">\n      <div class="paf-confirm-icon" aria-hidden="true">&#10007;</div>\n      <h3 class="paf-step-title">Submission Failed</h3>\n      <p class="paf-step-subtitle">${escapeHtml(friendlyErrorMessage(view.error))}</p>\n      <p class="paf-confirm-note">Your details have been saved on this device. Retrying will not ask you to fill in the form again.</p>\n      <div class="paf-nav">\n        <span></span>\n        <button type="button" class="paf-btn paf-btn-primary" data-action="retry">Retry Submission</button>\n      </div>\n    </div>`;\n      }\n      function renderConfirmationHtml(view) {\n        const v = view || {};\n        if (v.status === "success") return renderSuccess(v);\n        if (v.status === "failed") return renderFailed(v);\n        return renderPending();\n      }\n      var PruBSNConfirmationPage = { renderConfirmationHtml };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNConfirmationPage;\n      }\n    }\n  });\n\n  // browser-tool/application/submission.js\n  var require_submission = __commonJS({\n    "browser-tool/application/submission.js"(exports, module) {\n      "use strict";\n      function buildSubmission(prefillData, formState) {\n        const quotation = prefillData && prefillData.quotation || {};\n        const client = {\n          fullName: formState.fullName || "",\n          nric: formState.nric || "",\n          dateOfBirth: formState.dateOfBirth || "",\n          gender: formState.gender || "",\n          mobileNumber: formState.mobileNumber || "",\n          email: formState.email || ""\n        };\n        const application = {\n          address: formState.address || "",\n          postcode: formState.postcode || "",\n          city: formState.city || "",\n          state: formState.state || "",\n          occupation: formState.occupation || "",\n          employer: formState.employer || "",\n          annualIncome: formState.annualIncome || "",\n          beneficiary: {\n            name: formState.beneficiaryName || "",\n            relationship: formState.beneficiaryRelationship || "",\n            percentage: formState.beneficiaryPercentage || ""\n          }\n        };\n        return {\n          quotation,\n          client,\n          application,\n          timestamp: (/* @__PURE__ */ new Date()).toISOString()\n        };\n      }\n      var PruBSNSubmission = { buildSubmission };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNSubmission;\n      }\n    }\n  });\n\n  // browser-tool/models/SubmissionPayload.js\n  var require_SubmissionPayload = __commonJS({\n    "browser-tool/models/SubmissionPayload.js"(exports, module) {\n      "use strict";\n      var { buildSubmission } = require_submission();\n      var PARSER_VERSION = "v1.0-phase1-parser";\n      var RENDERER_VERSION = "v1.1-phase2-renderer";\n      var PAYLOAD_VERSION = "1.1";\n      var SUBMISSION_SOURCE = "quotation-generator-client-application";\n      function buildAgentInfo(prefillData) {\n        const source = prefillData && prefillData.agent || {};\n        const agent = {};\n        if (source.name) agent.name = source.name;\n        if (source.agency) agent.agency = source.agency;\n        if (source.branch) agent.branch = source.branch;\n        return agent;\n      }\n      function buildEmployment(formState) {\n        const f = formState || {};\n        return {\n          employmentType: f.employmentType || "",\n          fieldOfWork: f.fieldOfWork || "",\n          employerName: f.employerName || "",\n          workAddress: f.workAddress || "",\n          monthlyIncome: f.monthlyIncome || ""\n        };\n      }\n      function buildFamily(formState) {\n        const f = formState || {};\n        return {\n          maritalStatus: f.maritalStatus || "",\n          spouseName: f.spouseName || "",\n          spouseNric: f.spouseNric || "",\n          numChildren: f.numChildren || "",\n          childrenDetails: f.childrenDetails || ""\n        };\n      }\n      function buildMedicalHistory(formState) {\n        const f = formState || {};\n        return {\n          height: f.height || "",\n          weight: f.weight || "",\n          smokingStatus: f.smokingStatus || "",\n          preExistingConditions: f.preExisting || "",\n          currentMedications: f.medications || "",\n          allergies: f.allergies || "",\n          previousSurgeryOrHospitalisation: f.surgery || ""\n        };\n      }\n      function buildBank(formState) {\n        const f = formState || {};\n        return {\n          bankName: f.bankName || "",\n          accountNumber: f.accountNumber || "",\n          accountHolderName: f.accountHolderName || ""\n        };\n      }\n      function buildSubmissionPayload(prefillData, formState, documents, options) {\n        const { submissionId } = options || {};\n        const legacy = buildSubmission(prefillData, formState);\n        const { beneficiary, ...applicationRest } = legacy.application;\n        const applicant = {\n          ...legacy.client,\n          ...applicationRest\n        };\n        const beneficiaries = beneficiary && beneficiary.name ? [{ ...beneficiary, nric: formState && formState.beneficiaryNric || "" }] : [];\n        const generatedMeta = prefillData && prefillData.metadata || {};\n        return {\n          version: PAYLOAD_VERSION,\n          quotation: legacy.quotation,\n          selectedPlan: formState && formState.plan || null,\n          agent: buildAgentInfo(prefillData),\n          applicant,\n          beneficiaries,\n          employment: buildEmployment(formState),\n          family: buildFamily(formState),\n          medicalHistory: buildMedicalHistory(formState),\n          bank: buildBank(formState),\n          documents: documents || {},\n          metadata: {\n            submissionId: submissionId || null,\n            quotationId: legacy.quotation && legacy.quotation.quotationNumber || null,\n            parserVersion: PARSER_VERSION,\n            rendererVersion: RENDERER_VERSION,\n            generatedAt: generatedMeta.generatedAt || null,\n            submittedAt: (/* @__PURE__ */ new Date()).toISOString(),\n            product: legacy.quotation && legacy.quotation.planName || null,\n            source: SUBMISSION_SOURCE\n          }\n        };\n      }\n      var PruBSNSubmissionPayload = { buildSubmissionPayload, PARSER_VERSION, RENDERER_VERSION, PAYLOAD_VERSION };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNSubmissionPayload;\n      }\n    }\n  });\n\n  // browser-tool/queue/SubmissionQueue.js\n  var require_SubmissionQueue = __commonJS({\n    "browser-tool/queue/SubmissionQueue.js"(exports, module) {\n      "use strict";\n      var STORAGE_KEY = "prubsn_submission_queue_v1";\n      function hasWorkingLocalStorage() {\n        try {\n          if (typeof localStorage === "undefined") return false;\n          const probeKey = `${STORAGE_KEY}_probe`;\n          localStorage.setItem(probeKey, "1");\n          localStorage.removeItem(probeKey);\n          return true;\n        } catch (e) {\n          return false;\n        }\n      }\n      function createQueue() {\n        const persistent = hasWorkingLocalStorage();\n        let memoryEntries = [];\n        if (!persistent && typeof console !== "undefined") {\n          console.warn("SubmissionQueue: localStorage is unavailable in this context; falling back to in-memory-only queue (entries will not survive a page reload).");\n        }\n        function readAll() {\n          if (!persistent) return memoryEntries;\n          try {\n            const raw = localStorage.getItem(STORAGE_KEY);\n            return raw ? JSON.parse(raw) : [];\n          } catch (e) {\n            return [];\n          }\n        }\n        function writeAll(entries) {\n          if (!persistent) {\n            memoryEntries = entries;\n            return;\n          }\n          try {\n            localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));\n          } catch (e) {\n          }\n        }\n        function enqueue(submissionId, payload, error) {\n          const entries = readAll();\n          const existing = entries.find((e) => e.submissionId === submissionId);\n          const now = (/* @__PURE__ */ new Date()).toISOString();\n          if (existing) {\n            existing.payload = payload;\n            existing.lastError = error || null;\n            existing.attempts += 1;\n            existing.updatedAt = now;\n          } else {\n            entries.push({\n              submissionId,\n              payload,\n              resolved: false,\n              attempts: 1,\n              lastError: error || null,\n              createdAt: now,\n              updatedAt: now\n            });\n          }\n          writeAll(entries);\n        }\n        function markResolved(submissionId, reference) {\n          const entries = readAll();\n          const existing = entries.find((e) => e.submissionId === submissionId);\n          const now = (/* @__PURE__ */ new Date()).toISOString();\n          if (existing) {\n            existing.resolved = true;\n            existing.reference = reference || null;\n            existing.updatedAt = now;\n          } else {\n            entries.push({\n              submissionId,\n              payload: null,\n              resolved: true,\n              reference: reference || null,\n              attempts: 1,\n              lastError: null,\n              createdAt: now,\n              updatedAt: now\n            });\n          }\n          writeAll(entries);\n        }\n        function hasResolved(submissionId) {\n          const existing = readAll().find((e) => e.submissionId === submissionId);\n          return Boolean(existing && existing.resolved);\n        }\n        function getReference(submissionId) {\n          const existing = readAll().find((e) => e.submissionId === submissionId);\n          return existing && existing.resolved ? existing.reference : null;\n        }\n        function listPending() {\n          return readAll().filter((e) => !e.resolved);\n        }\n        function isPersistent() {\n          return persistent;\n        }\n        return { enqueue, markResolved, hasResolved, getReference, listPending, isPersistent };\n      }\n      var PruBSNSubmissionQueue = { createQueue };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNSubmissionQueue;\n      }\n    }\n  });\n\n  // browser-tool/services/SubmissionService.js\n  var require_SubmissionService = __commonJS({\n    "browser-tool/services/SubmissionService.js"(exports, module) {\n      "use strict";\n      var { createQueue } = require_SubmissionQueue();\n      var defaultQueue = createQueue();\n      function classifyError(err) {\n        const type = err && err.type || "unknown";\n        const message = err && err.message || "Submission failed for an unknown reason.";\n        return { type, message };\n      }\n      function validatePayload(payload) {\n        if (!payload || typeof payload !== "object") return "Payload is missing.";\n        if (!payload.metadata || !payload.metadata.submissionId) return "Payload is missing metadata.submissionId.";\n        if (!payload.applicant || typeof payload.applicant !== "object") return "Payload is missing applicant details.";\n        if (!Array.isArray(payload.beneficiaries)) return "Payload is missing a beneficiaries array.";\n        return null;\n      }\n      async function submit(payload, options) {\n        const { destination, queue = defaultQueue } = options || {};\n        if (!destination || typeof destination.send !== "function") {\n          throw new Error("SubmissionService.submit: a destination with a send() function is required.");\n        }\n        const submissionId = payload && payload.metadata && payload.metadata.submissionId;\n        const validationMessage = validatePayload(payload);\n        if (validationMessage) {\n          const error = { type: "validation", message: validationMessage };\n          if (submissionId) queue.enqueue(submissionId, payload, error);\n          return { status: "failed", submissionId: submissionId || null, error, queued: Boolean(submissionId) };\n        }\n        if (queue.hasResolved(submissionId)) {\n          return { status: "success", submissionId, reference: queue.getReference(submissionId), deduped: true };\n        }\n        queue.enqueue(submissionId, payload, null);\n        try {\n          const result = await destination.send(payload);\n          queue.markResolved(submissionId, result && result.reference);\n          return { status: "success", submissionId, reference: result && result.reference };\n        } catch (err) {\n          const error = classifyError(err);\n          queue.enqueue(submissionId, payload, error);\n          return { status: "failed", submissionId, error, queued: true };\n        }\n      }\n      function listPending(queue = defaultQueue) {\n        return queue.listPending();\n      }\n      var SubmissionService = { submit, listPending, defaultQueue };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = SubmissionService;\n      }\n    }\n  });\n\n  // browser-tool/destinations/AirtableDestination.js\n  var require_AirtableDestination = __commonJS({\n    "browser-tool/destinations/AirtableDestination.js"(exports, module) {\n      "use strict";\n      var webhookUrl = null;\n      var DEFAULT_TIMEOUT_MS = 15e3;\n      function configure(options) {\n        webhookUrl = options && options.webhookUrl || null;\n      }\n      function createTypedError(type, message) {\n        const err = new Error(message);\n        err.type = type;\n        return err;\n      }\n      function fallbackReference(payload) {\n        const submissionId = payload && payload.metadata && payload.metadata.submissionId;\n        return submissionId ? `AT-${String(submissionId).slice(0, 8).toUpperCase()}` : `AT-${Date.now().toString(36).toUpperCase()}`;\n      }\n      async function send(payload) {\n        if (!webhookUrl) {\n          throw createTypedError("not_configured", "AirtableDestination: webhookUrl is not set. See this file\'s header for setup steps.");\n        }\n        const controller = typeof AbortController !== "undefined" ? new AbortController() : null;\n        const timer = controller ? setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS) : null;\n        let response;\n        try {\n          response = await fetch(webhookUrl, {\n            method: "POST",\n            headers: { "Content-Type": "application/json" },\n            body: JSON.stringify(payload),\n            signal: controller ? controller.signal : void 0\n          });\n        } catch (err) {\n          if (err && err.name === "AbortError") {\n            throw createTypedError("timeout", "AirtableDestination: request timed out.");\n          }\n          throw createTypedError("network", `AirtableDestination: network error - ${err && err.message ? err.message : err}`);\n        } finally {\n          if (timer) clearTimeout(timer);\n        }\n        if (!response.ok) {\n          throw createTypedError("http_error", `AirtableDestination: webhook responded with HTTP ${response.status}`);\n        }\n        let body = null;\n        try {\n          body = await response.json();\n        } catch (e) {\n        }\n        return { reference: body && body.reference || fallbackReference(payload) };\n      }\n      var AirtableDestination = { name: "airtable", send, configure };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = AirtableDestination;\n      }\n    }\n  });\n\n  // browser-tool/application/clientRuntime.js\n  var require_clientRuntime = __commonJS({\n    "browser-tool/application/clientRuntime.js"(exports, module) {\n      var ApplicationForm = require_ApplicationForm();\n      var ReviewPage = require_ReviewPage();\n      var ConfirmationPage = require_ConfirmationPage();\n      var { buildSubmissionPayload } = require_SubmissionPayload();\n      var SubmissionService = require_SubmissionService();\n      var AirtableDestination = require_AirtableDestination();\n      var REVIEW_STEP = ApplicationForm.TOTAL_STEPS;\n      var CONFIRMATION_STEP = ApplicationForm.TOTAL_STEPS + 1;\n      var STEP_LABELS = ApplicationForm.STEP_DEFS.map((s) => s.title).concat(["Review"]);\n      var ACTIVE_DESTINATION = AirtableDestination.configure({\n        webhookUrl: "https://hooks.airtable.com/workflows/v1/genericWebhook/appcA4lwc8KrLNxwM/wflQdJbGW3L2C8hoC/wtr78zDfdM03qbWWI"\n      });\n      var MAX_FILE_BYTES = 5 * 1024 * 1024;\n      function fileToBase64(file) {\n        return new Promise((resolve, reject) => {\n          const reader = new FileReader();\n          reader.onload = () => resolve(String(reader.result).split(",")[1]);\n          reader.onerror = reject;\n          reader.readAsDataURL(file);\n        });\n      }\n      function deriveDobFromNric(nricValue) {\n        const digits = String(nricValue || "").replace(/\\D/g, "").slice(0, 6);\n        if (digits.length !== 6) return null;\n        const yy = parseInt(digits.slice(0, 2), 10);\n        const mm = parseInt(digits.slice(2, 4), 10);\n        const dd = parseInt(digits.slice(4, 6), 10);\n        if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;\n        const currentYY = (/* @__PURE__ */ new Date()).getFullYear() % 100;\n        const century = yy <= currentYY ? 2e3 : 1900;\n        const pad = (n) => String(n).padStart(2, "0");\n        return `${century + yy}-${pad(mm)}-${pad(dd)}`;\n      }\n      function generateSubmissionId() {\n        if (typeof crypto !== "undefined" && crypto.getRandomValues) {\n          const bytes = crypto.getRandomValues(new Uint8Array(16));\n          bytes[6] = bytes[6] & 15 | 64;\n          bytes[8] = bytes[8] & 63 | 128;\n          const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");\n          return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;\n        }\n        return `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;\n      }\n      function buildInitialValues(prefillData) {\n        const client = prefillData && prefillData.client || {};\n        return {\n          fullName: client.fullName || "",\n          dateOfBirth: client.dateOfBirthIso || "",\n          gender: client.gender || ""\n        };\n      }\n      function renderProgressHtml(currentStep) {\n        const items = STEP_LABELS.map((label, i) => {\n          const status = i < currentStep ? "done" : i === currentStep ? "current" : "upcoming";\n          return `<li class="paf-progress-item paf-progress-${status}"><span class="paf-progress-dot">${i + 1}</span><span class="paf-progress-label">${label}</span></li>`;\n        }).join("");\n        return `<ol class="paf-progress">${items}</ol>`;\n      }\n      function renderNavHtml(currentStep) {\n        if (currentStep === CONFIRMATION_STEP) return "";\n        const backBtn = currentStep > 0 ? \'<button type="button" class="paf-btn paf-btn-secondary" data-action="back">Back</button>\' : "<span></span>";\n        const forwardBtn = currentStep === REVIEW_STEP ? \'<button type="button" class="paf-btn paf-btn-primary" data-action="submit">Submit Application</button>\' : \'<button type="button" class="paf-btn paf-btn-primary" data-action="next">Next</button>\';\n        return `<div class="paf-nav">${backBtn}${forwardBtn}</div>`;\n      }\n      function initApplicationFlow(rootEl, prefillData) {\n        if (!rootEl) return;\n        const state = {\n          currentStep: 0,\n          values: buildInitialValues(prefillData),\n          files: {},\n          // Documents step File objects, keyed by field name - never merged into `values`\n          errors: {},\n          submissionId: null,\n          submissionPayload: null,\n          submissionStatus: "idle",\n          // \'idle\' | \'pending\' | \'success\' | \'failed\'\n          submissionResult: null\n          // last SubmissionService.submit() result\n        };\n        const continueBtn = document.getElementById("paf-continue-btn");\n        const quotationCard = document.querySelector(".sheet");\n        function buildConfirmationView() {\n          const result = state.submissionResult;\n          return {\n            status: state.submissionStatus,\n            reference: result && result.reference,\n            submittedAt: state.submissionPayload && state.submissionPayload.metadata.submittedAt,\n            agentName: prefillData && prefillData.agent && prefillData.agent.name,\n            error: result && result.error\n          };\n        }\n        function render() {\n          const bodyHtml = state.currentStep < REVIEW_STEP ? ApplicationForm.renderStepHtml(state.currentStep, state.values, state.errors, { files: state.files, plans: prefillData && prefillData.plans }) : state.currentStep === REVIEW_STEP ? ReviewPage.renderReviewHtml(prefillData, state.values, state.files) : ConfirmationPage.renderConfirmationHtml(buildConfirmationView());\n          rootEl.innerHTML = `\n      <div class="paf-shell">\n        ${state.currentStep <= REVIEW_STEP ? \'<button type="button" class="paf-back-link" data-action="close">&larr; Back to quotation</button>\' : ""}\n        ${state.currentStep <= REVIEW_STEP ? renderProgressHtml(state.currentStep) : ""}\n        <div class="paf-step-body">${bodyHtml}</div>\n        ${renderNavHtml(state.currentStep)}\n      </div>`;\n          attachHandlers();\n        }\n        function goToStep(index) {\n          const alreadyThere = state.currentStep === index;\n          state.currentStep = index;\n          render();\n          if (!alreadyThere) rootEl.scrollIntoView({ block: "start", behavior: "smooth" });\n        }\n        function persistCurrentStepValues() {\n          if (state.currentStep >= REVIEW_STEP) return;\n          const container = rootEl.querySelector(".paf-step");\n          if (!container) return;\n          Object.assign(state.values, ApplicationForm.collectStepValues(state.currentStep, container));\n          if (!state.values.dateOfBirth) {\n            const derived = deriveDobFromNric(state.values.nric);\n            if (derived) state.values.dateOfBirth = derived;\n          }\n        }\n        function validateDocumentsStep() {\n          const errors = {};\n          for (const name of ApplicationForm.stepFileFieldNames(state.currentStep)) {\n            const file = state.files[name];\n            if (!file) errors[name] = "Please upload this document.";\n            else if (file.size > MAX_FILE_BYTES) errors[name] = "File is too large - please upload a file under 5MB.";\n          }\n          return errors;\n        }\n        function handleNext() {\n          persistCurrentStepValues();\n          const errors = state.currentStep === ApplicationForm.DOCUMENTS_STEP_INDEX ? validateDocumentsStep() : ApplicationForm.validateStep(state.currentStep, state.values);\n          if (state.currentStep === ApplicationForm.PLAN_STEP_INDEX && !state.values.plan) {\n            errors.plan = "Please select a plan.";\n          }\n          if (Object.keys(errors).length > 0) {\n            state.errors = errors;\n            render();\n            return;\n          }\n          state.errors = {};\n          goToStep(state.currentStep + 1);\n        }\n        function handleBack() {\n          persistCurrentStepValues();\n          goToStep(Math.max(0, state.currentStep - 1));\n        }\n        async function handleSubmit() {\n          if (state.submissionStatus === "pending") return;\n          if (!state.submissionId) state.submissionId = generateSubmissionId();\n          state.submissionStatus = "pending";\n          goToStep(CONFIRMATION_STEP);\n          if (!state.submissionPayload) {\n            const documents = {};\n            for (const [name, file] of Object.entries(state.files)) {\n              try {\n                documents[name] = { filename: file.name, mimeType: file.type || "application/octet-stream", base64: await fileToBase64(file) };\n              } catch (e) {\n              }\n            }\n            state.submissionPayload = buildSubmissionPayload(prefillData, state.values, documents, { submissionId: state.submissionId });\n          }\n          const result = await SubmissionService.submit(state.submissionPayload, { destination: ACTIVE_DESTINATION });\n          state.submissionResult = result;\n          state.submissionStatus = result.status;\n          render();\n        }\n        function handleClose() {\n          persistCurrentStepValues();\n          rootEl.hidden = true;\n          if (quotationCard) quotationCard.hidden = false;\n          if (continueBtn) continueBtn.hidden = false;\n        }\n        function attachHandlers() {\n          rootEl.querySelectorAll("[data-action]").forEach((btn) => {\n            btn.addEventListener("click", (evt) => {\n              const action = evt.currentTarget.getAttribute("data-action");\n              if (action === "next") handleNext();\n              else if (action === "back") handleBack();\n              else if (action === "submit") handleSubmit();\n              else if (action === "retry") handleSubmit();\n              else if (action === "close") handleClose();\n            });\n          });\n          rootEl.querySelectorAll("[data-goto-step]").forEach((btn) => {\n            btn.addEventListener("click", (evt) => {\n              persistCurrentStepValues();\n              goToStep(Number(evt.currentTarget.getAttribute("data-goto-step")));\n            });\n          });\n          rootEl.querySelectorAll("[data-file-field]").forEach((input) => {\n            input.addEventListener("change", (evt) => {\n              const name = evt.currentTarget.getAttribute("data-file-field");\n              const file = evt.currentTarget.files && evt.currentTarget.files[0];\n              if (!file) return;\n              state.files[name] = file;\n              if (state.errors[name]) delete state.errors[name];\n              render();\n            });\n          });\n          rootEl.querySelectorAll("[data-plan-index]").forEach((card) => {\n            const select = () => {\n              const idx = Number(card.getAttribute("data-plan-index"));\n              const plans = prefillData && prefillData.plans || [];\n              const chosen = plans[idx];\n              if (!chosen) return;\n              state.values.plan = chosen.planName || `Option ${idx + 1}`;\n              if (state.errors.plan) delete state.errors.plan;\n              render();\n            };\n            card.addEventListener("click", select);\n            card.addEventListener("keydown", (evt) => {\n              if (evt.key === "Enter" || evt.key === " ") {\n                evt.preventDefault();\n                select();\n              }\n            });\n          });\n        }\n        function openFlow() {\n          if (quotationCard) quotationCard.hidden = true;\n          if (continueBtn) continueBtn.hidden = true;\n          rootEl.hidden = false;\n          render();\n          rootEl.scrollIntoView({ block: "start", behavior: "smooth" });\n        }\n        if (continueBtn) {\n          continueBtn.addEventListener("click", openFlow);\n        }\n      }\n      if (typeof window !== "undefined") {\n        window.__prubsnInitApplicationFlow = initApplicationFlow;\n      }\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = { initApplicationFlow };\n      }\n    }\n  });\n  require_clientRuntime();\n})();\n' : "";
         const prefillJson = JSON.stringify(prefillData || {}).replace(/</g, "\\u003c");
         return `${quotationHtml}
 <style>${APPLICATION_STYLE}</style>
@@ -2059,9 +2272,11 @@ ${list}
   var { parseQuotation } = require_parser();
   var { validateQuotation } = require_validate();
   var { renderAgentReviewHtml, renderClientQuotationHtml } = require_renderQuotation();
+  var { renderComparisonHtml } = require_renderComparison();
   var { primaryValue } = require_formatters();
   var { buildPrefillData } = require_buildPrefillData();
   var { composeClientDocument } = require_composeClientDocument();
+  var MAX_QUOTATIONS = 3;
   var KNOWN_MERGED_BENEFIT_VALUES = {
     "Surgical Procedure and Treatment": "As charged",
     "Post-Hospitalisation Treatment": "As charged",
@@ -2109,6 +2324,15 @@ ${list}
     { section: "Benefits", path: "benefits.lifetimeLimit", label: "Lifetime limit" },
     { section: "Options", path: "options.coverageTerm", label: "Options table coverage term" }
   ];
+  var OPTION_COLUMN_FIELDS = [
+    ["productName", "Product name"],
+    ["annualContribution", "Annual contribution (RM)"],
+    ["coPaymentOption", "Co-payment option"],
+    ["roomAndBoard", "Room & board"],
+    ["annualLimitOption", "Annual limit"],
+    ["lifetimeLimitOption", "Lifetime limit"],
+    ["facilityType", "Facility type"]
+  ];
   function getPath(obj, path) {
     return path.split(".").reduce((acc, key) => acc == null ? void 0 : acc[key], obj);
   }
@@ -2122,74 +2346,152 @@ ${list}
     cursor[keys[keys.length - 1]] = value;
   }
   function warningsForPath(warnings, path) {
-    return warnings.filter((w) => w.field === path || w.field.startsWith(path + "."));
+    return (warnings || []).filter((w) => w.field === path || w.field.startsWith(path + "."));
   }
   function errorsForPath(errors, path) {
-    return errors.filter((e) => e.field === path || e.field.startsWith(path + "."));
+    return (errors || []).filter((e) => e.field === path || e.field.startsWith(path + "."));
   }
+  function escapeHtml(value) {
+    if (value == null) return "";
+    return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  var quotationIdCounter = 0;
   var state = {
     stage: "upload",
-    // upload | parsing | review | error
-    fileName: null,
-    data: null,
-    warnings: [],
-    errors: [],
-    reviewAcknowledged: false,
+    // upload | review | output
+    quotations: [],
+    // { id, fileName, status: 'parsing'|'ready'|'error', errorMessage, data, warnings, errors }
+    activeReviewIndex: 0,
+    activeOutputIndex: 0,
     quotationNumber: "",
-    validUntilIso: ""
+    validUntilIso: "",
+    generatedDocs: [],
+    // [{ fileName, html }] one per quotation, filled in on Generate
+    comparisonHtml: null
   };
   var el = {
-    uploadStage: document.getElementById("stage-upload"),
-    reviewStage: document.getElementById("stage-review"),
+    stages: {
+      upload: document.getElementById("stage-upload"),
+      review: document.getElementById("stage-review"),
+      output: document.getElementById("stage-output")
+    },
+    stepChips: Array.from(document.querySelectorAll(".step-chip")),
     fileInput: document.getElementById("file-input"),
     dropZone: document.getElementById("drop-zone"),
-    uploadStatus: document.getElementById("upload-status"),
-    reviewSummary: document.getElementById("review-summary"),
-    reviewForm: document.getElementById("review-form"),
-    benefitItemsTable: document.getElementById("benefit-items-table"),
-    optionsTable: document.getElementById("options-table"),
+    fileList: document.getElementById("file-list"),
+    continueBtn: document.getElementById("continue-to-review-btn"),
+    reviewTabs: document.getElementById("review-tabs"),
+    reviewPanels: document.getElementById("review-panels"),
     revalidateBtn: document.getElementById("revalidate-btn"),
     ackCheckbox: document.getElementById("ack-checkbox"),
     quotationNumberInput: document.getElementById("quotation-number-input"),
     validUntilInput: document.getElementById("valid-until-input"),
     generateBtn: document.getElementById("generate-btn"),
+    backToUploadBtn: document.getElementById("back-to-upload-btn"),
     startOverBtn: document.getElementById("start-over-btn"),
-    downloadSection: document.getElementById("download-section"),
+    outputBanner: document.getElementById("output-banner"),
+    comparisonBlock: document.getElementById("comparison-block"),
+    comparisonFrame: document.getElementById("comparison-frame"),
+    printComparisonBtn: document.getElementById("print-comparison-btn"),
+    outputTabs: document.getElementById("output-tabs"),
+    previewFrame: document.getElementById("preview-frame"),
     downloadBtn: document.getElementById("download-btn"),
-    previewFrame: document.getElementById("preview-frame")
+    printBtn: document.getElementById("print-btn"),
+    outputBackBtn: document.getElementById("output-back-btn"),
+    outputStartOverBtn: document.getElementById("output-start-over-btn")
   };
   function showStage(stage) {
     state.stage = stage;
-    el.uploadStage.hidden = stage !== "upload";
-    el.reviewStage.hidden = stage !== "review";
+    Object.entries(el.stages).forEach(([name, node]) => node.classList.toggle("active", name === stage));
+    const order = ["upload", "review", "output"];
+    const activeIdx = order.indexOf(stage);
+    el.stepChips.forEach((chip) => {
+      const idx = order.indexOf(chip.dataset.step);
+      chip.classList.toggle("active", idx === activeIdx);
+      chip.classList.toggle("done", idx < activeIdx);
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
-  async function handleFile(file) {
-    if (!file) return;
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      el.uploadStatus.textContent = "Please choose a PDF file.";
-      return;
-    }
-    state.fileName = file.name;
-    el.uploadStatus.textContent = `Reading ${file.name}...`;
+  function renderFileList() {
+    el.fileList.innerHTML = state.quotations.map((q, i) => {
+      const icon = q.status === "parsing" ? '<span class="spinner" aria-hidden="true"></span>' : q.status === "ready" ? "&#10003;" : "&#10007;";
+      const statusText = q.status === "parsing" ? "Reading and parsing&hellip;" : q.status === "ready" ? q.errors && q.errors.length ? `${q.errors.length} required field(s) need attention` : "Ready for review" : q.errorMessage || "Could not read this file.";
+      return `
+      <div class="file-chip ${q.status}">
+        <div class="fi">${icon}</div>
+        <div class="meta">
+          <div class="fname">${escapeHtml(q.fileName)}</div>
+          <div class="fstatus">${escapeHtml(statusText)}</div>
+        </div>
+        <button type="button" class="remove-btn" data-remove-index="${i}" aria-label="Remove ${escapeHtml(q.fileName)}">&times;</button>
+      </div>`;
+    }).join("");
+    el.fileList.querySelectorAll("[data-remove-index]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const idx = Number(e.currentTarget.dataset.removeIndex);
+        state.quotations.splice(idx, 1);
+        renderFileList();
+        updateContinueButton();
+      });
+    });
+  }
+  function updateContinueButton() {
+    const hasParsing = state.quotations.some((q) => q.status === "parsing");
+    const hasReady = state.quotations.some((q) => q.status === "ready");
+    el.continueBtn.hidden = state.quotations.length === 0;
+    el.continueBtn.disabled = hasParsing || !hasReady;
+    el.continueBtn.textContent = hasParsing ? "Parsing\u2026" : "Continue to Review \u2192";
+  }
+  async function parseOneFile(entry, file) {
     try {
       const buffer = await file.arrayBuffer();
-      el.uploadStatus.textContent = "Extracting text from PDF (this never leaves your browser)...";
       const pages = await extractPagesFromPdf(new Uint8Array(buffer));
-      el.uploadStatus.textContent = "Parsing quotation data...";
       const result = parseQuotation(pages, { sourceFileName: file.name, validityDays: 14 });
       applyKnownMergedBenefitValues(result.data);
-      state.data = result.data;
-      state.warnings = result.warnings;
-      state.errors = result.errors;
-      state.reviewAcknowledged = false;
-      renderReview();
-      showStage("review");
+      entry.status = "ready";
+      entry.data = result.data;
+      entry.warnings = result.warnings;
+      entry.errors = result.errors;
     } catch (err) {
-      el.uploadStatus.textContent = `Could not read this PDF: ${err.message}. Try the agent review screen won't be shown - please check the file and try again.`;
+      entry.status = "error";
+      const reason = (err && err.message ? err.message : "unknown error").replace(/\.+$/, "");
+      entry.errorMessage = `Could not read this PDF: ${reason}.`;
       console.error(err);
     }
+    renderFileList();
+    updateContinueButton();
   }
-  el.fileInput.addEventListener("change", (e) => handleFile(e.target.files[0]));
+  function handleFiles(fileList) {
+    const incoming = Array.from(fileList || []);
+    if (!incoming.length) return;
+    const remainingSlots = MAX_QUOTATIONS - state.quotations.length;
+    const accepted = incoming.slice(0, Math.max(0, remainingSlots));
+    for (const file of accepted) {
+      const entry = {
+        id: `q${quotationIdCounter++}`,
+        fileName: file.name,
+        status: "parsing",
+        errorMessage: null,
+        data: null,
+        warnings: [],
+        errors: []
+      };
+      if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+        entry.status = "error";
+        entry.errorMessage = "Not a PDF file.";
+        state.quotations.push(entry);
+        continue;
+      }
+      state.quotations.push(entry);
+      parseOneFile(entry, file);
+    }
+    renderFileList();
+    updateContinueButton();
+  }
+  el.fileInput.addEventListener("change", (e) => {
+    handleFiles(e.target.files);
+    el.fileInput.value = "";
+  });
   el.dropZone.addEventListener("dragover", (e) => {
     e.preventDefault();
     el.dropZone.classList.add("drag-over");
@@ -2198,32 +2500,23 @@ ${list}
   el.dropZone.addEventListener("drop", (e) => {
     e.preventDefault();
     el.dropZone.classList.remove("drag-over");
-    handleFile(e.dataTransfer.files[0]);
+    handleFiles(e.dataTransfer.files);
   });
-  function renderReview() {
-    renderSummary();
-    renderForm();
-    renderBenefitItemsTable();
-    renderOptionsTable();
-    updateGateState();
+  el.continueBtn.addEventListener("click", () => {
+    state.quotations = state.quotations.filter((q) => q.status === "ready");
+    if (!state.quotations.length) return;
+    state.activeReviewIndex = 0;
+    renderReviewStage();
+    showStage("review");
+  });
+  function quotationLabel(q, index) {
+    const name = q.data && q.data.client && q.data.client.fullName;
+    return name || q.fileName || `Quotation ${index + 1}`;
   }
-  function renderSummary() {
-    const { errors, warnings } = state;
-    const parts = [];
-    if (errors.length) {
-      parts.push(`<div class="banner banner-error"><b>${errors.length} required field(s) still need attention.</b> The client quotation cannot be generated until these are fixed below.</div>`);
-    } else {
-      parts.push(`<div class="banner banner-ok">All required fields are present.</div>`);
-    }
-    if (warnings.length) {
-      parts.push(`<div class="banner banner-warn"><b>${warnings.length} warning(s).</b> Review the flagged fields below - none of this is shown to the client, but you should verify it against the source PDF.</div>`);
-    }
-    el.reviewSummary.innerHTML = parts.join("");
-  }
-  function fieldRowHtml(field) {
-    const value = getPath(state.data, field.path);
-    const fieldWarnings = warningsForPath(state.warnings, field.path);
-    const fieldErrors = errorsForPath(state.errors, field.path);
+  function fieldRowHtml(q, qIndex, field) {
+    const value = getPath(q.data, field.path);
+    const fieldWarnings = warningsForPath(q.warnings, field.path);
+    const fieldErrors = errorsForPath(q.errors, field.path);
     const hasError = fieldErrors.length > 0;
     const displayValue = value == null ? "" : value;
     const inputType = field.type === "number" ? "number" : "text";
@@ -2234,144 +2527,224 @@ ${list}
     return `
     <label class="field-row ${hasError ? "field-row-error" : ""}">
       <span class="field-label">${escapeHtml(field.label)}</span>
-      <input type="${inputType}" data-path="${field.path}" value="${escapeHtml(String(displayValue))}" class="field-input">
+      <input type="${inputType}" data-q-index="${qIndex}" data-path="${field.path}" value="${escapeHtml(String(displayValue))}" class="field-input">
       ${notesHtml}
     </label>`;
   }
-  function renderForm() {
-    const sections = [...new Set(EDITABLE_FIELDS.map((f) => f.section))];
-    const html = sections.map((section) => {
-      const fields = EDITABLE_FIELDS.filter((f) => f.section === section);
-      return `<fieldset><legend>${escapeHtml(section)}</legend>${fields.map(fieldRowHtml).join("")}</fieldset>`;
-    }).join("");
-    el.reviewForm.innerHTML = html;
-    el.reviewForm.querySelectorAll(".field-input").forEach((input) => {
-      input.addEventListener("input", (e) => {
-        const path = e.target.dataset.path;
-        const field = EDITABLE_FIELDS.find((f) => f.path === path);
-        const raw = e.target.value;
-        const value = field.type === "number" ? raw === "" ? null : Number(raw) : raw === "" ? null : raw;
-        setPath(state.data, path, value);
-        state.reviewAcknowledged = false;
-        updateGateState();
-      });
-    });
-  }
-  function renderBenefitItemsTable() {
-    const items = state.data.benefits && state.data.benefits.benefitItems || [];
+  function benefitItemsTableHtml(q, qIndex) {
+    const items = q.data.benefits && q.data.benefits.benefitItems || [];
     const rows = items.map((item, i) => {
-      const warn = state.warnings.find((w) => w.field === `benefits.benefitItems.${item.label}`);
+      const warn = (q.warnings || []).find((w) => w.field === `benefits.benefitItems.${item.label}`);
       const note = item.prefilledFromKnownMergedCell ? "Pre-filled: this row shares a merged cell with an adjacent benefit in the source PDF. Value verified against the source document - please confirm before sending." : warn && warn.message;
       return `
       <tr class="${item.value == null ? "row-flagged" : ""}">
         <td>${escapeHtml(item.label)}</td>
-        <td><input type="text" data-benefit-index="${i}" value="${escapeHtml(item.value || "")}" class="field-input"></td>
+        <td><input type="text" data-q-index="${qIndex}" data-benefit-index="${i}" value="${escapeHtml(item.value || "")}" class="field-input"></td>
       </tr>
       ${note ? `<tr class="note-row"><td colspan="2" class="field-note field-note-warn">${escapeHtml(note)}</td></tr>` : ""}`;
     }).join("");
-    el.benefitItemsTable.innerHTML = `<table><thead><tr><th>Benefit</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>`;
-    el.benefitItemsTable.querySelectorAll("[data-benefit-index]").forEach((input) => {
-      input.addEventListener("input", (e) => {
-        const idx = Number(e.target.dataset.benefitIndex);
-        state.data.benefits.benefitItems[idx].value = e.target.value || null;
-        state.data.benefits.benefitItems[idx].prefilledFromKnownMergedCell = false;
-        state.reviewAcknowledged = false;
-        updateGateState();
-      });
-    });
+    return `<table><thead><tr><th>Benefit</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
-  var OPTION_COLUMN_FIELDS = [
-    ["productName", "Product name"],
-    ["annualContribution", "Annual contribution (RM)"],
-    ["coPaymentOption", "Co-payment option"],
-    ["roomAndBoard", "Room & board"],
-    ["annualLimitOption", "Annual limit"],
-    ["lifetimeLimitOption", "Lifetime limit"],
-    ["facilityType", "Facility type"]
-  ];
-  function renderOptionsTable() {
-    const columns = state.data.options && state.data.options.columns || [];
+  function optionsTableHtml(q, qIndex) {
+    const columns = q.data.options && q.data.options.columns || [];
     const head = `<tr><th></th>${columns.map((c) => `<th>${escapeHtml(c.optionLabel || "")}</th>`).join("")}</tr>`;
-    const rows = OPTION_COLUMN_FIELDS.map(
-      ([key, label]) => `
+    const rows = OPTION_COLUMN_FIELDS.map(([key, label]) => `
     <tr>
       <th>${escapeHtml(label)}</th>
-      ${columns.map(
-        (c, i) => `<td><input type="text" data-option-index="${i}" data-option-key="${key}" value="${escapeHtml(c[key] == null ? "" : String(c[key]))}" class="field-input"></td>`
-      ).join("")}
-    </tr>`
-    ).join("");
-    el.optionsTable.innerHTML = `<table><thead>${head}</thead><tbody>${rows}</tbody></table>`;
-    el.optionsTable.querySelectorAll("[data-option-index]").forEach((input) => {
-      input.addEventListener("input", (e) => {
-        const idx = Number(e.target.dataset.optionIndex);
-        const key = e.target.dataset.optionKey;
-        const raw = e.target.value;
-        state.data.options.columns[idx][key] = key === "annualContribution" ? raw === "" ? null : Number(raw) : raw || null;
-        state.reviewAcknowledged = false;
-        updateGateState();
+      ${columns.map((c, i) => `<td><input type="text" data-q-index="${qIndex}" data-option-index="${i}" data-option-key="${key}" value="${escapeHtml(c[key] == null ? "" : String(c[key]))}" class="field-input"></td>`).join("")}
+    </tr>`).join("");
+    return `<table><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+  }
+  function reviewPanelHtml(q, qIndex) {
+    const { errors, warnings } = q;
+    const banners = [];
+    if (errors.length) {
+      banners.push(`<div class="banner banner-error"><b>${errors.length} required field(s) still need attention.</b> The client quotation cannot be generated until these are fixed.</div>`);
+    } else {
+      banners.push(`<div class="banner banner-ok">All required fields are present.</div>`);
+    }
+    if (warnings.length) {
+      banners.push(`<div class="banner banner-warn"><b>${warnings.length} warning(s).</b> Review the flagged fields below - none of this is shown to the client, but you should verify it against the source PDF.</div>`);
+    }
+    const sections = [...new Set(EDITABLE_FIELDS.map((f) => f.section))];
+    const formHtml = sections.map((section) => {
+      const fields = EDITABLE_FIELDS.filter((f) => f.section === section);
+      return `<fieldset><legend>${escapeHtml(section)}</legend><div class="fields-grid">${fields.map((f) => fieldRowHtml(q, qIndex, f)).join("")}</div></fieldset>`;
+    }).join("");
+    return `
+    <div class="tab-panel ${qIndex === state.activeReviewIndex ? "active" : ""}" data-panel-index="${qIndex}">
+      ${banners.join("")}
+      <h2 class="section-title">Extracted fields</h2>
+      ${formHtml}
+      <h2 class="section-title">Benefits table</h2>
+      ${benefitItemsTableHtml(q, qIndex)}
+      <h2 class="section-title">Product options</h2>
+      ${optionsTableHtml(q, qIndex)}
+    </div>`;
+  }
+  function renderReviewTabs() {
+    el.reviewTabs.innerHTML = state.quotations.map((q, i) => {
+      const cls = q.errors.length ? "tab-error" : "tab-ok";
+      return `<button type="button" class="tab-btn ${cls} ${i === state.activeReviewIndex ? "active" : ""}" data-tab-index="${i}">
+      <span class="tab-dot"></span>${escapeHtml(quotationLabel(q, i))}
+    </button>`;
+    }).join("");
+    el.reviewTabs.hidden = state.quotations.length <= 1;
+    el.reviewTabs.querySelectorAll("[data-tab-index]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        state.activeReviewIndex = Number(e.currentTarget.dataset.tabIndex);
+        renderReviewTabs();
+        el.reviewPanels.querySelectorAll(".tab-panel").forEach((panel) => {
+          panel.classList.toggle("active", Number(panel.dataset.panelIndex) === state.activeReviewIndex);
+        });
       });
     });
   }
-  function revalidate() {
-    const { warnings, errors } = validateQuotation(state.data);
-    state.warnings = warnings;
-    state.errors = errors;
-    state.reviewAcknowledged = false;
-    renderReview();
+  function renderReviewStage() {
+    renderReviewTabs();
+    el.reviewPanels.innerHTML = state.quotations.map((q, i) => reviewPanelHtml(q, i)).join("");
+    updateGateState();
   }
-  el.revalidateBtn.addEventListener("click", revalidate);
-  function updateGateState() {
-    const canAcknowledge = state.errors.length === 0;
-    el.ackCheckbox.disabled = !canAcknowledge;
-    if (!canAcknowledge) {
-      el.ackCheckbox.checked = false;
-      state.reviewAcknowledged = false;
+  el.reviewPanels.addEventListener("input", (e) => {
+    const target = e.target;
+    const qIndex = Number(target.dataset.qIndex);
+    if (Number.isNaN(qIndex) || !state.quotations[qIndex]) return;
+    const q = state.quotations[qIndex];
+    if (target.dataset.path) {
+      const path = target.dataset.path;
+      const field = EDITABLE_FIELDS.find((f) => f.path === path);
+      const raw = target.value;
+      const value = field && field.type === "number" ? raw === "" ? null : Number(raw) : raw === "" ? null : raw;
+      setPath(q.data, path, value);
+    } else if (target.dataset.benefitIndex != null && target.dataset.benefitIndex !== "") {
+      const idx = Number(target.dataset.benefitIndex);
+      q.data.benefits.benefitItems[idx].value = target.value || null;
+      q.data.benefits.benefitItems[idx].prefilledFromKnownMergedCell = false;
+    } else if (target.dataset.optionIndex != null && target.dataset.optionIndex !== "") {
+      const idx = Number(target.dataset.optionIndex);
+      const key = target.dataset.optionKey;
+      const raw = target.value;
+      q.data.options.columns[idx][key] = key === "annualContribution" ? raw === "" ? null : Number(raw) : raw || null;
     }
-    el.generateBtn.disabled = !(canAcknowledge && el.ackCheckbox.checked);
-  }
-  el.ackCheckbox.addEventListener("change", (e) => {
-    state.reviewAcknowledged = e.target.checked;
     updateGateState();
   });
+  function revalidateAll() {
+    for (const q of state.quotations) {
+      const { warnings, errors } = validateQuotation(q.data);
+      q.warnings = warnings;
+      q.errors = errors;
+    }
+    renderReviewStage();
+  }
+  el.revalidateBtn.addEventListener("click", revalidateAll);
+  function updateGateState() {
+    const canAcknowledge = state.quotations.every((q) => q.errors.length === 0);
+    el.ackCheckbox.disabled = !canAcknowledge;
+    if (!canAcknowledge) el.ackCheckbox.checked = false;
+    el.generateBtn.disabled = !(canAcknowledge && el.ackCheckbox.checked);
+    el.reviewTabs.querySelectorAll("[data-tab-index]").forEach((btn) => {
+      const i = Number(btn.dataset.tabIndex);
+      const hasErrors = state.quotations[i] && state.quotations[i].errors.length > 0;
+      btn.classList.toggle("tab-error", hasErrors);
+      btn.classList.toggle("tab-ok", !hasErrors);
+    });
+  }
+  el.ackCheckbox.addEventListener("change", updateGateState);
+  el.backToUploadBtn.addEventListener("click", () => showStage("upload"));
+  el.startOverBtn.addEventListener("click", resetAll);
   el.generateBtn.addEventListener("click", () => {
-    const parseResult = { data: state.data, warnings: state.warnings, errors: state.errors };
     const agentReview = {
-      acknowledged: state.reviewAcknowledged,
+      acknowledged: true,
       quotationNumber: el.quotationNumberInput.value.trim() || null,
       validUntilIso: el.validUntilInput.value || null
     };
-    const quotationHtml = renderClientQuotationHtml(parseResult, agentReview);
-    const html = composeClientDocument(quotationHtml, buildPrefillData(state.data, agentReview));
-    el.previewFrame.srcdoc = html;
-    el.downloadSection.hidden = false;
-    el.downloadBtn.onclick = () => downloadHtml(html);
+    const allData = state.quotations.map((q) => q.data);
+    const prefillData = buildPrefillData(allData, agentReview);
+    state.generatedDocs = state.quotations.map((q) => {
+      const quotationHtml = renderClientQuotationHtml({ data: q.data, warnings: q.warnings, errors: q.errors }, agentReview);
+      const html = composeClientDocument(quotationHtml, prefillData);
+      const safeName = (q.data.client.fullName || "quotation").replace(/[^a-z0-9]+/gi, "_");
+      return { fileName: `${safeName}_quotation.html`, html, label: quotationLabel(q, 0) };
+    });
+    state.comparisonHtml = state.quotations.length > 1 ? renderComparisonHtml(
+      state.quotations.map((q) => ({ data: q.data, warnings: q.warnings, errors: [] })),
+      state.quotations.map(() => ({ acknowledged: true }))
+    ) : null;
+    state.activeOutputIndex = 0;
+    renderOutputStage();
+    showStage("output");
   });
-  function downloadHtml(html) {
+  function renderOutputStage() {
+    const multi = state.quotations.length > 1;
+    el.outputBanner.innerHTML = multi ? `<div class="banner banner-ok">${state.quotations.length} quotations generated. A comparison is shown automatically below.</div>` : `<div class="banner banner-ok">Quotation generated and ready to send.</div>`;
+    el.comparisonBlock.hidden = !multi;
+    if (multi) {
+      el.comparisonFrame.srcdoc = state.comparisonHtml;
+    }
+    el.outputTabs.hidden = !multi;
+    el.outputTabs.innerHTML = state.generatedDocs.map((doc, i) => `
+    <button type="button" class="tab-btn ${i === state.activeOutputIndex ? "active" : ""}" data-output-tab-index="${i}">${escapeHtml(doc.label)}</button>
+  `).join("");
+    el.outputTabs.querySelectorAll("[data-output-tab-index]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        state.activeOutputIndex = Number(e.currentTarget.dataset.outputTabIndex);
+        renderOutputStage();
+      });
+    });
+    const activeDoc = state.generatedDocs[state.activeOutputIndex];
+    el.previewFrame.srcdoc = activeDoc ? activeDoc.html : "";
+  }
+  el.downloadBtn.addEventListener("click", () => {
+    const doc = state.generatedDocs[state.activeOutputIndex];
+    if (!doc) return;
+    downloadHtml(doc.html, doc.fileName);
+  });
+  function downloadHtml(html, fileName) {
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const safeName = (state.data.client.fullName || "quotation").replace(/[^a-z0-9]+/gi, "_");
     a.href = url;
-    a.download = `${safeName}_quotation.html`;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
-  el.startOverBtn.addEventListener("click", () => {
-    state.stage = "upload";
-    state.data = null;
-    state.warnings = [];
-    state.errors = [];
-    state.reviewAcknowledged = false;
-    el.fileInput.value = "";
-    el.downloadSection.hidden = true;
-    el.uploadStatus.textContent = "";
-    showStage("upload");
-  });
-  function escapeHtml(value) {
-    if (value == null) return "";
-    return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  function printHtml(html) {
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank");
+    if (!win) {
+      alert("Please allow pop-ups for this site to print or save as PDF.");
+      return;
+    }
+    win.addEventListener("load", () => {
+      win.focus();
+      win.print();
+      setTimeout(() => URL.revokeObjectURL(url), 1e4);
+    });
   }
+  el.printBtn.addEventListener("click", () => {
+    const doc = state.generatedDocs[state.activeOutputIndex];
+    if (doc) printHtml(doc.html);
+  });
+  el.printComparisonBtn.addEventListener("click", () => {
+    if (state.comparisonHtml) printHtml(state.comparisonHtml);
+  });
+  el.outputBackBtn.addEventListener("click", () => showStage("review"));
+  el.outputStartOverBtn.addEventListener("click", resetAll);
+  function resetAll() {
+    state.quotations = [];
+    state.activeReviewIndex = 0;
+    state.activeOutputIndex = 0;
+    state.generatedDocs = [];
+    state.comparisonHtml = null;
+    el.quotationNumberInput.value = "";
+    el.validUntilInput.value = "";
+    el.ackCheckbox.checked = false;
+    renderFileList();
+    updateContinueButton();
+    showStage("upload");
+  }
+  showStage("upload");
 })();

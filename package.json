@@ -1,6 +1,6 @@
 {
   "name": "prubsn-quotation-generator",
-  "version": "1.2.0",
+  "version": "1.7.0",
   "private": true,
   "description": "PruBSN quotation PDF parser, renderer, and browser tool.",
   "scripts": {

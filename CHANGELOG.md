@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file, derived from the project's tagged releases and git history.
 
+## [v1.7.0-phase7-production-ui] — 2026-07-21
+
+**feat: production UI rebuild — multi-quotation comparison, 7-step client form, premium browser-tool redesign**
+
+`browser-tool/index.html` becomes the real production quotation generator: a staged Upload → Review → Generate flow, replacing the earlier single-quotation review-form prototype look.
+
+- **Multi-PDF upload (1-3 quotations).** `app.js` now holds an array of independently-parsed quotations; drag-and-drop/file-picker accepts up to 3 PDFs with per-file progress chips, graceful per-file error handling (invalid file type, corrupted/unreadable PDF), and a tabbed review screen (one tab per quotation, each with its own error/warning banner).
+- **Automatic comparison.** New `renderer/renderComparison.js` (same client-safety gating as `renderClientQuotationHtml` — no output unless every quotation is error-free and agent-acknowledged) renders a side-by-side key-figures and full benefit-by-benefit comparison table, shown automatically for 2-3 quotations and never shown for 1.
+- **Full 7-step client application form**, matching the official "PruBSN Client Form" template's step set and branding: Personal Information, Employment Details, Family Information, Medical History, Plan Selection (+ Beneficiary), Documents Upload, Bank Details. Previously 4 steps (Personal, Address, Employment, Beneficiary).
+  - Plan Selection now shows the agent's **real generated quotation(s)** as pickable cards (via `buildPrefillData.js`'s new `plans` array) — never a hardcoded price list.
+  - Documents Upload captures NRIC front/rear + selfie client-side, base64-encoded, and included in the submission payload — through the existing secure webhook adapter, never a client-embedded Airtable token (see Security below).
+  - `models/SubmissionPayload.js` bumped to schema `1.1`, additively extending `1.0` with `employment`, `family`, `medicalHistory`, `bank`, `documents`, and `selectedPlan`.
+- **Print / Save as PDF.** Every generated document (quotation, comparison) can be printed or saved as PDF via the browser's native print dialog, opened in a fresh tab so pagination uses the document's own content rather than an embedded iframe.
+- **Premium redesign** of `browser-tool/index.html`: branded header/stepper, hero upload section, tabbed review, comparison + output stage — teal/gold/rose PruBSN identity throughout, matching `medical-card-quotation.html`'s visual language.
+
+**Bugs fixed (found via live-browser testing during this rebuild, not previously exercised):**
+- `renderer/renderQuotation.js`: an agent code absent from `agents.js` (e.g. any synthetic/test PDF, or a real not-yet-onboarded agent) caused the "missing data" HTML fallback to be escaped a second time at three template sites, showing clients literal `<span class="na">...</span>` markup instead of styled placeholder text. Fixed by escaping plain-text values and safe-HTML fallbacks exactly once, consistently.
+- Removed a dead, never-referenced `planLabel` variable in the same function.
+- `ApplicationForm.js`/`clientRuntime.js`: the new Plan Selection card picker's chosen value was being silently overwritten with `''` on every "Next" click, because the generic step-value collector looked for a `[name="plan"]` form input that doesn't exist for a card-picker field. Fixed by excluding `plan-cards` fields from generic collection/validation and validating plan selection explicitly.
+
+**Security:** the legacy `PruBSN Client Form - Standalone updated.html` (outside this repo) still embeds a live, full read/write Airtable Personal Access Token in client-facing HTML — unchanged by this release (see PROJECT_STATUS.md and ROADMAP.md). The new 7-step form fully replaces that file's functionality on the secure webhook pattern; recommend retiring/no longer distributing the legacy file and rotating the exposed token.
+
+**Files changed:** `browser-tool/index.html`, `browser-tool/app.js`, `browser-tool/application/*.js`, `browser-tool/models/SubmissionPayload.js`, `renderer/renderQuotation.js`, `test/browser-tool/submissionPipeline.test.js`. **Files added:** `renderer/renderComparison.js`.
+
 ## [v1.6.0-phase6-airtable] — 2026-07-20
 
 **feat: integrate Airtable submission destination**
