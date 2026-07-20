@@ -26,3 +26,4 @@ quotation-preview.html
 /samples/
 /client-data/
 *.client.json
+.claude/

@@ -1,0 +1,119 @@
+/**
+ * composeClientDocument.js
+ *
+ * COMPOSE-TIME module - runs inside app.bundle.js, in the agent's
+ * browser. Takes the frozen renderer's output HTML string and
+ * string-APPENDS the client application workflow onto it: never edits
+ * renderer markup, never touches `.sheet`'s contents. This is the only
+ * place the two build stages meet - `__APPLICATION_RUNTIME_SOURCE__` is
+ * a compile-time constant injected by esbuild's `define` (see
+ * scripts/build-browser-tool.js), containing the fully bundled text of
+ * clientRuntime.js and everything it requires.
+ *
+ * If `quotationHtml` isn't a real (non-blocked) quotation - i.e. it
+ * doesn't contain the renderer's `.sheet` card - there is nothing to
+ * attach a workflow to, so the input is returned unchanged.
+ */
+
+'use strict';
+
+/* global __APPLICATION_RUNTIME_SOURCE__ */
+
+const APPLICATION_STYLE = `
+.paf-cta{display:block;margin:24px auto 0;padding:14px 28px;border:none;border-radius:999px;
+  background:linear-gradient(135deg,var(--teal),var(--teal-dk));color:#fff;font-family:var(--sans);
+  font-size:15px;font-weight:600;letter-spacing:.01em;cursor:pointer;box-shadow:0 4px 14px rgba(23,141,147,.3)}
+.paf-cta:hover{filter:brightness(1.05)}
+.paf-app-root{max-width:800px;margin:24px auto 0;font-family:var(--sans);color:var(--ink)}
+.paf-shell{background:var(--card);border-radius:16px;border:1px solid var(--line);padding:28px 24px}
+.paf-back-link{display:inline-block;background:none;border:none;color:var(--teal-dk);font-family:var(--sans);
+  font-size:13px;font-weight:600;cursor:pointer;padding:0 0 16px;margin:0}
+.paf-progress{list-style:none;display:flex;flex-wrap:wrap;gap:8px;padding:0;margin:0 0 24px}
+.paf-progress-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--meta);font-family:var(--sans)}
+.paf-progress-dot{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+  border-radius:50%;background:var(--rose-soft);color:var(--ink);font-size:11px;font-weight:700}
+.paf-progress-current .paf-progress-dot{background:var(--teal);color:#fff}
+.paf-progress-done .paf-progress-dot{background:var(--gold-a);color:#fff}
+.paf-progress-current .paf-progress-label{color:var(--ink);font-weight:600}
+.paf-step-title{font-family:var(--serif);font-size:20px;margin:0 0 4px;color:var(--ink)}
+.paf-step-subtitle{font-size:13px;color:var(--meta);margin:0 0 20px}
+.paf-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.paf-field{display:flex;flex-direction:column;gap:6px}
+.paf-field:has(textarea){grid-column:1/-1}
+.paf-label{font-size:12px;font-weight:600;color:var(--ink)}
+.paf-optional{font-weight:400;color:var(--meta)}
+.paf-input{font-family:var(--sans);font-size:14px;padding:10px 12px;border:1px solid var(--line);
+  border-radius:8px;background:#fff;color:var(--ink)}
+.paf-input:focus{outline:2px solid var(--teal);outline-offset:1px}
+.paf-input-error{border-color:#B3261E}
+.paf-error{font-size:12px;color:#B3261E}
+.paf-nav{display:flex;justify-content:space-between;align-items:center;margin-top:24px}
+.paf-btn{font-family:var(--sans);font-size:14px;font-weight:600;padding:10px 22px;border-radius:999px;
+  cursor:pointer;border:none}
+.paf-btn-primary{background:linear-gradient(135deg,var(--teal),var(--teal-dk));color:#fff;margin-left:auto}
+.paf-btn-secondary{background:none;border:1px solid var(--line);color:var(--ink)}
+.paf-review-section{padding:16px 0;border-bottom:1px solid var(--line)}
+.paf-review-section:last-child{border-bottom:none}
+.paf-review-heading{display:flex;align-items:center;gap:10px;font-family:var(--serif);font-size:15px;
+  margin:0 0 10px;color:var(--ink)}
+.paf-readonly-tag{font-family:var(--sans);font-size:10px;font-weight:600;color:var(--meta);
+  background:var(--rose-soft);padding:2px 8px;border-radius:999px}
+.paf-edit-link{margin-left:auto;background:none;border:none;color:var(--teal-dk);font-family:var(--sans);
+  font-size:12px;font-weight:600;cursor:pointer;padding:0}
+.paf-summary-row{display:flex;justify-content:space-between;gap:16px;font-size:13px;padding:4px 0}
+.paf-summary-row-block{flex-direction:column;gap:6px}
+.paf-summary-label{color:var(--meta)}
+.paf-summary-value{color:var(--ink);font-weight:600;text-align:right}
+.paf-summary-row-block .paf-summary-value{text-align:left;font-weight:400}
+.paf-rider-list{margin:0;padding-left:18px}
+.paf-na{color:var(--meta);font-weight:400;font-style:italic}
+.paf-confirmation{text-align:center}
+.paf-confirm-icon{width:52px;height:52px;line-height:52px;border-radius:50%;background:var(--teal);
+  color:#fff;font-size:24px;margin:0 auto 16px}
+.paf-confirm-note{font-size:12px;color:var(--meta);max-width:480px;margin:0 auto 20px}
+.paf-confirm-details{text-align:left;margin-top:16px}
+.paf-confirm-details summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--teal-dk)}
+.paf-confirm-json{background:#f7f7f7;border:1px solid var(--line);border-radius:8px;padding:14px;
+  font-size:11px;overflow-x:auto;text-align:left}
+@media (max-width:640px){
+  .paf-fields{grid-template-columns:1fr}
+  .paf-shell{padding:20px 16px}
+}
+`;
+
+function isRealQuotation(html) {
+  return typeof html === 'string' && html.includes('class="sheet"');
+}
+
+/**
+ * @param {string} quotationHtml the exact output of renderer/renderQuotation.js's renderClientQuotationHtml()
+ * @param {object} prefillData the object built by buildPrefillData.js
+ * @returns {string} the same document with the client application workflow appended
+ */
+function composeClientDocument(quotationHtml, prefillData) {
+  if (!isRealQuotation(quotationHtml)) return quotationHtml;
+
+  const runtimeSource = typeof __APPLICATION_RUNTIME_SOURCE__ !== 'undefined' ? __APPLICATION_RUNTIME_SOURCE__ : '';
+  const prefillJson = JSON.stringify(prefillData || {}).replace(/</g, '\\u003c');
+
+  return `${quotationHtml}
+<style>${APPLICATION_STYLE}</style>
+<button type="button" id="paf-continue-btn" class="paf-cta">Continue Application &rarr;</button>
+<div id="paf-app-root" class="paf-app-root" hidden></div>
+<script type="application/json" id="paf-prefill-data">${prefillJson}</script>
+<script>${runtimeSource}</script>
+<script>
+(function () {
+  var root = document.getElementById('paf-app-root');
+  var dataEl = document.getElementById('paf-prefill-data');
+  var prefill = {};
+  try { prefill = JSON.parse(dataEl.textContent); } catch (e) {}
+  if (root && typeof window.__prubsnInitApplicationFlow === 'function') {
+    window.__prubsnInitApplicationFlow(root, prefill);
+  }
+})();
+</script>
+`;
+}
+
+module.exports = { composeClientDocument };

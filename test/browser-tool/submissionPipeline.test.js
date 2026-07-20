@@ -1,0 +1,161 @@
+/**
+ * submissionPipeline.test.js
+ *
+ * Unit tests for the Phase 5 submission pipeline: models/SubmissionPayload,
+ * queue/SubmissionQueue, services/SubmissionService, and the destination
+ * adapters. No PDF, no real client data, no network - MockDestination
+ * drives success/failure/timeout, and AirtableDestination is exercised
+ * against a mocked global.fetch, never a real endpoint.
+ *
+ * Usage: node test/browser-tool/submissionPipeline.test.js
+ */
+
+'use strict';
+
+const assert = require('assert');
+const { buildSubmissionPayload } = require('../../browser-tool/models/SubmissionPayload.js');
+const { createQueue } = require('../../browser-tool/queue/SubmissionQueue.js');
+const SubmissionService = require('../../browser-tool/services/SubmissionService.js');
+const ConsoleDestination = require('../../browser-tool/destinations/ConsoleDestination.js');
+const { createMockDestination } = require('../../browser-tool/destinations/MockDestination.js');
+const AirtableDestination = require('../../browser-tool/destinations/AirtableDestination.js');
+
+let pass = 0;
+let fail = 0;
+function check(label, actual, expected) {
+  try {
+    assert.deepStrictEqual(actual, expected);
+    console.log(`  PASS  ${label}`);
+    pass++;
+  } catch (err) {
+    console.log(`  FAIL  ${label}\n        expected: ${JSON.stringify(expected)}\n        actual:   ${JSON.stringify(actual)}`);
+    fail++;
+  }
+}
+function ok(label, condition) {
+  check(label, Boolean(condition), true);
+}
+
+const fakePrefillData = {
+  quotation: { quotationNumber: 'Q-TEST-001', validUntil: '19 August 2026', planName: 'PruBSN Fake Plan', monthlyContribution: 'RM 123.45', riders: ['Fake Rider - Plan 200'] },
+  agent: { name: 'Fake Agent', agency: 'Fake Agency', branch: 'Fake Branch', phone: '', email: '' },
+  client: { fullName: 'Test Client', dateOfBirthIso: '1990-01-01', gender: 'Male' },
+  metadata: { generatedAt: '2026-07-20T01:00:00.000Z' },
+};
+
+const fakeFormState = {
+  fullName: 'Test Client', nric: '900101-01-1234', dateOfBirth: '1990-01-01', gender: 'Male',
+  mobileNumber: '012-3456789', email: 'test@example.com',
+  address: '123 Jalan Test', postcode: '05100', city: 'Alor Setar', state: 'Kedah',
+  occupation: 'Engineer', employer: 'Acme', annualIncome: '60000',
+  beneficiaryName: 'Jane Doe', beneficiaryRelationship: 'Spouse', beneficiaryPercentage: '100',
+};
+
+console.log('=== SubmissionPayload: shape + backward compatibility ===');
+{
+  const payload = buildSubmissionPayload(fakePrefillData, fakeFormState, { submissionId: 'sub-1' });
+  check('version is stamped', payload.version, '1.0');
+  check('quotation is passed through unchanged from prefillData', payload.quotation, fakePrefillData.quotation);
+  ok('applicant merges personal + address + employment fields', payload.applicant.fullName === 'Test Client' && payload.applicant.address === '123 Jalan Test' && payload.applicant.occupation === 'Engineer');
+  ok('applicant does not itself carry a nested beneficiary key', !('beneficiary' in payload.applicant));
+  check('beneficiaries is an array wrapping the single Phase 4 beneficiary object', payload.beneficiaries, [{ name: 'Jane Doe', relationship: 'Spouse', percentage: '100' }]);
+  check('metadata.submissionId round-trips the id passed in', payload.metadata.submissionId, 'sub-1');
+  check('metadata.quotationId comes from the quotation number', payload.metadata.quotationId, 'Q-TEST-001');
+  check('metadata.generatedAt comes from buildPrefillData.js metadata', payload.metadata.generatedAt, '2026-07-20T01:00:00.000Z');
+  ok('metadata.submittedAt is a fresh ISO timestamp', /^\d{4}-\d{2}-\d{2}T/.test(payload.metadata.submittedAt));
+  ok('metadata carries parser/renderer version tags', typeof payload.metadata.parserVersion === 'string' && typeof payload.metadata.rendererVersion === 'string');
+
+  // Backward compatibility: the frozen Phase 4 function this wraps must
+  // still work completely unmodified and produce its original shape.
+  const { buildSubmission } = require('../../browser-tool/application/submission.js');
+  const legacy = buildSubmission(fakePrefillData, fakeFormState);
+  check('legacy buildSubmission() shape is untouched', Object.keys(legacy).sort(), ['application', 'client', 'quotation', 'timestamp'].sort());
+  check('legacy client.fullName still reads correctly', legacy.client.fullName, 'Test Client');
+}
+
+console.log('\n=== SubmissionQueue: enqueue / resolve / duplicate detection ===');
+{
+  const queue = createQueue();
+  check('a never-seen submissionId has not resolved', queue.hasResolved('q-1'), false);
+
+  queue.enqueue('q-1', { some: 'payload' }, { type: 'network', message: 'boom' });
+  check('failed attempt appears in pending list', queue.listPending().map((e) => e.submissionId), ['q-1']);
+  check('a pending (not yet resolved) id still reports unresolved', queue.hasResolved('q-1'), false);
+
+  queue.markResolved('q-1', 'REF-1');
+  check('resolved id now reports resolved', queue.hasResolved('q-1'), true);
+  check('resolved id no longer appears in pending list', queue.listPending().map((e) => e.submissionId), []);
+  check('reference is retrievable after resolution', queue.getReference('q-1'), 'REF-1');
+
+  queue.markResolved('q-2-never-enqueued', 'REF-2');
+  check('markResolved works even without a prior enqueue call (first-attempt success)', queue.hasResolved('q-2-never-enqueued'), true);
+}
+
+console.log('\n=== SubmissionService: success via MockDestination ===');
+{
+  const queue = createQueue();
+  const payload = { version: '1.0', quotation: {}, applicant: { fullName: 'X' }, beneficiaries: [], metadata: { submissionId: 'svc-1' } };
+  return (async () => {
+    const result = await SubmissionService.submit(payload, { destination: createMockDestination({ result: 'success' }), queue });
+    check('status is success', result.status, 'success');
+    ok('a reference is returned', typeof result.reference === 'string' && result.reference.length > 0);
+    check('queue now shows this submissionId resolved', queue.hasResolved('svc-1'), true);
+
+    console.log('\n=== SubmissionService: simulated failure -> queued -> retry succeeds ===');
+    const failPayload = { version: '1.0', quotation: {}, applicant: { fullName: 'Y' }, beneficiaries: [], metadata: { submissionId: 'svc-2' } };
+    const failResult = await SubmissionService.submit(failPayload, { destination: createMockDestination({ result: 'failure', failureType: 'server' }), queue });
+    check('status is failed', failResult.status, 'failed');
+    check('error is classified with the destination-provided type', failResult.error.type, 'server');
+    check('failed attempt is queued', failResult.queued, true);
+    check('failed payload is present in the queue pending list (never discarded)', queue.listPending().find((e) => e.submissionId === 'svc-2').payload, failPayload);
+
+    const retryResult = await SubmissionService.submit(failPayload, { destination: createMockDestination({ result: 'success' }), queue });
+    check('retry with the SAME payload succeeds', retryResult.status, 'success');
+    check('queue no longer shows svc-2 as pending after a successful retry', queue.listPending().find((e) => e.submissionId === 'svc-2'), undefined);
+
+    console.log('\n=== SubmissionService: duplicate submit is blocked (idempotency) ===');
+    const dupeDestination = createMockDestination({ result: 'failure' }); // if this were called, the test below would see 'failed', proving dedupe short-circuited before reaching it
+    const dupeResult = await SubmissionService.submit(payload, { destination: dupeDestination, queue });
+    check('re-submitting an already-resolved submissionId short-circuits to success without re-invoking the destination', dupeResult, { status: 'success', submissionId: 'svc-1', reference: dupeResult.reference, deduped: true });
+
+    console.log('\n=== SubmissionService: timeout classification ===');
+    const timeoutPayload = { version: '1.0', quotation: {}, applicant: { fullName: 'Z' }, beneficiaries: [], metadata: { submissionId: 'svc-3' } };
+    const timeoutResult = await SubmissionService.submit(timeoutPayload, { destination: createMockDestination({ result: 'timeout' }), queue });
+    check('timeout is classified correctly', timeoutResult.error.type, 'timeout');
+
+    console.log('\n=== SubmissionService: malformed payload -> validation error, destination never called ===');
+    let destinationWasCalled = false;
+    const trackedDestination = { send: async () => { destinationWasCalled = true; return { reference: 'x' }; } };
+    const badResult = await SubmissionService.submit({ version: '1.0', metadata: { submissionId: 'svc-4' } }, { destination: trackedDestination, queue });
+    check('validation error is returned', badResult.error.type, 'validation');
+    check('destination.send() was never invoked for an invalid payload', destinationWasCalled, false);
+
+    console.log('\n=== ConsoleDestination: always resolves locally ===');
+    const consoleResult = await ConsoleDestination.send({ hello: 'world' });
+    ok('resolves with a synthetic reference', typeof consoleResult.reference === 'string');
+
+    console.log('\n=== AirtableDestination: request shape against a mocked fetch (no real network call) ===');
+    let capturedUrl = null;
+    let capturedBody = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url, opts) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse(opts.body);
+      return { ok: true, status: 200, json: async () => ({ reference: 'recFAKE123' }) };
+    };
+    try {
+      check('send() rejects with not_configured before configure() is called', await AirtableDestination.send({ metadata: { submissionId: 'at-1' } }).catch((e) => e.type), 'not_configured');
+      AirtableDestination.configure({ webhookUrl: 'https://hooks.airtable.com/workflows/v1/genericWebhook/fake-test-only' });
+      const atResult = await AirtableDestination.send({ version: '1.0', metadata: { submissionId: 'at-1' }, applicant: { fullName: 'X' } });
+      check('resolves with the reference the webhook echoed back', atResult.reference, 'recFAKE123');
+      ok('POSTed to the configured webhook URL', capturedUrl === 'https://hooks.airtable.com/workflows/v1/genericWebhook/fake-test-only');
+      check('request body is the exact payload, unmodified', capturedBody.metadata.submissionId, 'at-1');
+    } finally {
+      global.fetch = originalFetch;
+      AirtableDestination.configure({ webhookUrl: null });
+    }
+
+    console.log(`\n${pass} passed, ${fail} failed.`);
+    process.exit(fail > 0 ? 1 : 0);
+  })();
+}

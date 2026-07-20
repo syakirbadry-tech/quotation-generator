@@ -22,6 +22,8 @@ const { parseQuotation } = require('../parser/index.js');
 const { validateQuotation } = require('../parser/validate.js');
 const { renderAgentReviewHtml, renderClientQuotationHtml } = require('../renderer/renderQuotation.js');
 const { primaryValue } = require('../renderer/formatters.js');
+const { buildPrefillData } = require('./application/buildPrefillData.js');
+const { composeClientDocument } = require('./application/composeClientDocument.js');
 
 // --- Known merged-cell benefit values -----------------------------------
 // The frozen parser deliberately leaves a benefit item's value as `null`
@@ -385,7 +387,8 @@ el.generateBtn.addEventListener('click', () => {
     quotationNumber: el.quotationNumberInput.value.trim() || null,
     validUntilIso: el.validUntilInput.value || null,
   };
-  const html = renderClientQuotationHtml(parseResult, agentReview);
+  const quotationHtml = renderClientQuotationHtml(parseResult, agentReview);
+  const html = composeClientDocument(quotationHtml, buildPrefillData(state.data, agentReview));
   el.previewFrame.srcdoc = html;
   el.downloadSection.hidden = false;
   el.downloadBtn.onclick = () => downloadHtml(html);
