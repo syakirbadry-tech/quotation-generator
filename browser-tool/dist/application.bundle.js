@@ -428,6 +428,14 @@
       var RENDERER_VERSION = "v1.1-phase2-renderer";
       var PAYLOAD_VERSION = "1.0";
       var SUBMISSION_SOURCE = "quotation-generator-client-application";
+      function buildAgentInfo(prefillData) {
+        const source = prefillData && prefillData.agent || {};
+        const agent = {};
+        if (source.name) agent.name = source.name;
+        if (source.agency) agent.agency = source.agency;
+        if (source.branch) agent.branch = source.branch;
+        return agent;
+      }
       function buildSubmissionPayload(prefillData, formState, options) {
         const { submissionId } = options || {};
         const legacy = buildSubmission(prefillData, formState);
@@ -441,6 +449,7 @@
         return {
           version: PAYLOAD_VERSION,
           quotation: legacy.quotation,
+          agent: buildAgentInfo(prefillData),
           applicant,
           beneficiaries,
           metadata: {
@@ -624,39 +633,59 @@
     }
   });
 
-  // browser-tool/destinations/MockDestination.js
-  var require_MockDestination = __commonJS({
-    "browser-tool/destinations/MockDestination.js"(exports, module) {
+  // browser-tool/destinations/AirtableDestination.js
+  var require_AirtableDestination = __commonJS({
+    "browser-tool/destinations/AirtableDestination.js"(exports, module) {
       "use strict";
+      var webhookUrl = null;
+      var DEFAULT_TIMEOUT_MS = 15e3;
+      function configure(options) {
+        webhookUrl = options && options.webhookUrl || null;
+      }
       function createTypedError(type, message) {
         const err = new Error(message);
         err.type = type;
         return err;
       }
-      function createMockDestination(options) {
-        const opts = options || {};
-        const result = opts.result || "success";
-        const latencyMs = opts.latencyMs || 0;
-        const failureType = opts.failureType || "server";
-        const failureMessage = opts.failureMessage || "Mock destination: simulated failure";
-        function send(payload) {
-          return new Promise((resolve, reject) => {
-            setTimeout(() => {
-              if (result === "success") {
-                resolve({ reference: `MOCK-${Date.now().toString(36).toUpperCase()}` });
-              } else if (result === "timeout") {
-                reject(createTypedError("timeout", "Mock destination: simulated timeout"));
-              } else {
-                reject(createTypedError(failureType, failureMessage));
-              }
-            }, latencyMs);
-          });
-        }
-        return { name: "mock", send };
+      function fallbackReference(payload) {
+        const submissionId = payload && payload.metadata && payload.metadata.submissionId;
+        return submissionId ? `AT-${String(submissionId).slice(0, 8).toUpperCase()}` : `AT-${Date.now().toString(36).toUpperCase()}`;
       }
-      var MockDestination = { createMockDestination };
+      async function send(payload) {
+        if (!webhookUrl) {
+          throw createTypedError("not_configured", "AirtableDestination: webhookUrl is not set. See this file's header for setup steps.");
+        }
+        const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+        const timer = controller ? setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS) : null;
+        let response;
+        try {
+          response = await fetch(webhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            signal: controller ? controller.signal : void 0
+          });
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            throw createTypedError("timeout", "AirtableDestination: request timed out.");
+          }
+          throw createTypedError("network", `AirtableDestination: network error - ${err && err.message ? err.message : err}`);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+        if (!response.ok) {
+          throw createTypedError("http_error", `AirtableDestination: webhook responded with HTTP ${response.status}`);
+        }
+        let body = null;
+        try {
+          body = await response.json();
+        } catch (e) {
+        }
+        return { reference: body && body.reference || fallbackReference(payload) };
+      }
+      var AirtableDestination = { name: "airtable", send, configure };
       if (typeof module !== "undefined" && module.exports) {
-        module.exports = MockDestination;
+        module.exports = AirtableDestination;
       }
     }
   });
@@ -669,11 +698,13 @@
       var ConfirmationPage = require_ConfirmationPage();
       var { buildSubmissionPayload } = require_SubmissionPayload();
       var SubmissionService = require_SubmissionService();
-      var { createMockDestination } = require_MockDestination();
+      var AirtableDestination = require_AirtableDestination();
       var REVIEW_STEP = ApplicationForm.TOTAL_STEPS;
       var CONFIRMATION_STEP = ApplicationForm.TOTAL_STEPS + 1;
       var STEP_LABELS = ApplicationForm.STEP_DEFS.map((s) => s.title).concat(["Review"]);
-      var ACTIVE_DESTINATION = createMockDestination({ result: "success", latencyMs: 500 });
+      var ACTIVE_DESTINATION = AirtableDestination.configure({
+        webhookUrl: "https://hooks.airtable.com/workflows/v1/genericWebhook/appcA4lwc8KrLNxwM/wflQdJbGW3L2C8hoC/wtr78zDfdM03qbWWI"
+      });
       function generateSubmissionId() {
         if (typeof crypto !== "undefined" && crypto.getRandomValues) {
           const bytes = crypto.getRandomValues(new Uint8Array(16));

@@ -65,6 +65,19 @@ console.log('=== SubmissionPayload: shape + backward compatibility ===');
   ok('metadata.submittedAt is a fresh ISO timestamp', /^\d{4}-\d{2}-\d{2}T/.test(payload.metadata.submittedAt));
   ok('metadata carries parser/renderer version tags', typeof payload.metadata.parserVersion === 'string' && typeof payload.metadata.rendererVersion === 'string');
 
+  console.log('\n=== SubmissionPayload: agent attribution (Phase 6A) ===');
+  check('agent object carries name/agency/branch from prefillData.agent', payload.agent, { name: 'Fake Agent', agency: 'Fake Agency', branch: 'Fake Branch' });
+  ok('agentCode is never present - buildPrefillData.js never exposes it to client-runtime code', !('agentCode' in payload.agent));
+  ok('agent contact fields (phone/email) are not included - out of scope for attribution', !('phone' in payload.agent) && !('email' in payload.agent));
+
+  const partialAgentPrefill = { ...fakePrefillData, agent: { name: 'Solo Agent', agency: null, branch: null, phone: '', email: '' } };
+  const partialAgentPayload = buildSubmissionPayload(partialAgentPrefill, fakeFormState, { submissionId: 'sub-1b' });
+  check('unknown agent fields are omitted, not sent as null/placeholder', partialAgentPayload.agent, { name: 'Solo Agent' });
+
+  const noAgentPrefill = { ...fakePrefillData, agent: undefined };
+  const noAgentPayload = buildSubmissionPayload(noAgentPrefill, fakeFormState, { submissionId: 'sub-1c' });
+  check('missing prefillData.agent entirely still produces a safe empty object, never throws', noAgentPayload.agent, {});
+
   // Backward compatibility: the frozen Phase 4 function this wraps must
   // still work completely unmodified and produce its original shape.
   const { buildSubmission } = require('../../browser-tool/application/submission.js');

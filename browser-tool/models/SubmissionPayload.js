@@ -29,10 +29,31 @@ const PAYLOAD_VERSION = '1.0';
 const SUBMISSION_SOURCE = 'quotation-generator-client-application';
 
 /**
+ * Attribution info for the agent who generated this quotation, so
+ * Airtable records can be traced back to them. Sourced ONLY from
+ * `prefillData.agent` (built by buildPrefillData.js from
+ * `getAgentConfig()`) - never re-derives or invents anything. Note
+ * `agentCode` is NOT available here: buildPrefillData.js deliberately
+ * never exposes it to client-runtime code (see that file's header
+ * comment - "the client-runtime bundle must never see parser internals
+ * it doesn't need (agent codes, ...)"), so it's correctly absent below
+ * rather than fabricated. Each field is included only if it actually has
+ * a value - an unknown field is omitted, never sent as a placeholder.
+ */
+function buildAgentInfo(prefillData) {
+  const source = (prefillData && prefillData.agent) || {};
+  const agent = {};
+  if (source.name) agent.name = source.name;
+  if (source.agency) agent.agency = source.agency;
+  if (source.branch) agent.branch = source.branch;
+  return agent;
+}
+
+/**
  * @param {object} prefillData compose-time object from buildPrefillData.js: { quotation, agent, client, metadata? }
  * @param {object} formState merged field values across all 4 application steps
  * @param {{ submissionId: string }} options a stable id generated once per Review-step entry, reused across retries
- * @returns {object} { version, quotation, applicant, beneficiaries, metadata }
+ * @returns {object} { version, quotation, agent, applicant, beneficiaries, metadata }
  */
 function buildSubmissionPayload(prefillData, formState, options) {
   const { submissionId } = options || {};
@@ -51,6 +72,7 @@ function buildSubmissionPayload(prefillData, formState, options) {
   return {
     version: PAYLOAD_VERSION,
     quotation: legacy.quotation,
+    agent: buildAgentInfo(prefillData),
     applicant,
     beneficiaries,
     metadata: {

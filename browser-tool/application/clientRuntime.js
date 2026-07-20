@@ -28,19 +28,18 @@ const ReviewPage = require('./ReviewPage');
 const ConfirmationPage = require('./ConfirmationPage');
 const { buildSubmissionPayload } = require('../models/SubmissionPayload');
 const SubmissionService = require('../services/SubmissionService');
-const { createMockDestination } = require('../destinations/MockDestination');
+const AirtableDestination = require('../destinations/AirtableDestination');
 
 const REVIEW_STEP = ApplicationForm.TOTAL_STEPS; // index 4
 const CONFIRMATION_STEP = ApplicationForm.TOTAL_STEPS + 1; // index 5
 const STEP_LABELS = ApplicationForm.STEP_DEFS.map((s) => s.title).concat(['Review']);
 
-// Phase 5: no live Airtable webhook is configured yet (see
-// destinations/AirtableDestination.js's header for the one-time Airtable
-// Automation setup this needs). Wired to a MockDestination configured to
-// always succeed, so submission behaves correctly end-to-end today.
-// Swap this for `require('../destinations/AirtableDestination')` once a
-// webhook URL is filled in there - nothing else in this file changes.
-const ACTIVE_DESTINATION = createMockDestination({ result: 'success', latencyMs: 500 });
+// Phase 6A: live Airtable webhook configured with duplicate prevention (see
+// destinations/AirtableDestination.js). Webhook is scoped to this automation
+// and POST data is mapped to Applications table via field references.
+const ACTIVE_DESTINATION = AirtableDestination.configure({
+  webhookUrl: 'https://hooks.airtable.com/workflows/v1/genericWebhook/appcA4lwc8KrLNxwM/wflQdJbGW3L2C8hoC/wtr78zDfdM03qbWWI'
+});
 
 function generateSubmissionId() {
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
