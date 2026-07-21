@@ -48,11 +48,11 @@ const STEP_LABELS = ApplicationForm.STEP_DEFS.map((s) => s.title).concat(['Revie
 // SubmissionService.submit() needs is the AirtableDestination module
 // object itself ({ name, send }), not configure()'s return value.
 //
-// Replace this URL with the real one `wrangler deploy` prints for your
-// account (see backend/DEPLOYMENT.md) - this default is a placeholder,
-// not a live endpoint.
+// This is the real, deployed production Worker URL (see
+// backend/DEPLOYMENT.md for deployment details) - update it if the
+// Worker is ever redeployed under a different name/subdomain.
 AirtableDestination.configure({
-  endpointUrl: 'https://prubsn-submission-service.YOUR_SUBDOMAIN.workers.dev/submit'
+  endpointUrl: 'https://prubsn-submission-service.syakirbadry.workers.dev/submit'
 });
 const ACTIVE_DESTINATION = AirtableDestination;
 
@@ -144,6 +144,14 @@ function initApplicationFlow(rootEl, prefillData) {
   // is the old medical-card renderer's marker; `#pq-doc` is the current
   // narrative renderer's (see renderer/renderNarrativeQuotation.js).
   const quotationCard = document.querySelector('.sheet, #pq-doc');
+  // The fixed-position Print/Save-as-PDF button (composeClientDocument.js)
+  // floats over whatever content is scrolled underneath it - found via an
+  // actual multi-step form test where it visually obstructed a field near
+  // the bottom-right of the viewport. Hidden while the application form is
+  // open for the same reason the quotation itself hides then: neither
+  // "print the quotation" nor the quotation's own content make sense to
+  // show while filling out the form.
+  const printBtn = document.getElementById('pq-print-btn');
 
   function buildConfirmationView() {
     const result = state.submissionResult;
@@ -273,6 +281,7 @@ function initApplicationFlow(rootEl, prefillData) {
     rootEl.hidden = true;
     if (quotationCard) quotationCard.hidden = false;
     if (continueBtn) continueBtn.hidden = false;
+    if (printBtn) printBtn.hidden = false;
   }
 
   function attachHandlers() {
@@ -322,6 +331,7 @@ function initApplicationFlow(rootEl, prefillData) {
   function openFlow() {
     if (quotationCard) quotationCard.hidden = true;
     if (continueBtn) continueBtn.hidden = true;
+    if (printBtn) printBtn.hidden = true;
     rootEl.hidden = false;
     render();
     rootEl.scrollIntoView({ block: 'start', behavior: 'smooth' });

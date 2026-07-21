@@ -16,15 +16,14 @@
  * project's earlier "100% local, nothing leaves your machine" posture -
  * publishing a shareable client link is the whole point of this phase.
  *
- * Replace PUBLISH_ENDPOINT with the real Worker URL `wrangler deploy`
- * prints for your account (see backend/DEPLOYMENT.md) - this default is
- * a placeholder, not a live endpoint, same pattern as
- * application/clientRuntime.js's AirtableDestination configuration.
+ * PUBLISH_ENDPOINT below is the real, deployed production Worker URL
+ * (see ../DEPLOYMENT.md for deployment details) - update it if the
+ * Worker is ever redeployed under a different name/subdomain.
  */
 
 'use strict';
 
-const PUBLISH_ENDPOINT = 'https://prubsn-submission-service.YOUR_SUBDOMAIN.workers.dev/publish';
+const PUBLISH_ENDPOINT = 'https://prubsn-submission-service.syakirbadry.workers.dev/publish';
 
 const { formatMoney, formatMoneyFixed2, resolveMonthlyTotalPayable } = require('../renderer/formatters.js');
 

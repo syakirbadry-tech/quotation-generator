@@ -41,7 +41,61 @@ npm test
 
 Runs `test/validate.test.js`, `test/airtable.test.js`, `test/worker.test.js`, `test/publish.test.js`, and `test/routing.test.js` — plain Node scripts (matching this project's existing test style), no real network calls (Airtable's API is mocked via `global.fetch`; D1 is mocked via `test/fakeD1.js`, a minimal in-memory stand-in — see that file's header comment for why a real D1 binding can't be exercised from a plain `node` script). Covers: successful submission, 400 invalid payload, 413 payload too large, 429 rate limiting, 500 Airtable failure, timeout handling, malformed JSON, secrets never leaking into a response, quotation publish/fetch success, 404 for an unknown id, and a genuine unique-id collision retry. (401/unauthorized is deliberately not implemented on either endpoint — see [Security notes](#security-notes) below — and is covered by a test asserting that an unauthenticated request is correctly *allowed*, not a gap.)
 
-## Production deployment
+## Live production deployment
+
+Deployed 2026-07-21. These are the real, current values — update this section if the Worker is ever redeployed under a different name/account/database.
+
+| Item | Value |
+|---|---|
+| **Worker name** | `prubsn-submission-service` |
+| **Worker URL** | `https://prubsn-submission-service.syakirbadry.workers.dev` |
+| **Cloudflare account** | `Syakirbadry@gmail.com's Account` (`84081737ffdc9651eb289060a0860efb`) |
+| **D1 binding name** | `QUOTATIONS_DB` |
+| **D1 database name** | `prubsn-quotations` |
+| **D1 database ID** | `5541a426-c913-47fc-a018-55f7c9e3113a` |
+| **D1 region** | APAC |
+| **Secrets set** | `AIRTABLE_PAT` (rotated 2026-07-21 - see [Security notes](#security-notes)) |
+| **Environment variables** (`[vars]` in `wrangler.toml`) | `AIRTABLE_BASE_ID=appcA4lwc8KrLNxwM`, `AIRTABLE_TABLE_ID=tblmBQko8J7yOsBbv`, `ALLOWED_ORIGIN=*` |
+| **Optional bindings not yet configured** | `RATE_LIMIT_KV` (rate limiting is inert without it - see below) |
+
+**Public quotation URL format:** `https://prubsn-submission-service.syakirbadry.workers.dev/q/{client-name-slug}-{8-char-hex-id}` (and the identical document also at `/app/{same-id}`) — e.g. `.../q/santun-syafitri-binti-mulyadi-8f93cbe2`.
+
+### Deployment commands (what was actually run)
+
+```bash
+cd backend
+npx wrangler login                                                              # one-time, interactive browser OAuth
+npx wrangler d1 create prubsn-quotations                                        # prints the database_id - paste into wrangler.toml's [[d1_databases]] block
+npx wrangler d1 execute prubsn-quotations --remote --file=./migrations/0001_create_quotations.sql
+npx wrangler secret put AIRTABLE_PAT                                             # paste a real Airtable PAT when prompted
+npx wrangler deploy                                                              # prints the live Worker URL
+```
+
+**After deploying:** `browser-tool/publishQuotation.js`'s `PUBLISH_ENDPOINT` and `browser-tool/application/clientRuntime.js`'s `endpointUrl` both already point at the real deployed URL above — rebuild with `npm run build:browser-tool` from the repo root after any future redeploy under a different URL.
+
+### Rollback commands
+
+```bash
+cd backend
+npx wrangler deployments list                # find the deployment ID to restore
+npx wrangler rollback <deployment-id>         # takes effect immediately, no rebuild needed
+```
+
+D1 has no equivalent "rollback" primitive — schema changes are additive-only migrations (`migrations/NNNN_*.sql`); reversing a bad migration means writing and applying a new migration that undoes it, same as any SQL database without a built-in point-in-time restore for this workload. Published quotation *rows* are never touched by a Worker rollback either way (D1 is a separate resource from the Worker script).
+
+### Migration commands
+
+```bash
+cd backend
+# Local dev (creates/updates a local SQLite file under .wrangler/state - never touches production):
+npx wrangler d1 execute prubsn-quotations --local --file=./migrations/0001_create_quotations.sql
+# Production (the real D1 database):
+npx wrangler d1 execute prubsn-quotations --remote --file=./migrations/0001_create_quotations.sql
+```
+
+Any future schema change: add a new `migrations/000N_description.sql` file (never edit `0001_create_quotations.sql` after it's been applied to production) and run the `--remote` command above for it.
+
+## Production deployment (general instructions for a fresh account/Worker)
 
 ```bash
 cd backend
@@ -178,6 +232,7 @@ npx wrangler tail
 ## Security notes
 
 - The Airtable PAT is **only ever** stored as a Cloudflare secret (`wrangler secret put`) or in the gitignored local `backend/.dev.vars` file. It is never in `wrangler.toml`, never in any file the browser loads, and this Worker's own error responses are deliberately generic (`backend/src/worker.js`) so an upstream Airtable error message is never relayed verbatim to a client, even by accident.
+- **2026-07-21: the production `AIRTABLE_PAT` was rotated during this deployment.** The token first set had already been identified (Phase 7 audit, see `PROJECT_STATUS.md`) as leaked in the legacy standalone client form's client-side JS; setting it here as a server-side secret does not undo that prior exposure - anyone who ever received that old file still has full read/write access to the base through that same token, independent of this project. It was replaced with a freshly-created PAT scoped to `data.records:write` on this base only. If the *old* token hasn't been separately revoked in Airtable's own token management UI, do that too - rotating where it's *used* doesn't revoke where it still *works*.
 - No API-key/bearer-token authentication is implemented on this endpoint (no `401` responses). This is deliberate, not an oversight: the endpoint receives a client's own application from their own browser, and this project has no login system anywhere. A shared "API key" baked into the frontend bundle would be visible to anyone who view-sources the page — the exact anti-pattern this whole migration exists to move away from (see `docs/AIRTABLE_FIELD_MAPPING.md`'s history of the legacy standalone form's embedded token leak) — so it would add the appearance of security without the substance.
 - Payload validation, size limits (20MB total, 8MB per document), and rate limiting (optional, see above) are the actual abuse-resistance layer for a public, unauthenticated endpoint.
 - **`POST /publish` has the same no-login posture, with one added check**: it rejects any `generatedHtml` that doesn't contain this renderer's own `id="pq-doc"` marker (see `backend/src/publish.js`), which stops arbitrary unrelated content from being stored and served from this domain, though it can't stop a determined caller who copies real output. There is no per-agent authentication anywhere in this project yet - this is a known, intentionally-scoped-out gap, not an oversight.
@@ -190,3 +245,5 @@ npx wrangler tail
 - The Airtable Automation that the old webhook pointed at is no longer used by anything in this project. It has not been deleted (out of scope for this migration - a separate, deliberate cleanup decision).
 - **(Phase 9)** No published quotation ever expires or can be un-published/deleted through this project's own tooling yet - it would need a direct `wrangler d1 execute` `DELETE` statement today. No per-agent authentication on `/publish` (see Security notes above). `GET /app/:id` currently serves the exact same document as `GET /q/:id` (the "Continue Application" flow is embedded in the same page, not a separate route) - a deliberate simplification, not an oversight.
 - **(Phase 9)** The five full-bleed "Ken Burns" photo sections and all other `AssetManager`-driven images (plan tier, coverage, room & board, etc.) fall back to a placeholder panel until real production photography is supplied - see `browser-tool/assets/images/README.md` and `CHECKLIST.md`.
+- **(Live production state)** `RATE_LIMIT_KV` is not yet bound in production - both `/submit` and `/publish` work correctly but without rate limiting. See "Optional: rate limiting" above to add it; no code change needed, just the KV namespace + a `wrangler.toml` binding + redeploy.
+- **(Live production state)** No custom domain is attached yet - the production URL is the `*.workers.dev` default. See [Custom domain](#custom-domain-optional) above to attach one later; every generated public URL already derives from the request's own origin, so this needs no code change either.

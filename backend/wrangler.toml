@@ -26,16 +26,13 @@ ALLOWED_ORIGIN = "*"
 # public client quotation platform). Without this binding, /publish and
 # /q/*, /app/* return a clean "not configured" error - /submit (client
 # application submissions) is entirely unaffected either way.
-#
-# Set up with (see ../DEPLOYMENT.md for the full walkthrough):
-#   wrangler d1 create prubsn-quotations
-#   wrangler d1 execute prubsn-quotations --local  --file=./migrations/0001_create_quotations.sql   (for `wrangler dev`)
-#   wrangler d1 execute prubsn-quotations --remote --file=./migrations/0001_create_quotations.sql   (after deploying)
-# then paste the database_id it prints below.
-# [[d1_databases]]
-# binding = "QUOTATIONS_DB"
-# database_name = "prubsn-quotations"
-# database_id = "<paste-the-database-id-here>"
+# Live in production since 2026-07-21 - see ../DEPLOYMENT.md's
+# "Live production deployment" section for the real database details
+# and the commands used to set this up on a fresh account/Worker.
+[[d1_databases]]
+binding = "QUOTATIONS_DB"
+database_name = "prubsn-quotations"
+database_id = "5541a426-c913-47fc-a018-55f7c9e3113a"
 
 # --- Optional named environments (see DEPLOYMENT.md) ---
 # `wrangler deploy --env staging` etc. Each environment gets its own

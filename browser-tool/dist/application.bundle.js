@@ -908,7 +908,7 @@
       var CONFIRMATION_STEP = ApplicationForm.TOTAL_STEPS + 1;
       var STEP_LABELS = ApplicationForm.STEP_DEFS.map((s) => s.title).concat(["Review"]);
       AirtableDestination.configure({
-        endpointUrl: "https://prubsn-submission-service.YOUR_SUBDOMAIN.workers.dev/submit"
+        endpointUrl: "https://prubsn-submission-service.syakirbadry.workers.dev/submit"
       });
       var ACTIVE_DESTINATION = AirtableDestination;
       var MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -980,6 +980,7 @@
         };
         const continueBtn = document.getElementById("paf-continue-btn");
         const quotationCard = document.querySelector(".sheet, #pq-doc");
+        const printBtn = document.getElementById("pq-print-btn");
         function buildConfirmationView() {
           const result = state.submissionResult;
           return {
@@ -1069,6 +1070,7 @@
           rootEl.hidden = true;
           if (quotationCard) quotationCard.hidden = false;
           if (continueBtn) continueBtn.hidden = false;
+          if (printBtn) printBtn.hidden = false;
         }
         function attachHandlers() {
           rootEl.querySelectorAll("[data-action]").forEach((btn) => {
@@ -1119,6 +1121,7 @@
         function openFlow() {
           if (quotationCard) quotationCard.hidden = true;
           if (continueBtn) continueBtn.hidden = true;
+          if (printBtn) printBtn.hidden = true;
           rootEl.hidden = false;
           render();
           rootEl.scrollIntoView({ block: "start", behavior: "smooth" });
