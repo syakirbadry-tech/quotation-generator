@@ -665,6 +665,8 @@
         let totalContributionOverTerm = null;
         let totalDirectCommission = null;
         let guaranteedDeathTPDBenefit = null;
+        let nonGuaranteedCashValueScenarioX = null;
+        let nonGuaranteedCashValueScenarioY = null;
         if (summarySection.startIndex === -1) {
           warnings.push({ field: "contributions", message: 'Could not locate the "A. SUMMARY" section.' });
         } else {
@@ -690,6 +692,20 @@
           } else {
             warnings.push({ field: "contributions.guaranteedDeathTPDBenefit", message: 'Could not locate "If you die or suffer TPD".' });
           }
+          const scenarioXLine = lines.find((l) => /Scenario X\s*:\s*RM\s*[\d,]+(\.\d+)?/i.test(l));
+          if (scenarioXLine) {
+            const m = scenarioXLine.match(/RM\s*([\d,]+(\.\d+)?)/i);
+            nonGuaranteedCashValueScenarioX = m ? parseCurrency(m[1]) : null;
+          } else {
+            warnings.push({ field: "contributions.nonGuaranteedCashValueScenarioX", message: 'Could not locate the "Scenario X : RM ..." non-guaranteed cash value figure.' });
+          }
+          const scenarioYLine = lines.find((l) => /Scenario Y\s*:\s*RM\s*[\d,]+(\.\d+)?/i.test(l));
+          if (scenarioYLine) {
+            const m = scenarioYLine.match(/RM\s*([\d,]+(\.\d+)?)/i);
+            nonGuaranteedCashValueScenarioY = m ? parseCurrency(m[1]) : null;
+          } else {
+            warnings.push({ field: "contributions.nonGuaranteedCashValueScenarioY", message: 'Could not locate the "Scenario Y : RM ..." non-guaranteed cash value figure.' });
+          }
         }
         return {
           isaContribution,
@@ -701,6 +717,8 @@
           totalContributionOverTerm,
           totalDirectCommission,
           guaranteedDeathTPDBenefit,
+          nonGuaranteedCashValueScenarioX,
+          nonGuaranteedCashValueScenarioY,
           _warnings: warnings
         };
       }
@@ -1513,6 +1531,926 @@
     }
   });
 
+  // renderer/renderNarrativeQuotation.js
+  var require_renderNarrativeQuotation = __commonJS({
+    "renderer/renderNarrativeQuotation.js"(exports, module) {
+      "use strict";
+      var { getAgentConfig } = require_agents();
+      var {
+        escapeHtml: escapeHtml2,
+        formatMoney,
+        formatMoneyFixed2,
+        resolveMonthlyTotalPayable
+      } = require_formatters();
+      function naSpan(text) {
+        return `<span class="pq-na">${escapeHtml2(text || "Refer to certificate")}</span>`;
+      }
+      function textOr(value, clientText) {
+        return value ? escapeHtml2(value) : naSpan(clientText);
+      }
+      function moneyRM(n) {
+        const formatted = formatMoney(n);
+        return formatted == null ? null : `RM ${formatted}`;
+      }
+      function firstName(fullName) {
+        if (!fullName) return null;
+        const parts = String(fullName).trim().split(/\s+/);
+        return parts[0] || fullName;
+      }
+      function findBenefit(benefitItems, label) {
+        return (benefitItems || []).find((b) => b.label === label) || null;
+      }
+      function extractRmAmount(value) {
+        if (!value) return null;
+        const m = String(value).match(/RM\s*([\d,]+(?:\.\d+)?)/);
+        return m ? m[0].replace(/\s+/g, " ") : null;
+      }
+      function extractDayNote(value) {
+        if (!value) return null;
+        const m = String(value).match(/\(([^)]*\bdays?\b[^)]*)\)/i);
+        return m ? m[1] : null;
+      }
+      var KNOWN_CRITICAL_ILLNESS_TERMS = ["Cancer", "Heart Attack", "Kidney Failure", "Stroke"];
+      function criticalIllnessBoost(benefitItems) {
+        const item = findBenefit(benefitItems, "Additional Annual Limit for");
+        if (!item || !item.value) return null;
+        const amount = extractRmAmount(item.value);
+        if (!amount) return null;
+        const conditions = KNOWN_CRITICAL_ILLNESS_TERMS.filter(
+          (term) => new RegExp(term, "i").test(item.value)
+        );
+        return { amount, conditions };
+      }
+      var PRODUCT_FACTS = {
+        "PruBSN AnugerahMax": {
+          extensionToAge100: true,
+          pidmProtected: true
+        }
+      };
+      var KEN_BURNS_SLOTS = {
+        admission: { alt: "Hospital entrance", assetUrl: null },
+        ward: { alt: "Private hospital ward", assetUrl: null },
+        surgery: { alt: "Operating theatre", assetUrl: null },
+        room: { alt: "Hospital room", assetUrl: null },
+        criticalIllness: { alt: "Cancer treatment centre", assetUrl: null }
+      };
+      function kenBurnsMedia(slotKey) {
+        const slot = KEN_BURNS_SLOTS[slotKey];
+        if (slot && slot.assetUrl) {
+          return `<img class="reveal kenburns" src="${escapeHtml2(slot.assetUrl)}" alt="${escapeHtml2(slot.alt)}">`;
+        }
+        return `<!-- photo slot: ${slotKey} - set KEN_BURNS_SLOTS.${slotKey}.assetUrl to swap in a real photo -->
+      <div class="pq-kb-placeholder" role="img" aria-label="${escapeHtml2(slot.alt)}">
+        <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="#9FB4D1" stroke-width="1.3"><rect x="3" y="8" width="18" height="13" rx="1.2"></rect><path d="M3 8l9-5 9 5"></path><path d="M12 11v6M9 14h6"></path></svg>
+      </div>`;
+      }
+      function buildViewModel(data, agentReview) {
+        const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, benefits = {}, projection = {} } = data || {};
+        const agentConfig = getAgentConfig(agent.agentCode) || {};
+        const benefitItems = benefits.benefitItems || [];
+        const monthlyValue = resolveMonthlyTotalPayable(contributions);
+        const monthlyFormatted = monthlyValue != null ? `RM ${formatMoneyFixed2(monthlyValue)}` : null;
+        const monthlyCompact = monthlyValue != null ? moneyRM(monthlyValue) : null;
+        const roomBoardItem = findBenefit(benefitItems, "Hospital Daily Room and Board");
+        const roomBoardAmount = roomBoardItem ? extractRmAmount(roomBoardItem.value) : null;
+        const roomBoardDayNote = roomBoardItem ? extractDayNote(roomBoardItem.value) : null;
+        const boost = criticalIllnessBoost(benefitItems);
+        const purposeRaw = client.takafulPlanPurpose;
+        const purpose = purposeRaw ? /non-business/i.test(purposeRaw) ? "Personal" : /business/i.test(purposeRaw) ? "Business" : purposeRaw : null;
+        const productFacts = PRODUCT_FACTS[metadata.productName] || {};
+        const currentRow = (projection.projectionRows || []).find((r) => r.age === client.ageNextBirthday) || null;
+        return {
+          clientName: client.fullName || null,
+          clientFirstName: firstName(client.fullName),
+          ageNextBirthday: client.ageNextBirthday,
+          gender: client.gender,
+          smokerStatus: client.smokerStatus,
+          occupationClass: client.occupationClass,
+          purpose,
+          paymentMode: plan.paymentMode,
+          productName: metadata.productName,
+          medicalRiderName: plan.medicalRiderName,
+          medicalPlanTier: plan.medicalPlanTier,
+          coPaymentOption: plan.coPaymentOption,
+          basicPlanTerm: plan.basicPlanTerm,
+          coverageToAge: plan.coverageToAge,
+          coverageStartAge: client.ageNextBirthday != null ? client.ageNextBirthday + 1 : null,
+          agentName: agentConfig.name || agent.agentNameOnDocument || null,
+          agentCode: agent.agentCode || null,
+          agencyName: agentConfig.agency || null,
+          agencyLogo: agentConfig.logo || null,
+          monthlyFormatted,
+          monthlyCompact,
+          totalAnnualContribution: contributions.totalAnnualContribution,
+          totalContributionOverTerm: contributions.totalContributionOverTerm,
+          guaranteedDeathTPDBenefit: contributions.guaranteedDeathTPDBenefit,
+          isaContribution: contributions.isaContribution,
+          protectionContribution: contributions.protectionContribution,
+          wakalahCertificateCharge: contributions.wakalahCertificateCharge,
+          cashValueX: contributions.nonGuaranteedCashValueScenarioX,
+          cashValueY: contributions.nonGuaranteedCashValueScenarioY,
+          annualLimit: benefits.annualLimit,
+          lifetimeLimit: benefits.lifetimeLimit,
+          benefitItems,
+          waitingPeriods: (benefits.waitingPeriods || []).slice().sort((a, b) => a.days - b.days),
+          roomBoardAmount,
+          roomBoardDayNote,
+          boost,
+          productFacts,
+          projectedAgeContribution: currentRow ? moneyRM(currentRow.currentContribution) : null,
+          quotationNumber: agentReview && agentReview.quotationNumber ? agentReview.quotationNumber : null
+        };
+      }
+      var NARRATIVE_STYLE = `
+  :root{
+    --teal:#178D93; --teal-dk:#0F6E73;
+    --ink:#0B2545; --meta:#5A6B85; --line:rgba(11,37,69,0.12); --card:#ffffff;
+    --rose-soft:#F6F1EE; --gold-a:#C9962E; --gold-b:#E0B25A;
+    --serif:"Newsreader",Georgia,"Times New Roman",serif;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,sans-serif;
+  }
+  #pq-doc{font-family:var(--sans);color:var(--ink);width:100%;overflow-x:hidden}
+  #pq-doc *{box-sizing:border-box}
+  #pq-doc a{color:var(--teal)}
+  #pq-doc a:hover{color:var(--teal-dk)}
+  body:has(#pq-doc){margin:0;background:linear-gradient(165deg,#F6C9D6 0%,#F2D3E2 18%,#E7D7EC 38%,#D6E1F0 60%,#C3E7F3 82%,#BEEAF4 100%);background-attachment:fixed}
+
+  .pq-reveal{opacity:1;transform:none}
+  .pq-zoom{opacity:0.12;transform:scale(0.72)}
+  @media (prefers-reduced-motion:no-preference){
+    .pq-reveal{opacity:0;transform:translateY(26px);transition:opacity .8s cubic-bezier(.22,1,.36,1),transform .8s cubic-bezier(.22,1,.36,1)}
+    .pq-reveal[data-visible]{opacity:1;transform:translateY(0)}
+    .pq-reveal.d1[data-visible]{transition-delay:.08s}
+    .pq-reveal.d2[data-visible]{transition-delay:.16s}
+    .pq-reveal.d3[data-visible]{transition-delay:.24s}
+    .pq-reveal.d4[data-visible]{transition-delay:.32s}
+    .pq-donut-seg{transition:stroke-dashoffset 1.3s cubic-bezier(.22,1,.36,1) .25s}
+    .pq-draw-path{transition:stroke-dashoffset 1.5s cubic-bezier(.22,1,.36,1) .2s}
+    .pq-zoom{opacity:0;transform:scale(0.72)}
+    .pq-kenburns{transform:scale(1.15);transition:transform 9s cubic-bezier(.22,1,.36,1)}
+    .pq-kenburns[data-visible]{transform:scale(1)}
+  }
+  @keyframes pqIntro{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+  @keyframes pqPulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(23,141,147,.35)}50%{transform:scale(1.05);box-shadow:0 0 0 18px rgba(23,141,147,0)}}
+
+  #pq-doc section{padding:56px 28px}
+  #pq-doc .pq-eyebrow{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--teal)}
+  #pq-doc .pq-headline{font-family:var(--serif);font-weight:600;line-height:1.28;margin-top:12px}
+  #pq-doc .pq-lede{font-size:16px;color:var(--meta);margin-top:12px;line-height:1.6}
+  #pq-doc .pq-na{color:var(--meta);font-style:italic}
+
+  .pq-hero{min-height:92vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding-top:calc(env(safe-area-inset-top) + 40px)}
+  .pq-brandmark{font-family:var(--serif);font-weight:700;font-size:19px;color:var(--ink)}
+  .pq-award{display:inline-flex;align-items:center;gap:10px;background:rgba(255,255,255,.55);border:1px solid var(--line);border-radius:100px;padding:10px 18px;font-size:13px;font-weight:700;color:#6b5a2e;margin-top:20px}
+  .pq-tagline{font-family:var(--serif);font-style:italic;font-size:44px;font-weight:600;color:var(--teal);margin-top:34px}
+  .pq-tagline-en{font-size:16px;color:var(--meta);margin-top:6px}
+  .pq-hero-title{font-family:var(--serif);font-size:30px;font-weight:600;margin-top:40px;max-width:480px;line-height:1.35}
+  .pq-hero-sub{margin-top:28px;font-size:15px;color:var(--meta)}
+  .pq-scroll-cue{margin-top:40px;font-size:13px;color:#5a6b85;letter-spacing:.1em;text-transform:uppercase;text-align:center}
+
+  .pq-stat-pill{display:inline-flex;align-items:center;gap:14px;margin-top:36px;color:#fff;border-radius:100px;padding:14px 22px;box-shadow:0 10px 28px rgba(23,141,147,.25);background:var(--teal)}
+  .pq-stat-pill b{font-size:26px;font-weight:800;font-family:var(--serif);line-height:1}
+  .pq-stat-pill span{font-size:13px;font-weight:600;line-height:1.3}
+
+  .pq-path-grid{display:flex;flex-direction:column;gap:28px;margin-top:20px}
+  .pq-path-card{background:#fff;border-radius:14px;padding:28px 22px;box-shadow:0 6px 20px rgba(11,37,69,.08);text-align:center}
+  .pq-path-card.pq-dark{background:var(--ink);color:#fff}
+  .pq-path-card .pq-path-label{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--meta)}
+  .pq-path-card.pq-dark .pq-path-label{color:#9FB4D1}
+  .pq-path-card .pq-path-title{font-size:17px;font-weight:700;margin-top:6px}
+  .pq-path-card .pq-path-desc{font-size:13px;color:var(--meta);margin-top:12px}
+  .pq-path-card.pq-dark .pq-path-desc{color:#C7D3E3}
+
+  .pq-drama{min-height:56vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:linear-gradient(160deg,#0B2545 0%,#16345E 100%);color:#fff}
+  .pq-drama .pq-headline{color:#fff;font-size:32px;max-width:440px}
+  .pq-drama .pq-eyebrow{color:#CFE0EE}
+  .pq-drama .pq-figure{color:#F2A65A}
+
+  .pq-consequence-steps{display:flex;flex-direction:column;gap:14px;margin-top:26px}
+  .pq-consequence-step{background:#fff;border-radius:10px;padding:20px;box-shadow:0 6px 20px rgba(11,37,69,.08);border-left:4px solid var(--gold-a)}
+  .pq-consequence-step .pq-step-title{font-size:16px;font-weight:700}
+  .pq-consequence-step .pq-step-desc{font-size:14px;color:var(--meta);margin-top:4px;line-height:1.5}
+  .pq-consequence-step.pq-warn{background:#B5493D;color:#fff;border-left-color:transparent}
+  .pq-consequence-step.pq-warn .pq-step-desc{color:#FDE2DE}
+
+  .pq-protected-card{background:var(--teal);color:#fff;border-radius:14px;padding:30px 24px;margin-top:24px;text-align:center;box-shadow:0 10px 30px rgba(23,141,147,.25)}
+  .pq-protected-card .pq-protected-figure{font-size:22px;font-weight:700;font-family:var(--serif);margin-top:18px}
+  .pq-protected-card .pq-protected-note{font-size:14px;color:#E3ECF5;margin-top:10px;line-height:1.5}
+
+  .pq-summary-card{padding-top:64px;border-top:1px solid var(--line)}
+  .pq-summary-name{font-family:var(--serif);font-size:40px;line-height:1.1;font-weight:600;margin-top:10px}
+  .pq-summary-rows{margin-top:36px;border-top:1px solid var(--line)}
+  .pq-summary-row{display:flex;justify-content:space-between;padding:18px 0;border-bottom:1px solid var(--line)}
+  .pq-summary-row .l{font-size:15px;color:var(--meta)}
+  .pq-summary-row .r{font-size:18px;font-weight:600}
+
+  .pq-stat-grid{display:flex;flex-direction:column;gap:16px;margin-top:32px}
+  .pq-stat-card{background:#fff;border-radius:10px;padding:22px 24px;display:flex;align-items:center;gap:18px;box-shadow:0 6px 20px rgba(11,37,69,.08)}
+  .pq-stat-card .pq-stat-figure{font-size:32px;font-weight:800;font-family:var(--serif);color:var(--teal);line-height:1}
+  .pq-stat-card .pq-stat-label{font-size:14px;margin-top:6px;line-height:1.4}
+  .pq-source-note{font-size:12px;color:#7C88A0;margin-top:8px;line-height:1.5}
+
+  .pq-cost-list{display:flex;flex-direction:column;gap:20px;margin-top:32px}
+  .pq-cost-row .pq-cost-head{display:flex;justify-content:space-between;font-size:15px;margin-bottom:6px}
+  .pq-cost-track{height:12px;background:#fff;border-radius:6px;overflow:hidden;box-shadow:0 0 0 1px rgba(11,37,69,.08) inset}
+  .pq-cost-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--teal),#0B5B60)}
+  .pq-cost-fill.pq-gold{background:var(--gold-a)}
+
+  .pq-profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:28px}
+  .pq-profile-item{background:#fff;border-radius:8px;padding:20px;box-shadow:0 6px 20px rgba(11,37,69,.08)}
+  .pq-profile-item.pq-wide{grid-column:1/-1}
+  .pq-profile-item .k{font-size:13px;color:#7C88A0;text-transform:uppercase;letter-spacing:.05em}
+  .pq-profile-item .v{font-size:19px;font-weight:600;margin-top:6px}
+
+  .pq-donut-wrap{position:relative;width:220px;height:220px;margin:36px auto 0}
+  .pq-donut-total{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .pq-donut-total .k{font-size:13px;color:#7C88A0;text-transform:uppercase;letter-spacing:.05em}
+  .pq-donut-total .v{font-size:34px;font-weight:800;font-family:var(--serif);color:var(--ink)}
+  .pq-contrib-list{display:flex;flex-direction:column;gap:16px;margin-top:32px}
+  .pq-contrib-item{display:flex;gap:16px;align-items:flex-start;background:#fff;border-radius:8px;padding:20px;box-shadow:0 6px 20px rgba(11,37,69,.08)}
+  .pq-contrib-dot{width:14px;height:14px;border-radius:4px;margin-top:5px;flex-shrink:0}
+  .pq-contrib-item .k{font-size:18px;font-weight:700}
+  .pq-contrib-item .d{font-size:15px;color:var(--meta);margin-top:6px;line-height:1.5}
+
+  .pq-kb-section{position:relative;min-height:88vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px 28px;overflow:hidden}
+  .pq-kb-media{position:absolute;inset:0;overflow:hidden}
+  .pq-kb-media img.pq-kenburns{width:100%;height:100%;object-fit:cover}
+  .pq-kb-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#16345E 0%,#0B2545 100%)}
+  .pq-kb-overlay{position:absolute;inset:0;background:linear-gradient(rgba(11,37,69,.5) 0%,rgba(11,37,69,.68) 55%,rgba(11,37,69,.86) 100%)}
+  .pq-kb-content{position:relative;color:#fff;max-width:460px}
+  .pq-kb-content .pq-eyebrow{color:#CFE0EE}
+  .pq-kb-content .pq-headline{color:#fff;font-size:30px}
+  .pq-kb-figure{font-size:52px;font-weight:800;font-family:var(--serif);color:#4FD1D9;margin-top:16px}
+  .pq-kb-figure small{font-size:20px;color:#CFE0EE;font-weight:600}
+  .pq-kb-note{font-size:14px;color:#E3ECF5;margin-top:16px;line-height:1.5}
+
+  .pq-benefit-list{display:flex;flex-direction:column;gap:14px;margin-top:20px}
+  .pq-benefit-card{background:#fff;border-radius:8px;padding:20px;display:flex;gap:16px;align-items:flex-start;box-shadow:0 6px 20px rgba(11,37,69,.08)}
+  .pq-benefit-card .k{font-size:16px;font-weight:700}
+  .pq-benefit-card .d{font-size:14px;color:var(--meta);margin-top:4px;line-height:1.5}
+  .pq-benefit-dot{width:22px;height:22px;flex-shrink:0;color:var(--teal)}
+
+  .pq-guarantee-hero{background:var(--ink);color:#fff;border-radius:12px;padding:32px 26px;margin-top:32px;box-shadow:0 10px 30px rgba(11,37,69,.2)}
+  .pq-guarantee-hero .pq-eyebrow{color:#9FB4D1}
+  .pq-guarantee-hero .pq-figure{font-size:52px;font-weight:800;font-family:var(--serif);margin-top:8px}
+  .pq-guarantee-hero .pq-note{font-size:16px;margin-top:12px;line-height:1.55;color:#C7D3E3}
+  .pq-fact-list{display:flex;flex-direction:column;gap:16px;margin-top:20px}
+  .pq-fact-card{background:#fff;border-radius:10px;padding:24px;box-shadow:0 6px 20px rgba(11,37,69,.08)}
+  .pq-fact-card .k{font-size:17px;font-weight:600;color:var(--teal)}
+  .pq-fact-card .d{font-size:15px;margin-top:8px;color:var(--meta);line-height:1.5}
+
+  .pq-wait-list{display:flex;flex-direction:column;gap:14px;margin-top:28px}
+  .pq-wait-card{background:#fff;border-radius:10px;padding:22px;box-shadow:0 6px 20px rgba(11,37,69,.08)}
+  .pq-wait-card.pq-first{background:var(--teal);color:#fff}
+  .pq-wait-card .k{font-size:16px;font-weight:700}
+  .pq-wait-card .d{font-size:14px;color:var(--meta);margin-top:4px;line-height:1.5}
+  .pq-wait-card.pq-first .d{color:#E3ECF5}
+
+  .pq-cashvalue-legend{display:flex;flex-direction:column;gap:10px;margin-top:24px}
+  .pq-cv-row{display:flex;align-items:center;gap:10px;background:#fff;padding:12px 16px;border-radius:8px;box-shadow:0 6px 20px rgba(11,37,69,.08)}
+  .pq-cv-dot{width:10px;height:10px;border-radius:50%}
+
+  .pq-summary4{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:28px}
+  .pq-summary4-card{background:#fff;border-radius:10px;padding:22px 18px;box-shadow:0 6px 20px rgba(11,37,69,.08)}
+  .pq-summary4-card.pq-accent{background:var(--teal);color:#fff}
+  .pq-summary4-card .k{font-size:13px;color:#7C88A0;text-transform:uppercase;letter-spacing:.05em}
+  .pq-summary4-card.pq-accent .k{color:#FFD0D8}
+  .pq-summary4-card .v{font-size:26px;font-weight:800;font-family:var(--serif);margin-top:8px}
+  .pq-summary4-card .s{font-size:12px;color:#7C88A0;margin-top:6px}
+  .pq-summary4-card.pq-accent .s{color:#FFD0D8}
+
+  .pq-steps{display:flex;flex-direction:column;gap:14px;margin-top:32px}
+  .pq-step-card{background:#fff;border-radius:8px;padding:20px;box-shadow:0 6px 20px rgba(11,37,69,.08)}
+  .pq-step-card .k{font-size:13px;color:#7C88A0;text-transform:uppercase;letter-spacing:.05em}
+  .pq-step-card .v{font-size:17px;font-weight:600;margin-top:6px}
+
+  .pq-agent-footer{margin-top:40px;border-top:1px solid var(--line);padding-top:26px;display:flex;gap:16px;align-items:flex-start}
+  .pq-agent-footer img{width:56px;height:56px;border-radius:10px;object-fit:cover;flex-shrink:0}
+  .pq-agent-footer .name{font-size:19px;font-weight:700}
+  .pq-agent-footer .meta{font-size:15px;color:var(--meta);margin-top:4px}
+  .pq-agent-footer .fine{font-size:13px;color:#7C88A0;margin-top:18px;line-height:1.5}
+
+  .pq-contact-fields{display:flex;flex-direction:column;gap:14px;margin-top:32px}
+  .pq-contact-field{background:#fff;border-radius:10px;padding:6px 18px;box-shadow:0 6px 20px rgba(11,37,69,.08)}
+  .pq-contact-field input{width:100%;border:none;outline:none;background:transparent;font-family:var(--sans);font-size:16px;color:var(--ink);padding:14px 0}
+  .pq-cta{width:100%;margin-top:20px;background:var(--teal);color:#fff;border:none;border-radius:100px;padding:18px 24px;font-family:var(--sans);font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 28px rgba(23,141,147,.3)}
+  .pq-cta:hover{filter:brightness(1.05)}
+  .pq-contact-note{margin-top:18px;font-size:13px;color:#7C88A0;line-height:1.5;text-align:center}
+
+  .pq-outro{min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border-top:1px solid var(--line)}
+  .pq-outro-badge{width:84px;height:84px;border-radius:50%;background:var(--teal);display:flex;align-items:center;justify-content:center;animation:pqPulse 2.4s ease-in-out infinite}
+  .pq-outro-tagline{font-family:var(--serif);font-style:italic;font-size:30px;font-weight:600;color:var(--teal);margin-top:26px}
+  .pq-outro-sub{font-size:15px;color:var(--meta);margin-top:8px}
+
+  @media print{
+    /* Fixed-position overlays/controls make no sense on paper - same
+       lesson as the old renderer's print CSS (see renderQuotation.js's
+       SHARED_STYLE comment). Found the same way: printing a fresh preview
+       that had never been clicked past the "tap anywhere to continue"
+       intro would otherwise bury the whole printed page under it. */
+    .pq-intro-overlay, .pq-sound-btn{display:none!important}
+    #pq-doc .pq-reveal, #pq-doc .pq-zoom{opacity:1!important;transform:none!important}
+    #pq-doc .pq-kb-section{min-height:0!important;page-break-inside:avoid}
+    #pq-doc *{animation:none!important;transition:none!important}
+    #pq-doc, #pq-doc *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+`;
+      var NARRATIVE_RUNTIME = `
+(function () {
+  var root = document.getElementById('pq-doc');
+  if (!root) return;
+
+  var intro = root.querySelector('.pq-intro-overlay');
+  if (intro) {
+    intro.addEventListener('click', function () {
+      intro.style.opacity = '0';
+      intro.style.visibility = 'hidden';
+    });
+  }
+
+  var soundBtn = root.querySelector('.pq-sound-btn');
+  var audioOn = false;
+  function setSoundLabel() {
+    if (!soundBtn) return;
+    var label = soundBtn.querySelector('.pq-sound-label');
+    if (label) label.textContent = audioOn ? 'Sound on' : 'Tap for sound';
+  }
+  if (soundBtn) {
+    soundBtn.addEventListener('click', function () {
+      audioOn = !audioOn;
+      setSoundLabel();
+      if (!audioOn && window.speechSynthesis) window.speechSynthesis.cancel();
+    });
+  }
+
+  var narrateEls = Array.prototype.slice.call(root.querySelectorAll('[data-narrate]'));
+  if (narrateEls.length && 'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      if (!audioOn) return;
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting && entry.intersectionRatio > 0.55 && !entry.target.hasAttribute('data-narrated')) {
+          entry.target.setAttribute('data-narrated', '');
+          var text = entry.target.getAttribute('data-narrate');
+          if (text && window.speechSynthesis) {
+            window.speechSynthesis.cancel();
+            var utter = new SpeechSynthesisUtterance(text);
+            utter.rate = 0.98;
+            window.speechSynthesis.speak(utter);
+          }
+        }
+      });
+    }, { threshold: [0, 0.55, 1] });
+    narrateEls.forEach(function (el) { io.observe(el); });
+  }
+
+  var revealEls = Array.prototype.slice.call(root.querySelectorAll('.pq-reveal, [data-final-width], [data-final-offset]'));
+  var zoomEls = Array.prototype.slice.call(root.querySelectorAll('.pq-zoom'));
+
+  function applyFinal(el) {
+    if (el.hasAttribute('data-final-width')) el.style.width = el.getAttribute('data-final-width');
+    if (el.hasAttribute('data-final-offset')) el.style.strokeDashoffset = el.getAttribute('data-final-offset');
+  }
+
+  function step() {
+    var vh = window.innerHeight || 800;
+    for (var i = 0; i < revealEls.length; i++) {
+      var el = revealEls[i];
+      if (el.hasAttribute('data-visible')) continue;
+      var r = el.getBoundingClientRect();
+      if (r.top < vh * 0.92) {
+        el.setAttribute('data-visible', '');
+        applyFinal(el);
+      }
+    }
+    var zStart = vh * 0.88, zEnd = vh * 0.4;
+    for (var j = 0; j < zoomEls.length; j++) {
+      var z = zoomEls[j];
+      var rz = z.getBoundingClientRect();
+      var center = rz.top + rz.height / 2;
+      var progress = (zStart - center) / (zStart - zEnd);
+      progress = progress < 0 ? 0 : progress > 1 ? 1 : progress;
+      z.style.opacity = String(progress);
+      z.style.transform = 'scale(' + (0.72 + 0.28 * progress).toFixed(3) + ')';
+    }
+  }
+
+  step();
+  var running = true;
+  function tick() {
+    if (!running) return;
+    step();
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+  window.addEventListener('beforeunload', function () { running = false; });
+})();
+`;
+      function renderIntroOverlay(vm) {
+        return `
+  <div class="pq-intro-overlay" style="position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(165deg,#F6C9D6 0%,#F2D3E2 18%,#E7D7EC 38%,#D6E1F0 60%,#C3E7F3 82%,#BEEAF4 100%);cursor:pointer;transition:opacity .6s,visibility .6s">
+    <div class="pq-brandmark">Prudential BSN Takaful</div>
+    <div style="font-family:var(--serif);font-style:italic;font-size:26px;color:var(--teal);margin-top:18px">Anda Inspirasi Kami</div>
+    <div style="font-size:12px;color:#7C88A0;letter-spacing:.1em;text-transform:uppercase;margin-top:28px">Tap anywhere to continue</div>
+  </div>
+  <button type="button" class="pq-sound-btn" style="position:fixed;top:16px;right:16px;z-index:50;background:rgba(11,37,69,.85);color:#fff;border:none;border-radius:100px;padding:10px 16px;font-family:var(--sans);font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 6px 16px rgba(11,37,69,.3)">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4z"></path><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+    <span class="pq-sound-label">Tap for sound</span>
+  </button>`;
+      }
+      function renderHero(vm) {
+        return `
+  <section class="pq-hero">
+    <div class="pq-reveal"><div class="pq-brandmark">Prudential BSN Takaful</div></div>
+    <div class="pq-award pq-reveal d1">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C9962E" stroke-width="1.8"><path d="M12 2l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-1.5z"></path></svg>
+      Nation's Pride \u2014 Best Takaful Operator
+    </div>
+    <div class="pq-tagline pq-reveal d2">Anda Inspirasi Kami</div>
+    <div class="pq-tagline-en pq-reveal d2">You are our inspiration</div>
+    <div class="pq-hero-title pq-reveal d3">A ${textOr(vm.productName, "Family Takaful")} plan, built around ${textOr(vm.clientName, "you")}</div>
+    <div class="pq-hero-sub pq-reveal d4">Prepared by ${textOr(vm.agentName, "your servicing agent")}${vm.agencyName ? ` \xB7 ${escapeHtml2(vm.agencyName)}` : ""}</div>
+    <div class="pq-scroll-cue pq-reveal d4">Scroll to begin<br>\u2193</div>
+  </section>`;
+      }
+      function renderQuestionHook(vm) {
+        const name = vm.clientFirstName || "you";
+        return `
+  <section>
+    <div class="pq-eyebrow pq-reveal">A Question Before The Numbers</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:38px">What happens to your family, ${escapeHtml2(name)}, if tomorrow doesn't go as planned?</div>
+    <div class="pq-lede pq-reveal d2">A single hospital stay in Malaysia can cost more than 5 years of protection. This proposal makes sure you're never caught unprepared.</div>
+    <div class="pq-stat-pill pq-reveal d3"><b>15%</b><span>medical inflation<br>in Malaysia, 2024</span></div>
+    <div class="pq-scroll-cue pq-reveal d4" style="margin-top:56px">Scroll to continue<br>\u2193</div>
+  </section>`;
+      }
+      function renderTwoPaths(vm) {
+        const monthly = vm.monthlyCompact || "your contribution";
+        return `
+  <section style="border-top:1px solid var(--line)">
+    <div class="pq-eyebrow pq-reveal">Two Paths, ${escapeHtml2(monthly)} a Month</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:26px">Where does the money go \u2014 and what happens when life doesn't wait?</div>
+  </section>
+  <section style="padding-top:0">
+    <div class="pq-path-grid">
+      <div class="pq-path-card pq-reveal d1">
+        <div class="pq-path-label">Path A</div>
+        <div class="pq-path-title">${escapeHtml2(monthly)}/month \u2192 Savings Account</div>
+        <div class="pq-path-desc">Money sits and waits \u2014 yours to keep, capped at what you've saved.</div>
+      </div>
+      <div class="pq-path-card pq-dark pq-reveal d2">
+        <div class="pq-path-label">Path B</div>
+        <div class="pq-path-title">${escapeHtml2(monthly)}/month \u2192 Takaful Fund</div>
+        <div class="pq-path-desc">Money is pooled into a shared fund \u2014 ready to pay far more than you put in.</div>
+      </div>
+    </div>
+  </section>`;
+      }
+      function renderDrama(vm) {
+        return `
+  <section class="pq-drama">
+    <div class="pq-eyebrow pq-zoom">Then, an accident happens</div>
+    <div class="pq-headline pq-zoom">The hospital needs <span class="pq-figure">RM100,000</span> \u2014 now.</div>
+  </section>`;
+      }
+      function renderPathAConsequence(vm) {
+        return `
+  <section>
+    <div class="pq-eyebrow pq-reveal" style="color:#B5493D">Path A \u2014 Saved At The Bank</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:26px">Without protection, the gap has to be found somewhere.</div>
+    <div class="pq-consequence-steps">
+      <div class="pq-consequence-step pq-reveal d1"><div class="pq-step-title">Step 1 \u2014 Sell what she can</div><div class="pq-step-desc">Jewellery, a vehicle, anything of value \u2014 liquidated fast, often below worth.</div></div>
+      <div class="pq-consequence-step pq-reveal d2"><div class="pq-step-title">Step 2 \u2014 Still not enough</div><div class="pq-step-desc">Savings and sale proceeds combined still fall short.</div></div>
+      <div class="pq-consequence-step pq-reveal d3"><div class="pq-step-title">Step 3 \u2014 Borrow from the bank</div><div class="pq-step-desc">A loan closes the gap \u2014 with interest, for years to come.</div></div>
+      <div class="pq-consequence-step pq-warn pq-reveal d4"><div class="pq-step-title">Step 4 \u2014 If still not enough, ask family and friends</div><div class="pq-step-desc">Crowdfunding or borrowing from loved ones \u2014 during the hardest week of her life.</div></div>
+    </div>
+  </section>`;
+      }
+      function renderPathBOutcome(vm) {
+        return `
+  <section>
+    <div class="pq-eyebrow pq-reveal">Path B \u2014 Protected By Takaful</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:26px">${escapeHtml2(vm.clientFirstName || "She")} doesn't make a single call.</div>
+    <div class="pq-protected-card pq-reveal d2">
+      <div class="pq-protected-figure">RM100,000 \u2014 settled cashless, at the hospital.</div>
+      <div class="pq-protected-note">No selling, no borrowing, no asking. Her card carries the cost \u2014 she carries on recovering.</div>
+    </div>
+    <div class="pq-source-note pq-reveal d4" style="margin-top:20px">Illustrative only. Bank savings scenario assumes a typical Malaysian savings account rate; actual rates vary by bank. Medical coverage subject to waiting periods, panel hospital terms, and co-payment \u2014 see the sections below.</div>
+  </section>`;
+      }
+      function renderQuotationSummary(vm) {
+        return `
+  <section class="pq-summary-card">
+    <div class="pq-reveal" style="font-size:18px;color:var(--meta);font-weight:500">Prepared exclusively for</div>
+    <div class="pq-summary-name pq-reveal d1">${textOr(vm.clientName, "Client")}</div>
+    <div class="pq-summary-rows pq-reveal d2">
+      <div class="pq-summary-row"><span class="l">Plan</span><span class="r">${textOr(vm.productName)}</span></div>
+      <div class="pq-summary-row"><span class="l">Monthly Total Amount Payable</span><span class="r">${vm.monthlyFormatted ? escapeHtml2(vm.monthlyFormatted) : naSpan()}</span></div>
+      <div class="pq-summary-row"><span class="l">Coverage Term</span><span class="r">${vm.basicPlanTerm != null ? `${vm.basicPlanTerm} Years` : naSpan()}</span></div>
+    </div>
+    <div class="pq-reveal d3" style="margin-top:44px;font-size:15px;color:var(--meta);line-height:1.5">
+      Presented by <b style="color:var(--ink)">${textOr(vm.agentName, "your servicing agent")}</b><br>
+      ${vm.agentCode ? `Takaful Agent ${escapeHtml2(vm.agentCode)}${vm.agencyName ? ` \xB7 ${escapeHtml2(vm.agencyName)}` : ""}<br>` : ""}
+      <span style="color:#7C88A0">Illustration only.</span>
+    </div>
+  </section>`;
+      }
+      function renderWhyThisMatters(vm) {
+        const stats = [
+          { figure: "15%", label: "Medical inflation in Malaysia, 2024" },
+          { figure: "<50%", label: "Malaysians with any medical insurance" },
+          { figure: "RM553K", label: "Average protection gap per family" },
+          { figure: "55%+", label: "Malaysians with no personal health insurance at all" },
+          { figure: "RM80K", label: "Typical private heart-surgery bill" }
+        ];
+        return `
+  <section style="border-top:1px solid var(--line)">
+    <div class="pq-eyebrow pq-reveal">Why This Matters \u2014 Malaysia, 2026</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:30px">The cost of getting sick is rising faster than most families can save.</div>
+    <div class="pq-stat-grid">
+      ${stats.map((s, i) => `
+      <div class="pq-stat-card pq-reveal d${Math.min(i + 1, 4)}">
+        <div>
+          <div class="pq-stat-figure">${escapeHtml2(s.figure)}</div>
+          <div class="pq-stat-label">${escapeHtml2(s.label)}</div>
+        </div>
+      </div>`).join("")}
+    </div>
+    <div class="pq-source-note pq-reveal d4">Sources: Aon-Hewitt (2024), Statista (2024), LIAM Underinsurance Study, Statista/Qoala (2023), NHMS 2019/PubMed underinsured study.</div>
+  </section>`;
+      }
+      function renderOneDiagnosisAway(vm) {
+        const bars = [
+          { label: "Heart Surgery", amount: 8e4, pct: 100 },
+          { label: "Stroke Treatment", amount: 75e3, pct: 94 },
+          { label: "Cancer Treatment", amount: 56e3, pct: 70 },
+          { label: "Kidney Dialysis (per year)", amount: 36e3, pct: 45 }
+        ];
+        const yourAmount = vm.totalAnnualContribution;
+        const yourPct = yourAmount != null ? Math.max(1, Math.min(100, yourAmount / 8e4 * 100)) : null;
+        return `
+  <section style="border-top:1px solid var(--line)">
+    <div class="pq-eyebrow pq-reveal">One Diagnosis Away</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:28px">Typical private treatment costs for Malaysia's leading critical illnesses</div>
+    <div class="pq-cost-list">
+      ${bars.map((b, i) => `
+      <div class="pq-cost-row pq-reveal d${Math.min(i + 1, 3)}">
+        <div class="pq-cost-head"><span>${escapeHtml2(b.label)}</span><span style="font-weight:700">${escapeHtml2(moneyRM(b.amount))}</span></div>
+        <div class="pq-cost-track"><div class="pq-cost-fill" style="width:${b.pct}%"></div></div>
+      </div>`).join("")}
+      ${yourAmount != null ? `
+      <div class="pq-cost-row pq-reveal d4">
+        <div class="pq-cost-head"><span>${textOr(vm.clientFirstName, "You")} Pays / Year</span><span style="font-weight:700">${escapeHtml2(moneyRM(yourAmount))}</span></div>
+        <div class="pq-cost-track"><div class="pq-cost-fill pq-gold" style="width:${yourPct}%"></div></div>
+      </div>` : ""}
+    </div>
+    <div class="pq-source-note pq-reveal d4">Sources: Statista/Qoala (2023), bluebricks.com.my.</div>
+  </section>`;
+      }
+      function renderClientProfile(vm) {
+        return `
+  <section style="border-top:1px solid var(--line)">
+    <div class="pq-eyebrow pq-reveal">A. Client Profile</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:30px">This quotation is built around you</div>
+    <div class="pq-profile-grid">
+      <div class="pq-profile-item pq-wide pq-reveal d1"><div class="k">Name</div><div class="v">${textOr(vm.clientName)}</div></div>
+      <div class="pq-profile-item pq-reveal d1"><div class="k">Age</div><div class="v">${vm.ageNextBirthday != null ? `${vm.ageNextBirthday} nbd \xB7 ${textOr(vm.gender)}` : naSpan()}</div></div>
+      <div class="pq-profile-item pq-reveal d2"><div class="k">Smoker</div><div class="v">${textOr(vm.smokerStatus)}</div></div>
+      <div class="pq-profile-item pq-reveal d2"><div class="k">Occupation</div><div class="v">${textOr(vm.occupationClass)}</div></div>
+      <div class="pq-profile-item pq-reveal d3"><div class="k">Purpose</div><div class="v">${textOr(vm.purpose)}</div></div>
+      <div class="pq-profile-item pq-wide pq-reveal d3"><div class="k">Payment Mode</div><div class="v">${textOr(vm.paymentMode)}</div></div>
+    </div>
+    <div class="pq-reveal d4" style="margin-top:24px;font-size:15px;color:var(--meta);line-height:1.5">Product: ${textOr(vm.productName)} \u2014 Regular Contribution Family Takaful. Shariah-compliant, participates in investment profit sharing.</div>
+  </section>`;
+      }
+      function renderMedicalCardIntro(vm) {
+        return `
+  <section style="border-top:1px solid var(--line);padding-bottom:20px">
+    <div class="pq-eyebrow pq-reveal">${textOr(vm.medicalRiderName, "Medical Rider")}</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:30px">Your medical card, in plain terms</div>
+  </section>`;
+      }
+      function renderPlanExplainer(vm) {
+        const tierLabel = [vm.medicalRiderName, vm.medicalPlanTier].filter(Boolean).join(" ");
+        let headline;
+        let body;
+        if (vm.boost) {
+          const conditionText = vm.boost.conditions.length ? vm.boost.conditions.join(", ") : "a covered critical illness";
+          headline = `${textOr(tierLabel, "Your plan")} gives you ${textOr(vm.annualLimit, "your annual limit")} a year, with a permanent boost of ${escapeHtml2(vm.boost.amount)} if it turns serious.`;
+          body = `For ${vm.monthlyFormatted ? escapeHtml2(vm.monthlyFormatted) : "your monthly contribution"}, your ${textOr(vm.annualLimit, "annual limit")} automatically increases by ${escapeHtml2(vm.boost.amount)} the moment you're diagnosed with ${escapeHtml2(conditionText)} \u2014 permanently, every year after.`;
+        } else {
+          headline = `${textOr(tierLabel, "Your plan")} gives you ${textOr(vm.annualLimit, "protection")} a year to lean on.`;
+          body = `For ${vm.monthlyFormatted ? escapeHtml2(vm.monthlyFormatted) : "your monthly contribution"}, your medical card covers eligible hospitalisation and treatment up to your ${textOr(vm.annualLimit, "annual limit")}.`;
+        }
+        return `
+  <section style="padding-bottom:44px">
+    <div class="pq-eyebrow pq-reveal">Your Plan \u2014 ${textOr(tierLabel)}</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:28px">${headline}</div>
+    <div class="pq-lede pq-reveal d2">${body}</div>
+  </section>`;
+      }
+      function donutSegStyle(fraction, offsetSoFar, circ) {
+        return `stroke-dashoffset:${(circ * (1 - fraction)).toFixed(1)};transform:rotate(${(offsetSoFar * 360).toFixed(1)}deg);transform-origin:100px 100px;`;
+      }
+      function renderContributionBreakdown(vm) {
+        const protection = vm.protectionContribution || 0;
+        const wakalah = vm.wakalahCertificateCharge || 0;
+        const isa = vm.isaContribution || 0;
+        const total = protection + wakalah + isa;
+        const circ = 527.8;
+        let seg1Style = "";
+        let seg2Style = "";
+        let seg3Style = "";
+        if (total > 0) {
+          const f1 = protection / total;
+          const f2 = wakalah / total;
+          const f3 = isa / total;
+          seg1Style = `stroke-dashoffset:${(circ * (1 - f1)).toFixed(1)};`;
+          seg2Style = donutSegStyle(f2, f1, circ);
+          seg3Style = donutSegStyle(f3, f1 + f2, circ);
+        }
+        return `
+  <section>
+    <div class="pq-eyebrow pq-reveal">B. How Your Contribution Works</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:30px">${vm.monthlyCompact ? escapeHtml2(vm.monthlyCompact) : "Your contribution"}, broken down</div>
+    <div class="pq-donut-wrap pq-reveal d2">
+      <svg viewBox="0 0 200 200" style="width:100%;height:100%;transform:rotate(-90deg)">
+        <circle cx="100" cy="100" r="84" fill="none" stroke="#FFFFFF" stroke-width="26"></circle>
+        <circle class="pq-donut-seg" data-final-offset="${(circ * (1 - (total ? protection / total : 0))).toFixed(1)}" cx="100" cy="100" r="84" fill="none" stroke="#0B2545" stroke-width="26" stroke-linecap="round" stroke-dasharray="${circ}" style="stroke-dashoffset:${circ};"></circle>
+        <circle class="pq-donut-seg" cx="100" cy="100" r="84" fill="none" stroke="#178D93" stroke-width="26" stroke-linecap="round" stroke-dasharray="${circ}" style="${seg2Style}" data-visible></circle>
+        <circle class="pq-donut-seg" cx="100" cy="100" r="84" fill="none" stroke="#C9962E" stroke-width="26" stroke-linecap="round" stroke-dasharray="${circ}" style="${seg3Style}" data-visible></circle>
+      </svg>
+      <div class="pq-donut-total"><div class="k">Total / month</div><div class="v">${vm.monthlyCompact ? escapeHtml2(vm.monthlyCompact) : naSpan()}</div></div>
+    </div>
+    <div class="pq-contrib-list">
+      <div class="pq-contrib-item pq-reveal d2"><span class="pq-contrib-dot" style="background:#0B2545"></span><div><div class="k">${moneyRM(protection) ? escapeHtml2(moneyRM(protection)) : naSpan()} \xB7 Protection Contribution</div><div class="d">Funds your ${textOr(vm.medicalRiderName, "medical rider")}.</div></div></div>
+      <div class="pq-contrib-item pq-reveal d3"><span class="pq-contrib-dot" style="background:#178D93"></span><div><div class="k">${moneyRM(wakalah) ? escapeHtml2(moneyRM(wakalah)) : naSpan()} \xB7 Wakalah Charge</div><div class="d">Certificate administration &amp; service fee.</div></div></div>
+      <div class="pq-contrib-item pq-reveal d4"><span class="pq-contrib-dot" style="background:#C9962E"></span><div><div class="k">${moneyRM(isa) ? escapeHtml2(moneyRM(isa)) : naSpan()} \xB7 Individual Special Account</div><div class="d">Your savings account \u2014 builds cash value over time.</div></div></div>
+    </div>
+  </section>`;
+      }
+      function renderKenBurnsAdmission(vm) {
+        return `
+  <section class="pq-kb-section" data-narrate="${escapeHtml2(`The moment you're admitted, your ${vm.annualLimit || "annual limit"} starts working for you.`)}">
+    <div class="pq-kb-media">${kenBurnsMedia("admission")}</div>
+    <div class="pq-kb-overlay"></div>
+    <div class="pq-kb-content">
+      <div class="pq-eyebrow pq-zoom">Step 1 \u2014 You're admitted</div>
+      <div class="pq-headline pq-zoom">The moment you're admitted, your <span style="color:#4FD1D9">${textOr(vm.annualLimit, "annual limit")}</span> starts working for you.</div>
+    </div>
+  </section>`;
+      }
+      function renderKenBurnsWard(vm) {
+        const dayNote = vm.roomBoardDayNote ? escapeHtml2(vm.roomBoardDayNote) : "each rider year";
+        return `
+  <section class="pq-kb-section" data-narrate="${escapeHtml2(`Your Hospital Room and Board benefit takes over from here, ${dayNote}.`)}">
+    <div class="pq-kb-media">${kenBurnsMedia("ward")}</div>
+    <div class="pq-kb-overlay"></div>
+    <div class="pq-kb-content">
+      <div class="pq-eyebrow pq-zoom">Step 2 \u2014 You're moved to a ward</div>
+      <div class="pq-headline pq-zoom">Your Hospital Room &amp; Board benefit takes over from here${vm.roomBoardDayNote ? ` \u2014 ${escapeHtml2(vm.roomBoardDayNote)}` : ""}.</div>
+    </div>
+  </section>`;
+      }
+      function renderKenBurnsSurgery(vm) {
+        const surgery = findBenefit(vm.benefitItems, "Day Surgery");
+        const covered = surgery && /as charged/i.test(surgery.value || "") ? "as charged" : "per your certificate terms";
+        return `
+  <section class="pq-kb-section" data-narrate="Surgical fees and in-hospital treatment are covered, cashless at panel hospitals.">
+    <div class="pq-kb-media">${kenBurnsMedia("surgery")}</div>
+    <div class="pq-kb-overlay"></div>
+    <div class="pq-kb-content">
+      <div class="pq-eyebrow pq-zoom">If surgery is needed</div>
+      <div class="pq-headline pq-zoom">Surgical fees and in-hospital treatment are covered <span style="color:#4FD1D9">${escapeHtml2(covered)}</span> \u2014 cashless at panel hospitals.</div>
+    </div>
+  </section>`;
+      }
+      function renderKenBurnsRoom(vm) {
+        if (!vm.roomBoardAmount) return "";
+        return `
+  <section class="pq-kb-section" data-narrate="${escapeHtml2(`Your Hospital Room and Board benefit covers ${vm.roomBoardAmount} a day, no need to touch your own savings.`)}">
+    <div class="pq-kb-media">${kenBurnsMedia("room")}</div>
+    <div class="pq-kb-overlay"></div>
+    <div class="pq-kb-content">
+      <div class="pq-kb-figure">${escapeHtml2(vm.roomBoardAmount)}<small>/day</small></div>
+      <div class="pq-eyebrow pq-zoom" style="margin-top:20px">Step 3 \u2014 What that gets you</div>
+      <div class="pq-headline pq-zoom" style="font-size:26px">Covered ${vm.roomBoardDayNote ? escapeHtml2(vm.roomBoardDayNote) : "per your certificate"} \u2014 no need to touch your own savings.</div>
+    </div>
+  </section>`;
+      }
+      function renderKenBurnsCriticalIllness(vm) {
+        if (!vm.boost) return "";
+        const conditionText = vm.boost.conditions.length ? vm.boost.conditions.join(", ") : "a covered critical illness";
+        return `
+  <section class="pq-kb-section" data-narrate="${escapeHtml2(`Diagnosed with ${conditionText}? Your annual limit gets a permanent boost of ${vm.boost.amount}, from the day of diagnosis onward.`)}">
+    <div class="pq-kb-media">${kenBurnsMedia("criticalIllness")}</div>
+    <div class="pq-kb-overlay"></div>
+    <div class="pq-kb-content">
+      <div class="pq-eyebrow pq-zoom">Step 4 \u2014 If it's serious</div>
+      <div class="pq-headline pq-zoom">Diagnosed with <span style="color:#4FD1D9">${escapeHtml2(conditionText)}</span>? Your limit gets a permanent boost.</div>
+      <div class="pq-kb-figure">+${escapeHtml2(vm.boost.amount)}</div>
+      <div class="pq-kb-note">On top of your base ${textOr(vm.annualLimit, "annual limit")} \u2014 permanently, every year, from the day of diagnosis onward.</div>
+    </div>
+  </section>`;
+      }
+      function renderEverythingElse(vm) {
+        const items = vm.benefitItems || [];
+        if (!items.length) return "";
+        return `
+  <section>
+    <div class="pq-eyebrow pq-reveal">Everything else it covers</div>
+    <div class="pq-benefit-list">
+      ${items.map((item, i) => `
+      <div class="pq-benefit-card pq-reveal d${Math.min(i % 4 + 1, 4)}">
+        <svg class="pq-benefit-dot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12h4l2-6 4 12 2-6h4"></path></svg>
+        <div>
+          <div class="k">${escapeHtml2(item.label)}</div>
+          <div class="d">${item.value ? escapeHtml2(item.value) : naSpan()}</div>
+        </div>
+      </div>`).join("")}
+    </div>
+    <div class="pq-source-note pq-reveal d4" style="margin-top:22px">Co-payment: ${textOr(vm.coPaymentOption, "per certificate")} applies. Cashless facility available at PruBSN panel hospitals. Full terms in the certificate document.</div>
+  </section>`;
+      }
+      function renderGuaranteedProtection(vm) {
+        const facts = [];
+        if (vm.productFacts.extensionToAge100) {
+          facts.push({ k: "Extension of Certificate Term", d: "Can continue to age 100, cash value permitting." });
+        }
+        if (vm.productFacts.pidmProtected) {
+          facts.push({ k: "PIDM Protected", d: "Protected by PIDM's TIPS, up to limits." });
+        }
+        return `
+  <section style="border-top:1px solid var(--line)">
+    <div class="pq-eyebrow pq-reveal">C. Guaranteed Protection</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:30px">What is promised, regardless of markets</div>
+    <div class="pq-guarantee-hero pq-reveal d2">
+      <div class="pq-eyebrow">Death / TPD Benefit</div>
+      <div class="pq-figure">${vm.guaranteedDeathTPDBenefit != null ? escapeHtml2(moneyRM(vm.guaranteedDeathTPDBenefit)) : naSpan()}</div>
+      <div class="pq-note">Paid if ${textOr(vm.clientFirstName, "the covered person")} passes away or suffers Total Permanent Disability, before age ${vm.coverageToAge != null ? escapeHtml2(String(vm.coverageToAge)) : naSpan()} next birthday.</div>
+    </div>
+    <div class="pq-fact-list">
+      <div class="pq-fact-card pq-reveal d2"><div class="k">${vm.basicPlanTerm != null ? `${vm.basicPlanTerm}-Year Coverage Term` : "Coverage Term"}</div><div class="d">${vm.coverageStartAge != null && vm.coverageToAge != null ? `Age ${escapeHtml2(String(vm.coverageStartAge))} to age ${escapeHtml2(String(vm.coverageToAge))} next birthday.` : naSpan()}</div></div>
+      ${facts.map((f, i) => `<div class="pq-fact-card pq-reveal d${Math.min(i + 3, 4)}"><div class="k">${escapeHtml2(f.k)}</div><div class="d">${escapeHtml2(f.d)}</div></div>`).join("")}
+    </div>
+  </section>`;
+      }
+      function renderWaitingPeriods(vm) {
+        if (!vm.waitingPeriods.length) return "";
+        return `
+  <section style="border-top:1px solid var(--line)">
+    <div class="pq-eyebrow pq-reveal">Before Your Card Kicks In</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:28px">Waiting periods you should know about</div>
+    <div class="pq-wait-list">
+      ${vm.waitingPeriods.map((wp, i) => `
+      <div class="pq-wait-card ${i === 0 ? "pq-first" : ""} pq-reveal d${Math.min(i + 1, 4)}">
+        <div class="k">${wp.days} Day${wp.days === 1 ? "" : "s"}</div>
+        <div class="d">${escapeHtml2(wp.description)}</div>
+      </div>`).join("")}
+    </div>
+    <div class="pq-source-note pq-reveal d4">Source: PruBSN Product Disclosure Sheet, as extracted from this quotation's Product Illustration.</div>
+  </section>`;
+      }
+      function renderCashValue(vm) {
+        if (vm.cashValueX == null && vm.cashValueY == null) return "";
+        return `
+  <section style="border-top:1px solid var(--line)">
+    <div class="pq-eyebrow pq-reveal">D. Non-Guaranteed Cash Value</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:28px">How your Individual Special Account could grow</div>
+    <div class="pq-reveal d2" style="margin-top:32px;position:relative">
+      <svg viewBox="0 0 400 260" style="width:100%;height:auto;overflow:visible">
+        <line x1="0" y1="240" x2="400" y2="240" stroke="rgba(11,37,69,0.15)" stroke-width="1"></line>
+        <line x1="0" y1="150" x2="400" y2="150" stroke="rgba(11,37,69,0.08)" stroke-width="1"></line>
+        <line x1="0" y1="60" x2="400" y2="60" stroke="rgba(11,37,69,0.08)" stroke-width="1"></line>
+        <path class="pq-draw-path" data-final-offset="0" d="M0,240 L57,236 L114,232 L171,220 L229,193 L286,145 L343,84 L400,32" fill="none" stroke="#0B2545" stroke-width="4" stroke-linecap="round" stroke-dasharray="620" style="stroke-dashoffset:620"></path>
+        <path class="pq-draw-path" data-final-offset="0" d="M0,240 L57,239 L114,237 L171,233 L229,222 L286,201 L343,167 L400,102" fill="none" stroke="#178D93" stroke-width="4" stroke-linecap="round" stroke-dasharray="620" style="stroke-dashoffset:620"></path>
+      </svg>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#7C88A0;margin-top:8px">
+        <span>Year 1</span><span>Mid-term</span><span>${vm.basicPlanTerm != null ? `Year ${vm.basicPlanTerm} / Maturity` : "Maturity"}</span>
+      </div>
+    </div>
+    <div class="pq-cashvalue-legend pq-reveal d3">
+      ${vm.cashValueY != null ? `<div class="pq-cv-row"><span class="pq-cv-dot" style="background:#0B2545"></span><span style="font-size:15px;font-weight:600">Scenario Y (5% p.a.): ${escapeHtml2(moneyRM(vm.cashValueY))}</span></div>` : ""}
+      ${vm.cashValueX != null ? `<div class="pq-cv-row"><span class="pq-cv-dot" style="background:#178D93"></span><span style="font-size:15px;font-weight:600">Scenario X (2% p.a.): ${escapeHtml2(moneyRM(vm.cashValueX))}</span></div>` : ""}
+    </div>
+    <div class="pq-source-note pq-reveal d4" style="margin-top:24px">Illustrative only \u2014 not guaranteed. You may only receive the guaranteed death benefit upon death.</div>
+  </section>`;
+      }
+      function renderFullPicture(vm) {
+        const cards = [
+          { k: "Contribution Paid", v: vm.totalContributionOverTerm != null ? moneyRM(vm.totalContributionOverTerm) : null, s: vm.basicPlanTerm != null ? `${vm.basicPlanTerm} years total` : "" },
+          { k: "Guaranteed Benefit", v: vm.guaranteedDeathTPDBenefit != null ? moneyRM(vm.guaranteedDeathTPDBenefit) : null, s: "Death / TPD" },
+          { k: "Cash Value (Y)", v: vm.cashValueY != null ? moneyRM(vm.cashValueY) : null, s: "At maturity", accent: true },
+          { k: "Medical Coverage", v: vm.annualLimit, s: "Annual limit" }
+        ];
+        if (cards.every((c) => c.v == null)) return "";
+        return `
+  <section style="border-top:1px solid var(--line)">
+    <div class="pq-eyebrow pq-reveal">E. The Full Picture</div>
+    <div class="pq-headline pq-reveal d1">${vm.basicPlanTerm != null ? `${vm.basicPlanTerm} years, at a glance` : "At a glance"}</div>
+    <div class="pq-summary4">
+      ${cards.map((c, i) => `
+      <div class="pq-summary4-card ${c.accent ? "pq-accent" : ""} pq-reveal d${Math.min(i + 1, 4)}">
+        <div class="k">${escapeHtml2(c.k)}</div>
+        <div class="v">${c.v ? escapeHtml2(c.v) : naSpan()}</div>
+        <div class="s">${escapeHtml2(c.s)}</div>
+      </div>`).join("")}
+    </div>
+    <div class="pq-source-note pq-reveal d4" style="margin-top:24px">Illustrative only \u2014 actual values depend on real fund performance.</div>
+  </section>`;
+      }
+      function renderReadyWhenYouAre(vm) {
+        return `
+  <section style="border-top:1px solid var(--line)">
+    <div class="pq-eyebrow pq-reveal">Ready When You Are</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:34px">Let's protect what you've worked for \u2014 before life asks you to.</div>
+    <div class="pq-steps">
+      <div class="pq-step-card pq-reveal d1"><div class="k">Step 1</div><div class="v">Confirm your details &amp; health declaration</div></div>
+      <div class="pq-step-card pq-reveal d2"><div class="k">Step 2</div><div class="v">Sign the proposal form</div></div>
+      <div class="pq-step-card pq-reveal d3"><div class="k">Step 3</div><div class="v">First contribution &amp; certificate issued</div></div>
+    </div>
+    <div class="pq-agent-footer pq-reveal d4">
+      ${vm.agencyLogo ? `<img src="${escapeHtml2(vm.agencyLogo)}" alt="${escapeHtml2(vm.agencyName || "Agency")}">` : ""}
+      <div>
+        <div class="name">${textOr(vm.agentName, "Your servicing agent")}</div>
+        <div class="meta">${vm.agentCode ? `Takaful Agent ${escapeHtml2(vm.agentCode)}` : ""}${vm.agencyName ? ` \xB7 ${escapeHtml2(vm.agencyName)}` : ""} \xB7 Prudential BSN Takaful Berhad</div>
+        <div class="fine">This is a product illustration for discussion purposes only. Not a certificate document.</div>
+      </div>
+    </div>
+  </section>`;
+      }
+      function renderContactSection(vm) {
+        return `
+  <section style="border-top:1px solid var(--line);padding-bottom:calc(env(safe-area-inset-bottom) + 80px)">
+    <div class="pq-eyebrow pq-reveal">One Last Thing</div>
+    <div class="pq-headline pq-reveal d1" style="font-size:34px">Thank you for taking the time${vm.clientFirstName ? `, ${escapeHtml2(vm.clientFirstName)}` : ""}.</div>
+    <div class="pq-lede pq-reveal d1">This proposal reflects real numbers, real coverage, and a real conversation between us \u2014 no fine print surprises. When you're ready to move forward, continue your application below.</div>
+    <div class="pq-contact-fields">
+      <div class="pq-contact-field pq-reveal d2"><input id="pq-name" type="text" placeholder="Full name (as per IC)" value="${escapeHtml2(vm.clientName || "")}"></div>
+      <div class="pq-contact-field pq-reveal d2"><input id="pq-ic" type="text" placeholder="IC number"></div>
+      <div class="pq-contact-field pq-reveal d3"><input id="pq-phone" type="tel" placeholder="Phone number"></div>
+      <div class="pq-contact-field pq-reveal d3"><input id="pq-email" type="email" placeholder="Email address"></div>
+    </div>
+    <button type="button" id="paf-continue-btn" class="pq-cta">Continue Application &rarr;</button>
+    <div class="pq-contact-note pq-reveal d4">Your details stay with your agent \u2014 nothing is sent anywhere else until you submit the application below.</div>
+  </section>`;
+      }
+      function renderOutro() {
+        return `
+  <section class="pq-outro">
+    <div class="pq-outro-badge">
+      <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2"><path d="M20 6L9 17l-5-5"></path></svg>
+    </div>
+    <div class="pq-outro-tagline">Anda Inspirasi Kami</div>
+    <div class="pq-outro-sub">Prudential BSN Takaful</div>
+  </section>`;
+      }
+      function renderNarrativeQuotationHtml(data, agentReview = {}) {
+        const vm = buildViewModel(data, agentReview);
+        const clientName = vm.clientName || "Client";
+        const sections = [
+          renderHero(vm),
+          renderQuestionHook(vm),
+          renderTwoPaths(vm),
+          renderDrama(vm),
+          renderPathAConsequence(vm),
+          renderPathBOutcome(vm),
+          renderQuotationSummary(vm),
+          renderWhyThisMatters(vm),
+          renderOneDiagnosisAway(vm),
+          renderClientProfile(vm),
+          renderMedicalCardIntro(vm),
+          renderPlanExplainer(vm),
+          renderContributionBreakdown(vm),
+          renderKenBurnsAdmission(vm),
+          renderKenBurnsWard(vm),
+          renderKenBurnsSurgery(vm),
+          renderKenBurnsRoom(vm),
+          renderKenBurnsCriticalIllness(vm),
+          renderEverythingElse(vm),
+          renderGuaranteedProtection(vm),
+          renderWaitingPeriods(vm),
+          renderCashValue(vm),
+          renderFullPicture(vm),
+          renderReadyWhenYouAre(vm),
+          renderContactSection(vm),
+          renderOutro()
+        ].join("\n");
+        return `<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quotation \u2014 ${escapeHtml2(clientName)}</title>
+<style>${NARRATIVE_STYLE}</style>
+<div id="pq-doc">
+  ${renderIntroOverlay(vm)}
+  ${sections}
+</div>
+<script>${NARRATIVE_RUNTIME}<\/script>
+`;
+      }
+      module.exports = { renderNarrativeQuotationHtml, buildViewModel };
+    }
+  });
+
   // renderer/renderQuotation.js
   var require_renderQuotation = __commonJS({
     "renderer/renderQuotation.js"(exports, module) {
@@ -1529,6 +2467,7 @@
         bareTierNumber,
         primaryValue: primaryValue2
       } = require_formatters();
+      var { renderNarrativeQuotationHtml } = require_renderNarrativeQuotation();
       function extractDayTag(value) {
         if (!value) return null;
         const m = value.match(/\(([^)]*\bdays?\b[^)]*)\)/i);
@@ -1956,9 +2895,7 @@ ${list}
             "Agent has not yet reviewed and acknowledged this quotation. Open the agent review version first."
           ]);
         }
-        const clientName = data && data.client && data.client.fullName;
-        const card = renderQuotationCard(data, "client", agentReview);
-        return documentShell(`Medical Card Quotation \u2014 ${clientName || "Client"}`, card);
+        return renderNarrativeQuotationHtml(data, agentReview);
       }
       module.exports = { renderAgentReviewHtml: renderAgentReviewHtml2, renderClientQuotationHtml: renderClientQuotationHtml2, renderBlockedHtml, SHARED_STYLE };
     }
@@ -2323,15 +3260,19 @@ ${bodyHtml}
 }
 `;
       function isRealQuotation(html) {
-        return typeof html === "string" && html.includes('class="sheet"');
+        return typeof html === "string" && (html.includes('class="sheet"') || html.includes('id="pq-doc"'));
+      }
+      function hasOwnContinueButton(html) {
+        return typeof html === "string" && html.includes('id="paf-continue-btn"');
       }
       function composeClientDocument2(quotationHtml, prefillData) {
         if (!isRealQuotation(quotationHtml)) return quotationHtml;
-        const runtimeSource = true ? '"use strict";\n(() => {\n  var __getOwnPropNames = Object.getOwnPropertyNames;\n  var __commonJS = (cb, mod) => function __require() {\n    try {\n      return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;\n    } catch (e) {\n      throw mod = 0, e;\n    }\n  };\n\n  // browser-tool/application/validation.js\n  var require_validation = __commonJS({\n    "browser-tool/application/validation.js"(exports, module) {\n      "use strict";\n      function required(value) {\n        return value != null && String(value).trim().length > 0;\n      }\n      function isValidEmail(value) {\n        if (!value) return false;\n        return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(value).trim());\n      }\n      function isValidMalaysianPhone(value) {\n        if (!value) return false;\n        const digits = String(value).replace(/[\\s-]/g, "").replace(/^\\+?60/, "0");\n        return /^01\\d{8,9}$/.test(digits);\n      }\n      function isValidNRIC(value) {\n        if (!value) return false;\n        const digits = String(value).replace(/[\\s-]/g, "");\n        return /^\\d{12}$/.test(digits);\n      }\n      function formatNRIC(value) {\n        const digits = String(value || "").replace(/[\\s-]/g, "");\n        if (digits.length !== 12) return value || "";\n        return `${digits.slice(0, 6)}-${digits.slice(6, 8)}-${digits.slice(8, 12)}`;\n      }\n      function isValidPercentage(value) {\n        if (value === "" || value == null) return false;\n        const n = Number(value);\n        return Number.isFinite(n) && n > 0 && n <= 100;\n      }\n      function isValidPostcode(value) {\n        if (!value) return false;\n        return /^\\d{5}$/.test(String(value).trim());\n      }\n      var FIELD_RULES = {\n        // --- Step 1: Personal Information ---\n        fullName: { required: true, message: "Full name is required." },\n        nric: { required: true, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },\n        dateOfBirth: { required: true, message: "Date of birth is required." },\n        gender: { required: true, message: "Please select a gender." },\n        race: { required: true, message: "Please select a race." },\n        religion: { required: true, message: "Please select a religion." },\n        mobileNumber: { required: true, validate: isValidMalaysianPhone, message: "Enter a valid Malaysian mobile number (e.g. 012-3456789)." },\n        email: { required: true, validate: isValidEmail, message: "Enter a valid email address." },\n        address: { required: true, message: "Residential address is required." },\n        // --- Step 2: Employment Details ---\n        employmentType: { required: true, message: "Please select an employment type." },\n        occupation: { required: true, message: "Occupation is required." },\n        fieldOfWork: { required: false, message: "" },\n        employerName: { required: false, message: "" },\n        workAddress: { required: false, message: "" },\n        monthlyIncome: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid monthly income." },\n        // Legacy alias kept so an older prefilled/cached value doesn\'t get silently dropped.\n        annualIncome: { required: false, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid annual income." },\n        employer: { required: false, message: "" },\n        // --- Step 3: Family Information ---\n        maritalStatus: { required: true, message: "Please select a marital status." },\n        spouseName: { required: false, message: "" },\n        spouseNric: { required: false, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },\n        numChildren: { required: false, validate: (v) => Number.isFinite(Number(v)) && Number(v) >= 0, message: "Enter a valid number of children." },\n        childrenDetails: { required: false, message: "" },\n        // --- Step 4: Medical History ---\n        height: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid height in cm." },\n        weight: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid weight in kg." },\n        smokingStatus: { required: true, message: "Please select a smoking status." },\n        preExisting: { required: false, message: "" },\n        medications: { required: false, message: "" },\n        allergies: { required: false, message: "" },\n        surgery: { required: false, message: "" },\n        // --- Step 5: Plan Selection + Beneficiary ---\n        plan: { required: true, message: "Please select a plan." },\n        beneficiaryName: { required: true, message: "Beneficiary name is required." },\n        beneficiaryNric: { required: true, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },\n        beneficiaryRelationship: { required: true, message: "Beneficiary relationship is required." },\n        beneficiaryPercentage: { required: true, validate: isValidPercentage, message: "Enter a percentage between 1 and 100." },\n        // --- Step 7: Bank Details ---\n        bankName: { required: true, message: "Bank name is required." },\n        accountNumber: { required: true, message: "Account number is required." },\n        accountHolderName: { required: true, message: "Account holder name is required." },\n        // Retained for a legacy Address-step shape, unused by the current 7-step layout.\n        postcode: { required: false, validate: isValidPostcode, message: "Enter a valid 5-digit postcode." },\n        city: { required: false, message: "City is required." },\n        state: { required: false, message: "Please select a state." }\n      };\n      function validateField(name, value) {\n        const rule = FIELD_RULES[name];\n        if (!rule) return null;\n        if (rule.required && !required(value)) return rule.message;\n        if (required(value) && rule.validate && !rule.validate(value)) return rule.message;\n        return null;\n      }\n      function validateFields(names, values) {\n        const errors = {};\n        for (const name of names) {\n          const msg = validateField(name, values[name]);\n          if (msg) errors[name] = msg;\n        }\n        return errors;\n      }\n      var PruBSNValidation = {\n        required,\n        isValidEmail,\n        isValidMalaysianPhone,\n        isValidNRIC,\n        formatNRIC,\n        isValidPercentage,\n        isValidPostcode,\n        validateField,\n        validateFields,\n        FIELD_RULES\n      };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNValidation;\n      }\n    }\n  });\n\n  // browser-tool/application/ApplicationForm.js\n  var require_ApplicationForm = __commonJS({\n    "browser-tool/application/ApplicationForm.js"(exports, module) {\n      "use strict";\n      var { validateFields } = require_validation();\n      function escapeHtml(value) {\n        return String(value == null ? "" : value).replace(/[&<>"\']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" })[ch]);\n      }\n      var STEP_DEFS = [\n        {\n          id: "personal",\n          title: "Personal Information",\n          subtitle: "Tell us a little about yourself.",\n          fields: [\n            { name: "fullName", label: "Full Name", type: "text", autocomplete: "name" },\n            { name: "nric", label: "NRIC", type: "text", placeholder: "900101-01-1234" },\n            { name: "dateOfBirth", label: "Date of Birth", type: "date" },\n            { name: "gender", label: "Gender", type: "select", options: ["Male", "Female"] },\n            { name: "race", label: "Race", type: "select", options: ["Malay", "Chinese", "Indian", "Others"] },\n            { name: "religion", label: "Religion", type: "select", options: ["Islam", "Christianity", "Buddhism", "Hinduism", "Others"] },\n            { name: "email", label: "Email", type: "email", placeholder: "name@example.com" },\n            { name: "mobileNumber", label: "Phone Number", type: "tel", placeholder: "012-3456789" },\n            { name: "address", label: "Residential Address", type: "textarea" }\n          ]\n        },\n        {\n          id: "employment",\n          title: "Employment Details",\n          subtitle: "A few details about your work.",\n          fields: [\n            { name: "employmentType", label: "Employment Type", type: "select", options: ["Employed", "Self-Employed", "Business Owner", "Unemployed", "Retired", "Student"] },\n            { name: "occupation", label: "Occupation", type: "text" },\n            { name: "fieldOfWork", label: "Field of Work", type: "text", optional: true },\n            { name: "employerName", label: "Employer\'s Name", type: "text", optional: true },\n            { name: "monthlyIncome", label: "Monthly Income (RM)", type: "number", placeholder: "5000" },\n            { name: "workAddress", label: "Work Place Address", type: "textarea", optional: true }\n          ]\n        },\n        {\n          id: "family",\n          title: "Family Information",\n          subtitle: "Tell us about your immediate family.",\n          fields: [\n            { name: "maritalStatus", label: "Marital Status", type: "select", options: ["Single", "Married", "Divorced", "Widowed"] },\n            { name: "spouseName", label: "Spouse Name", type: "text", optional: true },\n            { name: "spouseNric", label: "Spouse NRIC", type: "text", placeholder: "900101-01-1234", optional: true },\n            { name: "numChildren", label: "Number of Children", type: "number", optional: true },\n            { name: "childrenDetails", label: "Children Details", type: "textarea", optional: true }\n          ]\n        },\n        {\n          id: "medical",\n          title: "Medical History",\n          subtitle: "This helps underwriting assess your application accurately.",\n          fields: [\n            { name: "height", label: "Height (cm)", type: "number", placeholder: "170" },\n            { name: "weight", label: "Weight (kg)", type: "number", placeholder: "65" },\n            { name: "smokingStatus", label: "Smoking Status", type: "select", options: ["Non-Smoker", "Smoker", "Former Smoker"] },\n            { name: "preExisting", label: "Pre-existing Medical Conditions", type: "textarea", optional: true, placeholder: "None, if not applicable" },\n            { name: "medications", label: "Current Medications", type: "textarea", optional: true, placeholder: "None, if not applicable" },\n            { name: "allergies", label: "Allergies", type: "textarea", optional: true, placeholder: "None, if not applicable" },\n            { name: "surgery", label: "Previous Surgery / Hospitalisation", type: "textarea", optional: true, placeholder: "None, if not applicable" }\n          ]\n        },\n        {\n          id: "plan",\n          title: "Plan Selection",\n          subtitle: "Choose the plan you would like to proceed with, and tell us who should receive the benefit.",\n          fields: [\n            { name: "plan", label: "Plan", type: "plan-cards" },\n            { name: "beneficiaryName", label: "Beneficiary Name", type: "text" },\n            { name: "beneficiaryNric", label: "Beneficiary NRIC", type: "text", placeholder: "900101-01-1234" },\n            { name: "beneficiaryRelationship", label: "Relationship", type: "text", placeholder: "e.g. Spouse, Child, Parent" },\n            { name: "beneficiaryPercentage", label: "Benefit Weightage (%)", type: "number", placeholder: "100" }\n          ]\n        },\n        {\n          id: "documents",\n          title: "Documents Upload",\n          subtitle: "Upload clear photos so your agent can verify your identity.",\n          fields: [\n            { name: "nricFront", label: "NRIC Front Photo", type: "file" },\n            { name: "nricRear", label: "NRIC Rear Photo", type: "file" },\n            { name: "selfie", label: "Selfie with IC Photo", type: "file" }\n          ]\n        },\n        {\n          id: "bank",\n          title: "Bank Details",\n          subtitle: "Where should refunds or payouts be sent?",\n          fields: [\n            { name: "bankName", label: "Bank Name", type: "text" },\n            { name: "accountNumber", label: "Account Number", type: "text" },\n            { name: "accountHolderName", label: "Account Holder Name", type: "text" }\n          ]\n        }\n      ];\n      var TOTAL_STEPS = STEP_DEFS.length;\n      var DOCUMENTS_STEP_INDEX = STEP_DEFS.findIndex((s) => s.id === "documents");\n      var PLAN_STEP_INDEX = STEP_DEFS.findIndex((s) => s.id === "plan");\n      function stepFieldNames(stepIndex) {\n        const step = STEP_DEFS[stepIndex];\n        return step ? step.fields.filter((f) => f.type !== "file" && f.type !== "plan-cards").map((f) => f.name) : [];\n      }\n      function stepFileFieldNames(stepIndex) {\n        const step = STEP_DEFS[stepIndex];\n        return step ? step.fields.filter((f) => f.type === "file").map((f) => f.name) : [];\n      }\n      function fieldHtml(field, value, error) {\n        const id = `paf-field-${field.name}`;\n        const errorId = `${id}-error`;\n        const commonAttrs = `id="${id}" name="${field.name}" class="paf-input${error ? " paf-input-error" : ""}"` + (field.autocomplete ? ` autocomplete="${field.autocomplete}"` : "") + (field.optional ? "" : \' aria-required="true"\') + (error ? ` aria-invalid="true" aria-describedby="${errorId}"` : "");\n        let control;\n        if (field.type === "select") {\n          const options = field.options.map((opt) => `<option value="${escapeHtml(opt)}"${value === opt ? " selected" : ""}>${escapeHtml(opt)}</option>`).join("");\n          control = `<select ${commonAttrs}><option value="">Select...</option>${options}</select>`;\n        } else if (field.type === "textarea") {\n          control = `<textarea ${commonAttrs} rows="3" placeholder="${escapeHtml(field.placeholder || "")}">${escapeHtml(value)}</textarea>`;\n        } else {\n          control = `<input type="${field.type}" ${commonAttrs} value="${escapeHtml(value)}" placeholder="${escapeHtml(field.placeholder || "")}">`;\n        }\n        const wideClass = field.type === "textarea" ? " paf-field-wide" : "";\n        return `\n    <div class="paf-field${wideClass}">\n      <label class="paf-label" for="${id}">${escapeHtml(field.label)}${field.optional ? \' <span class="paf-optional">(optional)</span>\' : ""}</label>\n      ${control}\n      ${error ? `<div class="paf-error" id="${errorId}">${escapeHtml(error)}</div>` : ""}\n    </div>`;\n      }\n      function fileFieldHtml(field, file, error) {\n        const hasFile = !!file;\n        return `\n    <div class="paf-field paf-file-field">\n      <label class="paf-label" for="paf-file-${field.name}">${escapeHtml(field.label)}</label>\n      <label class="paf-upload${hasFile ? " paf-upload-done" : ""}${error ? " paf-input-error" : ""}" for="paf-file-${field.name}">\n        <span class="paf-upload-icon" aria-hidden="true">${hasFile ? "&#10003;" : "+"}</span>\n        <span class="paf-upload-text">${hasFile ? escapeHtml(file.name) : "Click to upload &mdash; JPG, PNG, or PDF (max 5MB)"}</span>\n      </label>\n      <input type="file" id="paf-file-${field.name}" name="${field.name}" class="paf-upload-input" data-file-field="${field.name}" accept="image/*,.pdf">\n      ${error ? `<div class="paf-error">${escapeHtml(error)}</div>` : ""}\n    </div>`;\n      }\n      function planCardsHtml(plans, selectedIndex, error) {\n        const list = Array.isArray(plans) && plans.length ? plans : [];\n        if (!list.length) {\n          return `<div class="paf-plan-empty">Your agent has not attached a plan to this application yet.</div>`;\n        }\n        const cards = list.map((p, i) => {\n          const picked = selectedIndex === i;\n          return `\n      <div class="paf-plan-card${picked ? " paf-plan-card-picked" : ""}" data-plan-index="${i}" role="button" tabindex="0">\n        ${list.length > 1 && i === 0 ? \'<div class="paf-plan-badge">Recommended</div>\' : ""}\n        <div class="paf-plan-name">${escapeHtml(p.planName || `Option ${i + 1}`)}</div>\n        <div class="paf-plan-price">${p.monthlyContribution ? escapeHtml(p.monthlyContribution) : "&mdash;"}<small>/mo</small></div>\n        <div class="paf-plan-meta">${[p.roomAndBoard, p.annualLimit].filter(Boolean).map(escapeHtml).join(" &middot; ")}</div>\n      </div>`;\n        }).join("");\n        return `<div class="paf-plan-cards" data-field="plan">${cards}</div>${error ? `<div class="paf-error">${escapeHtml(error)}</div>` : ""}`;\n      }\n      function renderStepHtml(stepIndex, values, errors, context) {\n        const step = STEP_DEFS[stepIndex];\n        if (!step) return "";\n        const files = context && context.files || {};\n        const plans = context && context.plans || [];\n        const errs = errors || {};\n        const fieldsHtml = step.fields.map((f) => {\n          if (f.type === "file") return fileFieldHtml(f, files[f.name], errs[f.name]);\n          if (f.type === "plan-cards") {\n            const selectedIndex = plans.findIndex((p) => p.planName === values.plan);\n            return planCardsHtml(plans, selectedIndex === -1 ? null : selectedIndex, errs.plan);\n          }\n          return fieldHtml(f, values[f.name] || "", errs[f.name]);\n        }).join("");\n        return `\n    <div class="paf-step" data-step-id="${step.id}">\n      <h3 class="paf-step-title">${escapeHtml(step.title)}</h3>\n      <p class="paf-step-subtitle">${escapeHtml(step.subtitle)}</p>\n      <div class="paf-fields">${fieldsHtml}</div>\n    </div>`;\n      }\n      function collectStepValues(stepIndex, containerEl) {\n        const names = stepFieldNames(stepIndex);\n        const values = {};\n        for (const name of names) {\n          const el = containerEl.querySelector(`[name="${name}"]`);\n          values[name] = el ? el.value : "";\n        }\n        return values;\n      }\n      function validateStep(stepIndex, values) {\n        return validateFields(stepFieldNames(stepIndex), values);\n      }\n      var PruBSNApplicationForm = {\n        STEP_DEFS,\n        TOTAL_STEPS,\n        DOCUMENTS_STEP_INDEX,\n        PLAN_STEP_INDEX,\n        stepFieldNames,\n        stepFileFieldNames,\n        renderStepHtml,\n        collectStepValues,\n        validateStep\n      };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNApplicationForm;\n      }\n    }\n  });\n\n  // browser-tool/application/ReviewPage.js\n  var require_ReviewPage = __commonJS({\n    "browser-tool/application/ReviewPage.js"(exports, module) {\n      "use strict";\n      var { STEP_DEFS } = require_ApplicationForm();\n      function escapeHtml(value) {\n        return String(value == null ? "" : value).replace(/[&<>"\']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" })[ch]);\n      }\n      function na(value) {\n        return value == null || String(value).trim() === "" ? \'<span class="paf-na">Not provided</span>\' : escapeHtml(value);\n      }\n      function summaryRow(label, value) {\n        return `<div class="paf-summary-row"><span class="paf-summary-label">${escapeHtml(label)}</span><span class="paf-summary-value">${value}</span></div>`;\n      }\n      function renderQuotationSummary(quotation) {\n        const q = quotation || {};\n        const riders = Array.isArray(q.riders) && q.riders.length ? `<ul class="paf-rider-list">${q.riders.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : \'<span class="paf-na">None selected</span>\';\n        return `\n    <section class="paf-review-section">\n      <h4 class="paf-review-heading">Quotation Summary</h4>\n      ${summaryRow("Quotation Number", na(q.quotationNumber))}\n      ${summaryRow("Valid Until", na(q.validUntil))}\n      ${summaryRow("Base Plan", na(q.planName))}\n      ${summaryRow("Monthly Total Amount Payable", na(q.monthlyContribution))}\n      <div class="paf-summary-row paf-summary-row-block">\n        <span class="paf-summary-label">Optional Riders</span>\n        <div class="paf-summary-value">${riders}</div>\n      </div>\n    </section>`;\n      }\n      function renderAgentInfo(agent) {\n        const a = agent || {};\n        return `\n    <section class="paf-review-section">\n      <h4 class="paf-review-heading">Agent Information <span class="paf-readonly-tag">Read-only</span></h4>\n      ${summaryRow("Agent Name", na(a.name))}\n      ${summaryRow("Agency", na(a.agency))}\n      ${summaryRow("Branch", na(a.branch))}\n      ${summaryRow("Contact", na(a.phone || a.email))}\n    </section>`;\n      }\n      function fieldSummaryRow(field, values, files) {\n        if (field.type === "file") {\n          const file = files[field.name];\n          return summaryRow(field.label, file ? escapeHtml(file.name) : \'<span class="paf-na">Not uploaded</span>\');\n        }\n        if (field.type === "plan-cards") {\n          return summaryRow(field.label, na(values[field.name]));\n        }\n        return summaryRow(field.label, na(values[field.name]));\n      }\n      function renderReviewHtml(prefillData, formValues, files) {\n        const data = prefillData || {};\n        const values = formValues || {};\n        const uploadedFiles = files || {};\n        const clientSections = STEP_DEFS.map((step, stepIndex) => {\n          const rows = step.fields.map((f) => fieldSummaryRow(f, values, uploadedFiles)).join("");\n          return `\n      <section class="paf-review-section">\n        <h4 class="paf-review-heading">\n          ${escapeHtml(step.title)}\n          <button type="button" class="paf-edit-link" data-goto-step="${stepIndex}">Edit</button>\n        </h4>\n        ${rows}\n      </section>`;\n        }).join("");\n        return `\n    <div class="paf-step paf-review" data-step-id="review">\n      <h3 class="paf-step-title">Review Your Application</h3>\n      <p class="paf-step-subtitle">Please check everything below before submitting. You can edit any section.</p>\n      ${renderQuotationSummary(data.quotation)}\n      ${renderAgentInfo(data.agent)}\n      ${clientSections}\n    </div>`;\n      }\n      var PruBSNReviewPage = { renderReviewHtml };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNReviewPage;\n      }\n    }\n  });\n\n  // browser-tool/application/ConfirmationPage.js\n  var require_ConfirmationPage = __commonJS({\n    "browser-tool/application/ConfirmationPage.js"(exports, module) {\n      "use strict";\n      function escapeHtml(value) {\n        return String(value == null ? "" : value).replace(/[&<>"\']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" })[ch]);\n      }\n      function na(value) {\n        return value == null || String(value).trim() === "" ? \'<span class="paf-na">Not available</span>\' : escapeHtml(value);\n      }\n      function summaryRow(label, value) {\n        return `<div class="paf-summary-row"><span class="paf-summary-label">${escapeHtml(label)}</span><span class="paf-summary-value">${value}</span></div>`;\n      }\n      var ERROR_MESSAGES = {\n        validation: "There was a problem with your application details.",\n        timeout: "The connection timed out before a response was received.",\n        network: "We couldn\'t reach the server. Please check your internet connection.",\n        not_configured: "Submission is not available right now. Please contact your agent.",\n        http_error: "The server rejected the submission.",\n        server: "The submission service was unavailable.",\n        rate_limited: "Too many submission attempts right now. Please wait a minute and try again.",\n        unknown: "Something went wrong while submitting your application."\n      };\n      function friendlyErrorMessage(error) {\n        const type = error && error.type;\n        return type && ERROR_MESSAGES[type] || ERROR_MESSAGES.unknown;\n      }\n      function renderPending() {\n        return `\n    <div class="paf-step paf-confirmation" data-step-id="confirmation">\n      <div class="paf-confirm-icon" aria-hidden="true">&#8943;</div>\n      <h3 class="paf-step-title">Submitting Your Application&hellip;</h3>\n      <p class="paf-step-subtitle">Please wait a moment. Do not close this window.</p>\n    </div>`;\n      }\n      function renderSuccess(view) {\n        const submittedAt = view.submittedAt ? new Date(view.submittedAt).toLocaleString() : null;\n        return `\n    <div class="paf-step paf-confirmation" data-step-id="confirmation">\n      <div class="paf-confirm-icon" aria-hidden="true">&#10003;</div>\n      <h3 class="paf-step-title">Application Submitted</h3>\n      <p class="paf-step-subtitle">Thank you. Your application has been received.</p>\n      <div class="paf-review-section">\n        ${summaryRow("Reference Number", na(view.reference))}\n        ${summaryRow("Submission Time", submittedAt ? escapeHtml(submittedAt) : na(null))}\n        ${summaryRow("Submission Status", "Confirmed")}\n        ${summaryRow("Agent Name", na(view.agentName))}\n      </div>\n      <p class="paf-confirm-note">Your agent will follow up to complete processing of this application.</p>\n    </div>`;\n      }\n      function renderFailed(view) {\n        return `\n    <div class="paf-step paf-confirmation" data-step-id="confirmation">\n      <div class="paf-confirm-icon" aria-hidden="true">&#10007;</div>\n      <h3 class="paf-step-title">Submission Failed</h3>\n      <p class="paf-step-subtitle">${escapeHtml(friendlyErrorMessage(view.error))}</p>\n      <p class="paf-confirm-note">Your details have been saved on this device. Retrying will not ask you to fill in the form again.</p>\n      <div class="paf-nav">\n        <span></span>\n        <button type="button" class="paf-btn paf-btn-primary" data-action="retry">Retry Submission</button>\n      </div>\n    </div>`;\n      }\n      function renderConfirmationHtml(view) {\n        const v = view || {};\n        if (v.status === "success") return renderSuccess(v);\n        if (v.status === "failed") return renderFailed(v);\n        return renderPending();\n      }\n      var PruBSNConfirmationPage = { renderConfirmationHtml };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNConfirmationPage;\n      }\n    }\n  });\n\n  // browser-tool/application/submission.js\n  var require_submission = __commonJS({\n    "browser-tool/application/submission.js"(exports, module) {\n      "use strict";\n      function buildSubmission(prefillData, formState) {\n        const quotation = prefillData && prefillData.quotation || {};\n        const client = {\n          fullName: formState.fullName || "",\n          nric: formState.nric || "",\n          dateOfBirth: formState.dateOfBirth || "",\n          gender: formState.gender || "",\n          mobileNumber: formState.mobileNumber || "",\n          email: formState.email || ""\n        };\n        const application = {\n          address: formState.address || "",\n          postcode: formState.postcode || "",\n          city: formState.city || "",\n          state: formState.state || "",\n          occupation: formState.occupation || "",\n          employer: formState.employer || "",\n          annualIncome: formState.annualIncome || "",\n          beneficiary: {\n            name: formState.beneficiaryName || "",\n            relationship: formState.beneficiaryRelationship || "",\n            percentage: formState.beneficiaryPercentage || ""\n          }\n        };\n        return {\n          quotation,\n          client,\n          application,\n          timestamp: (/* @__PURE__ */ new Date()).toISOString()\n        };\n      }\n      var PruBSNSubmission = { buildSubmission };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNSubmission;\n      }\n    }\n  });\n\n  // browser-tool/models/SubmissionPayload.js\n  var require_SubmissionPayload = __commonJS({\n    "browser-tool/models/SubmissionPayload.js"(exports, module) {\n      "use strict";\n      var { buildSubmission } = require_submission();\n      var PARSER_VERSION = "v1.0-phase1-parser";\n      var RENDERER_VERSION = "v1.1-phase2-renderer";\n      var PAYLOAD_VERSION = "1.2";\n      var SUBMISSION_SOURCE = "quotation-generator-client-application";\n      function buildAgentInfo(prefillData) {\n        const source = prefillData && prefillData.agent || {};\n        const agent = {};\n        if (source.name) agent.name = source.name;\n        if (source.agency) agent.agency = source.agency;\n        if (source.branch) agent.branch = source.branch;\n        if (source.phone) agent.phone = source.phone;\n        if (source.email) agent.email = source.email;\n        return agent;\n      }\n      function buildPlansCompared(prefillData) {\n        return prefillData && Array.isArray(prefillData.plans) ? prefillData.plans : [];\n      }\n      function buildSelectedPlanDetails(prefillData, formState) {\n        const planName = formState && formState.plan || null;\n        if (!planName) return null;\n        const plans = buildPlansCompared(prefillData);\n        const match = plans.find((p) => p.planName === planName);\n        return match ? { ...match } : { planName };\n      }\n      function buildEmployment(formState) {\n        const f = formState || {};\n        return {\n          employmentType: f.employmentType || "",\n          fieldOfWork: f.fieldOfWork || "",\n          employerName: f.employerName || "",\n          workAddress: f.workAddress || "",\n          monthlyIncome: f.monthlyIncome || ""\n        };\n      }\n      function buildFamily(formState) {\n        const f = formState || {};\n        return {\n          maritalStatus: f.maritalStatus || "",\n          spouseName: f.spouseName || "",\n          spouseNric: f.spouseNric || "",\n          numChildren: f.numChildren || "",\n          childrenDetails: f.childrenDetails || ""\n        };\n      }\n      function buildMedicalHistory(formState) {\n        const f = formState || {};\n        return {\n          height: f.height || "",\n          weight: f.weight || "",\n          smokingStatus: f.smokingStatus || "",\n          preExistingConditions: f.preExisting || "",\n          currentMedications: f.medications || "",\n          allergies: f.allergies || "",\n          previousSurgeryOrHospitalisation: f.surgery || ""\n        };\n      }\n      function buildBank(formState) {\n        const f = formState || {};\n        return {\n          bankName: f.bankName || "",\n          accountNumber: f.accountNumber || "",\n          accountHolderName: f.accountHolderName || ""\n        };\n      }\n      function buildSubmissionPayload(prefillData, formState, documents, options) {\n        const { submissionId } = options || {};\n        const legacy = buildSubmission(prefillData, formState);\n        const { beneficiary, ...applicationRest } = legacy.application;\n        const applicant = {\n          ...legacy.client,\n          ...applicationRest,\n          // Step 1 fields the frozen submission.js\'s buildSubmission() never\n          // carried into `client` - added here, not there, so that file stays\n          // wrapped rather than modified (see this file\'s header comment).\n          race: formState && formState.race || "",\n          religion: formState && formState.religion || ""\n        };\n        const beneficiaries = beneficiary && beneficiary.name ? [{ ...beneficiary, nric: formState && formState.beneficiaryNric || "" }] : [];\n        const generatedMeta = prefillData && prefillData.metadata || {};\n        return {\n          version: PAYLOAD_VERSION,\n          quotation: legacy.quotation,\n          plansCompared: buildPlansCompared(prefillData),\n          selectedPlan: formState && formState.plan || null,\n          selectedPlanDetails: buildSelectedPlanDetails(prefillData, formState),\n          agent: buildAgentInfo(prefillData),\n          applicant,\n          beneficiaries,\n          employment: buildEmployment(formState),\n          family: buildFamily(formState),\n          medicalHistory: buildMedicalHistory(formState),\n          bank: buildBank(formState),\n          documents: documents || {},\n          metadata: {\n            submissionId: submissionId || null,\n            quotationId: legacy.quotation && legacy.quotation.quotationNumber || null,\n            parserVersion: PARSER_VERSION,\n            rendererVersion: RENDERER_VERSION,\n            generatedAt: generatedMeta.generatedAt || null,\n            submittedAt: (/* @__PURE__ */ new Date()).toISOString(),\n            product: legacy.quotation && legacy.quotation.planName || null,\n            source: SUBMISSION_SOURCE\n          }\n        };\n      }\n      var PruBSNSubmissionPayload = { buildSubmissionPayload, PARSER_VERSION, RENDERER_VERSION, PAYLOAD_VERSION };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNSubmissionPayload;\n      }\n    }\n  });\n\n  // browser-tool/queue/SubmissionQueue.js\n  var require_SubmissionQueue = __commonJS({\n    "browser-tool/queue/SubmissionQueue.js"(exports, module) {\n      "use strict";\n      var STORAGE_KEY = "prubsn_submission_queue_v1";\n      function hasWorkingLocalStorage() {\n        try {\n          if (typeof localStorage === "undefined") return false;\n          const probeKey = `${STORAGE_KEY}_probe`;\n          localStorage.setItem(probeKey, "1");\n          localStorage.removeItem(probeKey);\n          return true;\n        } catch (e) {\n          return false;\n        }\n      }\n      function createQueue() {\n        const persistent = hasWorkingLocalStorage();\n        let memoryEntries = [];\n        if (!persistent && typeof console !== "undefined") {\n          console.warn("SubmissionQueue: localStorage is unavailable in this context; falling back to in-memory-only queue (entries will not survive a page reload).");\n        }\n        function readAll() {\n          if (!persistent) return memoryEntries;\n          try {\n            const raw = localStorage.getItem(STORAGE_KEY);\n            return raw ? JSON.parse(raw) : [];\n          } catch (e) {\n            return [];\n          }\n        }\n        function writeAll(entries) {\n          if (!persistent) {\n            memoryEntries = entries;\n            return;\n          }\n          try {\n            localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));\n          } catch (e) {\n          }\n        }\n        function enqueue(submissionId, payload, error) {\n          const entries = readAll();\n          const existing = entries.find((e) => e.submissionId === submissionId);\n          const now = (/* @__PURE__ */ new Date()).toISOString();\n          if (existing) {\n            existing.payload = payload;\n            existing.lastError = error || null;\n            existing.attempts += 1;\n            existing.updatedAt = now;\n          } else {\n            entries.push({\n              submissionId,\n              payload,\n              resolved: false,\n              attempts: 1,\n              lastError: error || null,\n              createdAt: now,\n              updatedAt: now\n            });\n          }\n          writeAll(entries);\n        }\n        function markResolved(submissionId, reference) {\n          const entries = readAll();\n          const existing = entries.find((e) => e.submissionId === submissionId);\n          const now = (/* @__PURE__ */ new Date()).toISOString();\n          if (existing) {\n            existing.resolved = true;\n            existing.reference = reference || null;\n            existing.payload = null;\n            existing.updatedAt = now;\n          } else {\n            entries.push({\n              submissionId,\n              payload: null,\n              resolved: true,\n              reference: reference || null,\n              attempts: 1,\n              lastError: null,\n              createdAt: now,\n              updatedAt: now\n            });\n          }\n          writeAll(entries);\n        }\n        function hasResolved(submissionId) {\n          const existing = readAll().find((e) => e.submissionId === submissionId);\n          return Boolean(existing && existing.resolved);\n        }\n        function getReference(submissionId) {\n          const existing = readAll().find((e) => e.submissionId === submissionId);\n          return existing && existing.resolved ? existing.reference : null;\n        }\n        function listPending() {\n          return readAll().filter((e) => !e.resolved);\n        }\n        function isPersistent() {\n          return persistent;\n        }\n        return { enqueue, markResolved, hasResolved, getReference, listPending, isPersistent };\n      }\n      var PruBSNSubmissionQueue = { createQueue };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNSubmissionQueue;\n      }\n    }\n  });\n\n  // browser-tool/services/SubmissionService.js\n  var require_SubmissionService = __commonJS({\n    "browser-tool/services/SubmissionService.js"(exports, module) {\n      "use strict";\n      var { createQueue } = require_SubmissionQueue();\n      var defaultQueue = createQueue();\n      function classifyError(err) {\n        const type = err && err.type || "unknown";\n        const message = err && err.message || "Submission failed for an unknown reason.";\n        return { type, message };\n      }\n      function validatePayload(payload) {\n        if (!payload || typeof payload !== "object") return "Payload is missing.";\n        if (!payload.metadata || !payload.metadata.submissionId) return "Payload is missing metadata.submissionId.";\n        if (!payload.applicant || typeof payload.applicant !== "object") return "Payload is missing applicant details.";\n        if (!Array.isArray(payload.beneficiaries)) return "Payload is missing a beneficiaries array.";\n        return null;\n      }\n      async function submit(payload, options) {\n        const { destination, queue = defaultQueue } = options || {};\n        if (!destination || typeof destination.send !== "function") {\n          throw new Error("SubmissionService.submit: a destination with a send() function is required.");\n        }\n        const submissionId = payload && payload.metadata && payload.metadata.submissionId;\n        const validationMessage = validatePayload(payload);\n        if (validationMessage) {\n          const error = { type: "validation", message: validationMessage };\n          if (submissionId) queue.enqueue(submissionId, payload, error);\n          return { status: "failed", submissionId: submissionId || null, error, queued: Boolean(submissionId) };\n        }\n        if (queue.hasResolved(submissionId)) {\n          return { status: "success", submissionId, reference: queue.getReference(submissionId), deduped: true };\n        }\n        queue.enqueue(submissionId, payload, null);\n        try {\n          const result = await destination.send(payload);\n          queue.markResolved(submissionId, result && result.reference);\n          return { status: "success", submissionId, reference: result && result.reference };\n        } catch (err) {\n          const error = classifyError(err);\n          queue.enqueue(submissionId, payload, error);\n          return { status: "failed", submissionId, error, queued: true };\n        }\n      }\n      function listPending(queue = defaultQueue) {\n        return queue.listPending();\n      }\n      var SubmissionService = { submit, listPending, defaultQueue };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = SubmissionService;\n      }\n    }\n  });\n\n  // browser-tool/destinations/AirtableDestination.js\n  var require_AirtableDestination = __commonJS({\n    "browser-tool/destinations/AirtableDestination.js"(exports, module) {\n      "use strict";\n      var endpointUrl = null;\n      var DEFAULT_TIMEOUT_MS = 15e3;\n      function configure(options) {\n        endpointUrl = options && options.endpointUrl || null;\n      }\n      function createTypedError(type, message) {\n        const err = new Error(message);\n        err.type = type;\n        return err;\n      }\n      function fallbackReference(payload) {\n        const submissionId = payload && payload.metadata && payload.metadata.submissionId;\n        return submissionId ? `AT-${String(submissionId).slice(0, 8).toUpperCase()}` : `AT-${Date.now().toString(36).toUpperCase()}`;\n      }\n      function typeForBackendCode(code) {\n        switch (code) {\n          case "not_configured":\n            return "not_configured";\n          case "timeout":\n            return "timeout";\n          case "rate_limited":\n            return "rate_limited";\n          case "invalid_content_type":\n          case "invalid_json":\n          case "invalid_payload":\n          case "payload_too_large":\n          case "method_not_allowed":\n            return "validation";\n          default:\n            return "server";\n        }\n      }\n      async function send(payload) {\n        if (!endpointUrl) {\n          throw createTypedError("not_configured", "AirtableDestination: endpointUrl is not set. See this file\'s header for setup steps.");\n        }\n        const controller = typeof AbortController !== "undefined" ? new AbortController() : null;\n        const timer = controller ? setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS) : null;\n        let response;\n        try {\n          response = await fetch(endpointUrl, {\n            method: "POST",\n            headers: { "Content-Type": "application/json" },\n            body: JSON.stringify(payload),\n            signal: controller ? controller.signal : void 0\n          });\n        } catch (err) {\n          if (err && err.name === "AbortError") {\n            throw createTypedError("timeout", "AirtableDestination: request timed out.");\n          }\n          throw createTypedError("network", `AirtableDestination: network error - ${err && err.message ? err.message : err}`);\n        } finally {\n          if (timer) clearTimeout(timer);\n        }\n        let body = null;\n        try {\n          body = await response.json();\n        } catch (e) {\n        }\n        if (!response.ok || !body || body.success !== true) {\n          const code = body && body.code;\n          const type = code ? typeForBackendCode(code) : "http_error";\n          const message = body && body.error || `AirtableDestination: backend responded with HTTP ${response.status}`;\n          throw createTypedError(type, message);\n        }\n        return { reference: body.recordId || fallbackReference(payload) };\n      }\n      var AirtableDestination = { name: "airtable", send, configure };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = AirtableDestination;\n      }\n    }\n  });\n\n  // browser-tool/application/clientRuntime.js\n  var require_clientRuntime = __commonJS({\n    "browser-tool/application/clientRuntime.js"(exports, module) {\n      var ApplicationForm = require_ApplicationForm();\n      var ReviewPage = require_ReviewPage();\n      var ConfirmationPage = require_ConfirmationPage();\n      var { buildSubmissionPayload } = require_SubmissionPayload();\n      var SubmissionService = require_SubmissionService();\n      var AirtableDestination = require_AirtableDestination();\n      var REVIEW_STEP = ApplicationForm.TOTAL_STEPS;\n      var CONFIRMATION_STEP = ApplicationForm.TOTAL_STEPS + 1;\n      var STEP_LABELS = ApplicationForm.STEP_DEFS.map((s) => s.title).concat(["Review"]);\n      AirtableDestination.configure({\n        endpointUrl: "https://prubsn-submission-service.YOUR_SUBDOMAIN.workers.dev/submit"\n      });\n      var ACTIVE_DESTINATION = AirtableDestination;\n      var MAX_FILE_BYTES = 5 * 1024 * 1024;\n      function fileToBase64(file) {\n        return new Promise((resolve, reject) => {\n          const reader = new FileReader();\n          reader.onload = () => resolve(String(reader.result).split(",")[1]);\n          reader.onerror = reject;\n          reader.readAsDataURL(file);\n        });\n      }\n      function deriveDobFromNric(nricValue) {\n        const digits = String(nricValue || "").replace(/\\D/g, "").slice(0, 6);\n        if (digits.length !== 6) return null;\n        const yy = parseInt(digits.slice(0, 2), 10);\n        const mm = parseInt(digits.slice(2, 4), 10);\n        const dd = parseInt(digits.slice(4, 6), 10);\n        if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;\n        const currentYY = (/* @__PURE__ */ new Date()).getFullYear() % 100;\n        const century = yy <= currentYY ? 2e3 : 1900;\n        const pad = (n) => String(n).padStart(2, "0");\n        return `${century + yy}-${pad(mm)}-${pad(dd)}`;\n      }\n      function generateSubmissionId() {\n        if (typeof crypto !== "undefined" && crypto.getRandomValues) {\n          const bytes = crypto.getRandomValues(new Uint8Array(16));\n          bytes[6] = bytes[6] & 15 | 64;\n          bytes[8] = bytes[8] & 63 | 128;\n          const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");\n          return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;\n        }\n        return `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;\n      }\n      function buildInitialValues(prefillData) {\n        const client = prefillData && prefillData.client || {};\n        return {\n          fullName: client.fullName || "",\n          dateOfBirth: client.dateOfBirthIso || "",\n          gender: client.gender || ""\n        };\n      }\n      function renderProgressHtml(currentStep) {\n        const items = STEP_LABELS.map((label, i) => {\n          const status = i < currentStep ? "done" : i === currentStep ? "current" : "upcoming";\n          return `<li class="paf-progress-item paf-progress-${status}"><span class="paf-progress-dot">${i + 1}</span><span class="paf-progress-label">${label}</span></li>`;\n        }).join("");\n        return `<ol class="paf-progress">${items}</ol>`;\n      }\n      function renderNavHtml(currentStep) {\n        if (currentStep === CONFIRMATION_STEP) return "";\n        const backBtn = currentStep > 0 ? \'<button type="button" class="paf-btn paf-btn-secondary" data-action="back">Back</button>\' : "<span></span>";\n        const forwardBtn = currentStep === REVIEW_STEP ? \'<button type="button" class="paf-btn paf-btn-primary" data-action="submit">Submit Application</button>\' : \'<button type="button" class="paf-btn paf-btn-primary" data-action="next">Next</button>\';\n        return `<div class="paf-nav">${backBtn}${forwardBtn}</div>`;\n      }\n      function initApplicationFlow(rootEl, prefillData) {\n        if (!rootEl) return;\n        const state = {\n          currentStep: 0,\n          values: buildInitialValues(prefillData),\n          files: {},\n          // Documents step File objects, keyed by field name - never merged into `values`\n          errors: {},\n          submissionId: null,\n          submissionPayload: null,\n          submissionStatus: "idle",\n          // \'idle\' | \'pending\' | \'success\' | \'failed\'\n          submissionResult: null\n          // last SubmissionService.submit() result\n        };\n        const continueBtn = document.getElementById("paf-continue-btn");\n        const quotationCard = document.querySelector(".sheet");\n        function buildConfirmationView() {\n          const result = state.submissionResult;\n          return {\n            status: state.submissionStatus,\n            reference: result && result.reference,\n            submittedAt: state.submissionPayload && state.submissionPayload.metadata.submittedAt,\n            agentName: prefillData && prefillData.agent && prefillData.agent.name,\n            error: result && result.error\n          };\n        }\n        function render() {\n          const bodyHtml = state.currentStep < REVIEW_STEP ? ApplicationForm.renderStepHtml(state.currentStep, state.values, state.errors, { files: state.files, plans: prefillData && prefillData.plans }) : state.currentStep === REVIEW_STEP ? ReviewPage.renderReviewHtml(prefillData, state.values, state.files) : ConfirmationPage.renderConfirmationHtml(buildConfirmationView());\n          rootEl.innerHTML = `\n      <div class="paf-shell">\n        ${state.currentStep <= REVIEW_STEP ? \'<button type="button" class="paf-back-link" data-action="close">&larr; Back to quotation</button>\' : ""}\n        ${state.currentStep <= REVIEW_STEP ? renderProgressHtml(state.currentStep) : ""}\n        <div class="paf-step-body">${bodyHtml}</div>\n        ${renderNavHtml(state.currentStep)}\n      </div>`;\n          attachHandlers();\n        }\n        function goToStep(index) {\n          const alreadyThere = state.currentStep === index;\n          state.currentStep = index;\n          render();\n          if (!alreadyThere) rootEl.scrollIntoView({ block: "start", behavior: "smooth" });\n        }\n        function persistCurrentStepValues() {\n          if (state.currentStep >= REVIEW_STEP) return;\n          const container = rootEl.querySelector(".paf-step");\n          if (!container) return;\n          Object.assign(state.values, ApplicationForm.collectStepValues(state.currentStep, container));\n          if (!state.values.dateOfBirth) {\n            const derived = deriveDobFromNric(state.values.nric);\n            if (derived) state.values.dateOfBirth = derived;\n          }\n        }\n        function validateDocumentsStep() {\n          const errors = {};\n          for (const name of ApplicationForm.stepFileFieldNames(state.currentStep)) {\n            const file = state.files[name];\n            if (!file) errors[name] = "Please upload this document.";\n            else if (file.size > MAX_FILE_BYTES) errors[name] = "File is too large - please upload a file under 5MB.";\n          }\n          return errors;\n        }\n        function handleNext() {\n          persistCurrentStepValues();\n          const errors = state.currentStep === ApplicationForm.DOCUMENTS_STEP_INDEX ? validateDocumentsStep() : ApplicationForm.validateStep(state.currentStep, state.values);\n          if (state.currentStep === ApplicationForm.PLAN_STEP_INDEX && !state.values.plan) {\n            errors.plan = "Please select a plan.";\n          }\n          if (Object.keys(errors).length > 0) {\n            state.errors = errors;\n            render();\n            return;\n          }\n          state.errors = {};\n          goToStep(state.currentStep + 1);\n        }\n        function handleBack() {\n          persistCurrentStepValues();\n          goToStep(Math.max(0, state.currentStep - 1));\n        }\n        async function handleSubmit() {\n          if (state.submissionStatus === "pending") return;\n          if (!state.submissionId) state.submissionId = generateSubmissionId();\n          state.submissionStatus = "pending";\n          goToStep(CONFIRMATION_STEP);\n          if (!state.submissionPayload) {\n            const documents = {};\n            for (const [name, file] of Object.entries(state.files)) {\n              try {\n                documents[name] = { filename: file.name, mimeType: file.type || "application/octet-stream", base64: await fileToBase64(file) };\n              } catch (e) {\n              }\n            }\n            state.submissionPayload = buildSubmissionPayload(prefillData, state.values, documents, { submissionId: state.submissionId });\n          }\n          const result = await SubmissionService.submit(state.submissionPayload, { destination: ACTIVE_DESTINATION });\n          state.submissionResult = result;\n          state.submissionStatus = result.status;\n          render();\n        }\n        function handleClose() {\n          persistCurrentStepValues();\n          rootEl.hidden = true;\n          if (quotationCard) quotationCard.hidden = false;\n          if (continueBtn) continueBtn.hidden = false;\n        }\n        function attachHandlers() {\n          rootEl.querySelectorAll("[data-action]").forEach((btn) => {\n            btn.addEventListener("click", (evt) => {\n              const action = evt.currentTarget.getAttribute("data-action");\n              if (action === "next") handleNext();\n              else if (action === "back") handleBack();\n              else if (action === "submit") handleSubmit();\n              else if (action === "retry") handleSubmit();\n              else if (action === "close") handleClose();\n            });\n          });\n          rootEl.querySelectorAll("[data-goto-step]").forEach((btn) => {\n            btn.addEventListener("click", (evt) => {\n              persistCurrentStepValues();\n              goToStep(Number(evt.currentTarget.getAttribute("data-goto-step")));\n            });\n          });\n          rootEl.querySelectorAll("[data-file-field]").forEach((input) => {\n            input.addEventListener("change", (evt) => {\n              const name = evt.currentTarget.getAttribute("data-file-field");\n              const file = evt.currentTarget.files && evt.currentTarget.files[0];\n              if (!file) return;\n              state.files[name] = file;\n              if (state.errors[name]) delete state.errors[name];\n              render();\n            });\n          });\n          rootEl.querySelectorAll("[data-plan-index]").forEach((card) => {\n            const select = () => {\n              const idx = Number(card.getAttribute("data-plan-index"));\n              const plans = prefillData && prefillData.plans || [];\n              const chosen = plans[idx];\n              if (!chosen) return;\n              state.values.plan = chosen.planName || `Option ${idx + 1}`;\n              if (state.errors.plan) delete state.errors.plan;\n              render();\n            };\n            card.addEventListener("click", select);\n            card.addEventListener("keydown", (evt) => {\n              if (evt.key === "Enter" || evt.key === " ") {\n                evt.preventDefault();\n                select();\n              }\n            });\n          });\n        }\n        function openFlow() {\n          if (quotationCard) quotationCard.hidden = true;\n          if (continueBtn) continueBtn.hidden = true;\n          rootEl.hidden = false;\n          render();\n          rootEl.scrollIntoView({ block: "start", behavior: "smooth" });\n        }\n        if (continueBtn) {\n          continueBtn.addEventListener("click", openFlow);\n        }\n      }\n      if (typeof window !== "undefined") {\n        window.__prubsnInitApplicationFlow = initApplicationFlow;\n      }\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = { initApplicationFlow };\n      }\n    }\n  });\n  require_clientRuntime();\n})();\n' : "";
+        const runtimeSource = true ? '"use strict";\n(() => {\n  var __getOwnPropNames = Object.getOwnPropertyNames;\n  var __commonJS = (cb, mod) => function __require() {\n    try {\n      return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;\n    } catch (e) {\n      throw mod = 0, e;\n    }\n  };\n\n  // browser-tool/application/validation.js\n  var require_validation = __commonJS({\n    "browser-tool/application/validation.js"(exports, module) {\n      "use strict";\n      function required(value) {\n        return value != null && String(value).trim().length > 0;\n      }\n      function isValidEmail(value) {\n        if (!value) return false;\n        return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(value).trim());\n      }\n      function isValidMalaysianPhone(value) {\n        if (!value) return false;\n        const digits = String(value).replace(/[\\s-]/g, "").replace(/^\\+?60/, "0");\n        return /^01\\d{8,9}$/.test(digits);\n      }\n      function isValidNRIC(value) {\n        if (!value) return false;\n        const digits = String(value).replace(/[\\s-]/g, "");\n        return /^\\d{12}$/.test(digits);\n      }\n      function formatNRIC(value) {\n        const digits = String(value || "").replace(/[\\s-]/g, "");\n        if (digits.length !== 12) return value || "";\n        return `${digits.slice(0, 6)}-${digits.slice(6, 8)}-${digits.slice(8, 12)}`;\n      }\n      function isValidPercentage(value) {\n        if (value === "" || value == null) return false;\n        const n = Number(value);\n        return Number.isFinite(n) && n > 0 && n <= 100;\n      }\n      function isValidPostcode(value) {\n        if (!value) return false;\n        return /^\\d{5}$/.test(String(value).trim());\n      }\n      var FIELD_RULES = {\n        // --- Step 1: Personal Information ---\n        fullName: { required: true, message: "Full name is required." },\n        nric: { required: true, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },\n        dateOfBirth: { required: true, message: "Date of birth is required." },\n        gender: { required: true, message: "Please select a gender." },\n        race: { required: true, message: "Please select a race." },\n        religion: { required: true, message: "Please select a religion." },\n        mobileNumber: { required: true, validate: isValidMalaysianPhone, message: "Enter a valid Malaysian mobile number (e.g. 012-3456789)." },\n        email: { required: true, validate: isValidEmail, message: "Enter a valid email address." },\n        address: { required: true, message: "Residential address is required." },\n        // --- Step 2: Employment Details ---\n        employmentType: { required: true, message: "Please select an employment type." },\n        occupation: { required: true, message: "Occupation is required." },\n        fieldOfWork: { required: false, message: "" },\n        employerName: { required: false, message: "" },\n        workAddress: { required: false, message: "" },\n        monthlyIncome: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid monthly income." },\n        // Legacy alias kept so an older prefilled/cached value doesn\'t get silently dropped.\n        annualIncome: { required: false, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid annual income." },\n        employer: { required: false, message: "" },\n        // --- Step 3: Family Information ---\n        maritalStatus: { required: true, message: "Please select a marital status." },\n        spouseName: { required: false, message: "" },\n        spouseNric: { required: false, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },\n        numChildren: { required: false, validate: (v) => Number.isFinite(Number(v)) && Number(v) >= 0, message: "Enter a valid number of children." },\n        childrenDetails: { required: false, message: "" },\n        // --- Step 4: Medical History ---\n        height: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid height in cm." },\n        weight: { required: true, validate: (v) => Number.isFinite(Number(v)) && Number(v) > 0, message: "Enter a valid weight in kg." },\n        smokingStatus: { required: true, message: "Please select a smoking status." },\n        preExisting: { required: false, message: "" },\n        medications: { required: false, message: "" },\n        allergies: { required: false, message: "" },\n        surgery: { required: false, message: "" },\n        // --- Step 5: Plan Selection + Beneficiary ---\n        plan: { required: true, message: "Please select a plan." },\n        beneficiaryName: { required: true, message: "Beneficiary name is required." },\n        beneficiaryNric: { required: true, validate: isValidNRIC, message: "Enter a valid NRIC (e.g. 900101-01-1234)." },\n        beneficiaryRelationship: { required: true, message: "Beneficiary relationship is required." },\n        beneficiaryPercentage: { required: true, validate: isValidPercentage, message: "Enter a percentage between 1 and 100." },\n        // --- Step 7: Bank Details ---\n        bankName: { required: true, message: "Bank name is required." },\n        accountNumber: { required: true, message: "Account number is required." },\n        accountHolderName: { required: true, message: "Account holder name is required." },\n        // Retained for a legacy Address-step shape, unused by the current 7-step layout.\n        postcode: { required: false, validate: isValidPostcode, message: "Enter a valid 5-digit postcode." },\n        city: { required: false, message: "City is required." },\n        state: { required: false, message: "Please select a state." }\n      };\n      function validateField(name, value) {\n        const rule = FIELD_RULES[name];\n        if (!rule) return null;\n        if (rule.required && !required(value)) return rule.message;\n        if (required(value) && rule.validate && !rule.validate(value)) return rule.message;\n        return null;\n      }\n      function validateFields(names, values) {\n        const errors = {};\n        for (const name of names) {\n          const msg = validateField(name, values[name]);\n          if (msg) errors[name] = msg;\n        }\n        return errors;\n      }\n      var PruBSNValidation = {\n        required,\n        isValidEmail,\n        isValidMalaysianPhone,\n        isValidNRIC,\n        formatNRIC,\n        isValidPercentage,\n        isValidPostcode,\n        validateField,\n        validateFields,\n        FIELD_RULES\n      };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNValidation;\n      }\n    }\n  });\n\n  // browser-tool/application/ApplicationForm.js\n  var require_ApplicationForm = __commonJS({\n    "browser-tool/application/ApplicationForm.js"(exports, module) {\n      "use strict";\n      var { validateFields } = require_validation();\n      function escapeHtml(value) {\n        return String(value == null ? "" : value).replace(/[&<>"\']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" })[ch]);\n      }\n      var STEP_DEFS = [\n        {\n          id: "personal",\n          title: "Personal Information",\n          subtitle: "Tell us a little about yourself.",\n          fields: [\n            { name: "fullName", label: "Full Name", type: "text", autocomplete: "name" },\n            { name: "nric", label: "NRIC", type: "text", placeholder: "900101-01-1234" },\n            { name: "dateOfBirth", label: "Date of Birth", type: "date" },\n            { name: "gender", label: "Gender", type: "select", options: ["Male", "Female"] },\n            { name: "race", label: "Race", type: "select", options: ["Malay", "Chinese", "Indian", "Others"] },\n            { name: "religion", label: "Religion", type: "select", options: ["Islam", "Christianity", "Buddhism", "Hinduism", "Others"] },\n            { name: "email", label: "Email", type: "email", placeholder: "name@example.com" },\n            { name: "mobileNumber", label: "Phone Number", type: "tel", placeholder: "012-3456789" },\n            { name: "address", label: "Residential Address", type: "textarea" }\n          ]\n        },\n        {\n          id: "employment",\n          title: "Employment Details",\n          subtitle: "A few details about your work.",\n          fields: [\n            { name: "employmentType", label: "Employment Type", type: "select", options: ["Employed", "Self-Employed", "Business Owner", "Unemployed", "Retired", "Student"] },\n            { name: "occupation", label: "Occupation", type: "text" },\n            { name: "fieldOfWork", label: "Field of Work", type: "text", optional: true },\n            { name: "employerName", label: "Employer\'s Name", type: "text", optional: true },\n            { name: "monthlyIncome", label: "Monthly Income (RM)", type: "number", placeholder: "5000" },\n            { name: "workAddress", label: "Work Place Address", type: "textarea", optional: true }\n          ]\n        },\n        {\n          id: "family",\n          title: "Family Information",\n          subtitle: "Tell us about your immediate family.",\n          fields: [\n            { name: "maritalStatus", label: "Marital Status", type: "select", options: ["Single", "Married", "Divorced", "Widowed"] },\n            { name: "spouseName", label: "Spouse Name", type: "text", optional: true },\n            { name: "spouseNric", label: "Spouse NRIC", type: "text", placeholder: "900101-01-1234", optional: true },\n            { name: "numChildren", label: "Number of Children", type: "number", optional: true },\n            { name: "childrenDetails", label: "Children Details", type: "textarea", optional: true }\n          ]\n        },\n        {\n          id: "medical",\n          title: "Medical History",\n          subtitle: "This helps underwriting assess your application accurately.",\n          fields: [\n            { name: "height", label: "Height (cm)", type: "number", placeholder: "170" },\n            { name: "weight", label: "Weight (kg)", type: "number", placeholder: "65" },\n            { name: "smokingStatus", label: "Smoking Status", type: "select", options: ["Non-Smoker", "Smoker", "Former Smoker"] },\n            { name: "preExisting", label: "Pre-existing Medical Conditions", type: "textarea", optional: true, placeholder: "None, if not applicable" },\n            { name: "medications", label: "Current Medications", type: "textarea", optional: true, placeholder: "None, if not applicable" },\n            { name: "allergies", label: "Allergies", type: "textarea", optional: true, placeholder: "None, if not applicable" },\n            { name: "surgery", label: "Previous Surgery / Hospitalisation", type: "textarea", optional: true, placeholder: "None, if not applicable" }\n          ]\n        },\n        {\n          id: "plan",\n          title: "Plan Selection",\n          subtitle: "Choose the plan you would like to proceed with, and tell us who should receive the benefit.",\n          fields: [\n            { name: "plan", label: "Plan", type: "plan-cards" },\n            { name: "beneficiaryName", label: "Beneficiary Name", type: "text" },\n            { name: "beneficiaryNric", label: "Beneficiary NRIC", type: "text", placeholder: "900101-01-1234" },\n            { name: "beneficiaryRelationship", label: "Relationship", type: "text", placeholder: "e.g. Spouse, Child, Parent" },\n            { name: "beneficiaryPercentage", label: "Benefit Weightage (%)", type: "number", placeholder: "100" }\n          ]\n        },\n        {\n          id: "documents",\n          title: "Documents Upload",\n          subtitle: "Upload clear photos so your agent can verify your identity.",\n          fields: [\n            { name: "nricFront", label: "NRIC Front Photo", type: "file" },\n            { name: "nricRear", label: "NRIC Rear Photo", type: "file" },\n            { name: "selfie", label: "Selfie with IC Photo", type: "file" }\n          ]\n        },\n        {\n          id: "bank",\n          title: "Bank Details",\n          subtitle: "Where should refunds or payouts be sent?",\n          fields: [\n            { name: "bankName", label: "Bank Name", type: "text" },\n            { name: "accountNumber", label: "Account Number", type: "text" },\n            { name: "accountHolderName", label: "Account Holder Name", type: "text" }\n          ]\n        }\n      ];\n      var TOTAL_STEPS = STEP_DEFS.length;\n      var DOCUMENTS_STEP_INDEX = STEP_DEFS.findIndex((s) => s.id === "documents");\n      var PLAN_STEP_INDEX = STEP_DEFS.findIndex((s) => s.id === "plan");\n      function stepFieldNames(stepIndex) {\n        const step = STEP_DEFS[stepIndex];\n        return step ? step.fields.filter((f) => f.type !== "file" && f.type !== "plan-cards").map((f) => f.name) : [];\n      }\n      function stepFileFieldNames(stepIndex) {\n        const step = STEP_DEFS[stepIndex];\n        return step ? step.fields.filter((f) => f.type === "file").map((f) => f.name) : [];\n      }\n      function fieldHtml(field, value, error) {\n        const id = `paf-field-${field.name}`;\n        const errorId = `${id}-error`;\n        const commonAttrs = `id="${id}" name="${field.name}" class="paf-input${error ? " paf-input-error" : ""}"` + (field.autocomplete ? ` autocomplete="${field.autocomplete}"` : "") + (field.optional ? "" : \' aria-required="true"\') + (error ? ` aria-invalid="true" aria-describedby="${errorId}"` : "");\n        let control;\n        if (field.type === "select") {\n          const options = field.options.map((opt) => `<option value="${escapeHtml(opt)}"${value === opt ? " selected" : ""}>${escapeHtml(opt)}</option>`).join("");\n          control = `<select ${commonAttrs}><option value="">Select...</option>${options}</select>`;\n        } else if (field.type === "textarea") {\n          control = `<textarea ${commonAttrs} rows="3" placeholder="${escapeHtml(field.placeholder || "")}">${escapeHtml(value)}</textarea>`;\n        } else {\n          control = `<input type="${field.type}" ${commonAttrs} value="${escapeHtml(value)}" placeholder="${escapeHtml(field.placeholder || "")}">`;\n        }\n        const wideClass = field.type === "textarea" ? " paf-field-wide" : "";\n        return `\n    <div class="paf-field${wideClass}">\n      <label class="paf-label" for="${id}">${escapeHtml(field.label)}${field.optional ? \' <span class="paf-optional">(optional)</span>\' : ""}</label>\n      ${control}\n      ${error ? `<div class="paf-error" id="${errorId}">${escapeHtml(error)}</div>` : ""}\n    </div>`;\n      }\n      function fileFieldHtml(field, file, error) {\n        const hasFile = !!file;\n        return `\n    <div class="paf-field paf-file-field">\n      <label class="paf-label" for="paf-file-${field.name}">${escapeHtml(field.label)}</label>\n      <label class="paf-upload${hasFile ? " paf-upload-done" : ""}${error ? " paf-input-error" : ""}" for="paf-file-${field.name}">\n        <span class="paf-upload-icon" aria-hidden="true">${hasFile ? "&#10003;" : "+"}</span>\n        <span class="paf-upload-text">${hasFile ? escapeHtml(file.name) : "Click to upload &mdash; JPG, PNG, or PDF (max 5MB)"}</span>\n      </label>\n      <input type="file" id="paf-file-${field.name}" name="${field.name}" class="paf-upload-input" data-file-field="${field.name}" accept="image/*,.pdf">\n      ${error ? `<div class="paf-error">${escapeHtml(error)}</div>` : ""}\n    </div>`;\n      }\n      function planCardsHtml(plans, selectedIndex, error) {\n        const list = Array.isArray(plans) && plans.length ? plans : [];\n        if (!list.length) {\n          return `<div class="paf-plan-empty">Your agent has not attached a plan to this application yet.</div>`;\n        }\n        const cards = list.map((p, i) => {\n          const picked = selectedIndex === i;\n          return `\n      <div class="paf-plan-card${picked ? " paf-plan-card-picked" : ""}" data-plan-index="${i}" role="button" tabindex="0">\n        ${list.length > 1 && i === 0 ? \'<div class="paf-plan-badge">Recommended</div>\' : ""}\n        <div class="paf-plan-name">${escapeHtml(p.planName || `Option ${i + 1}`)}</div>\n        <div class="paf-plan-price">${p.monthlyContribution ? escapeHtml(p.monthlyContribution) : "&mdash;"}<small>/mo</small></div>\n        <div class="paf-plan-meta">${[p.roomAndBoard, p.annualLimit].filter(Boolean).map(escapeHtml).join(" &middot; ")}</div>\n      </div>`;\n        }).join("");\n        return `<div class="paf-plan-cards" data-field="plan">${cards}</div>${error ? `<div class="paf-error">${escapeHtml(error)}</div>` : ""}`;\n      }\n      function renderStepHtml(stepIndex, values, errors, context) {\n        const step = STEP_DEFS[stepIndex];\n        if (!step) return "";\n        const files = context && context.files || {};\n        const plans = context && context.plans || [];\n        const errs = errors || {};\n        const fieldsHtml = step.fields.map((f) => {\n          if (f.type === "file") return fileFieldHtml(f, files[f.name], errs[f.name]);\n          if (f.type === "plan-cards") {\n            const selectedIndex = plans.findIndex((p) => p.planName === values.plan);\n            return planCardsHtml(plans, selectedIndex === -1 ? null : selectedIndex, errs.plan);\n          }\n          return fieldHtml(f, values[f.name] || "", errs[f.name]);\n        }).join("");\n        return `\n    <div class="paf-step" data-step-id="${step.id}">\n      <h3 class="paf-step-title">${escapeHtml(step.title)}</h3>\n      <p class="paf-step-subtitle">${escapeHtml(step.subtitle)}</p>\n      <div class="paf-fields">${fieldsHtml}</div>\n    </div>`;\n      }\n      function collectStepValues(stepIndex, containerEl) {\n        const names = stepFieldNames(stepIndex);\n        const values = {};\n        for (const name of names) {\n          const el = containerEl.querySelector(`[name="${name}"]`);\n          values[name] = el ? el.value : "";\n        }\n        return values;\n      }\n      function validateStep(stepIndex, values) {\n        return validateFields(stepFieldNames(stepIndex), values);\n      }\n      var PruBSNApplicationForm = {\n        STEP_DEFS,\n        TOTAL_STEPS,\n        DOCUMENTS_STEP_INDEX,\n        PLAN_STEP_INDEX,\n        stepFieldNames,\n        stepFileFieldNames,\n        renderStepHtml,\n        collectStepValues,\n        validateStep\n      };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNApplicationForm;\n      }\n    }\n  });\n\n  // browser-tool/application/ReviewPage.js\n  var require_ReviewPage = __commonJS({\n    "browser-tool/application/ReviewPage.js"(exports, module) {\n      "use strict";\n      var { STEP_DEFS } = require_ApplicationForm();\n      function escapeHtml(value) {\n        return String(value == null ? "" : value).replace(/[&<>"\']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" })[ch]);\n      }\n      function na(value) {\n        return value == null || String(value).trim() === "" ? \'<span class="paf-na">Not provided</span>\' : escapeHtml(value);\n      }\n      function summaryRow(label, value) {\n        return `<div class="paf-summary-row"><span class="paf-summary-label">${escapeHtml(label)}</span><span class="paf-summary-value">${value}</span></div>`;\n      }\n      function renderQuotationSummary(quotation) {\n        const q = quotation || {};\n        const riders = Array.isArray(q.riders) && q.riders.length ? `<ul class="paf-rider-list">${q.riders.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : \'<span class="paf-na">None selected</span>\';\n        return `\n    <section class="paf-review-section">\n      <h4 class="paf-review-heading">Quotation Summary</h4>\n      ${summaryRow("Quotation Number", na(q.quotationNumber))}\n      ${summaryRow("Valid Until", na(q.validUntil))}\n      ${summaryRow("Base Plan", na(q.planName))}\n      ${summaryRow("Monthly Total Amount Payable", na(q.monthlyContribution))}\n      <div class="paf-summary-row paf-summary-row-block">\n        <span class="paf-summary-label">Optional Riders</span>\n        <div class="paf-summary-value">${riders}</div>\n      </div>\n    </section>`;\n      }\n      function renderAgentInfo(agent) {\n        const a = agent || {};\n        return `\n    <section class="paf-review-section">\n      <h4 class="paf-review-heading">Agent Information <span class="paf-readonly-tag">Read-only</span></h4>\n      ${summaryRow("Agent Name", na(a.name))}\n      ${summaryRow("Agency", na(a.agency))}\n      ${summaryRow("Branch", na(a.branch))}\n      ${summaryRow("Contact", na(a.phone || a.email))}\n    </section>`;\n      }\n      function fieldSummaryRow(field, values, files) {\n        if (field.type === "file") {\n          const file = files[field.name];\n          return summaryRow(field.label, file ? escapeHtml(file.name) : \'<span class="paf-na">Not uploaded</span>\');\n        }\n        if (field.type === "plan-cards") {\n          return summaryRow(field.label, na(values[field.name]));\n        }\n        return summaryRow(field.label, na(values[field.name]));\n      }\n      function renderReviewHtml(prefillData, formValues, files) {\n        const data = prefillData || {};\n        const values = formValues || {};\n        const uploadedFiles = files || {};\n        const clientSections = STEP_DEFS.map((step, stepIndex) => {\n          const rows = step.fields.map((f) => fieldSummaryRow(f, values, uploadedFiles)).join("");\n          return `\n      <section class="paf-review-section">\n        <h4 class="paf-review-heading">\n          ${escapeHtml(step.title)}\n          <button type="button" class="paf-edit-link" data-goto-step="${stepIndex}">Edit</button>\n        </h4>\n        ${rows}\n      </section>`;\n        }).join("");\n        return `\n    <div class="paf-step paf-review" data-step-id="review">\n      <h3 class="paf-step-title">Review Your Application</h3>\n      <p class="paf-step-subtitle">Please check everything below before submitting. You can edit any section.</p>\n      ${renderQuotationSummary(data.quotation)}\n      ${renderAgentInfo(data.agent)}\n      ${clientSections}\n    </div>`;\n      }\n      var PruBSNReviewPage = { renderReviewHtml };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNReviewPage;\n      }\n    }\n  });\n\n  // browser-tool/application/ConfirmationPage.js\n  var require_ConfirmationPage = __commonJS({\n    "browser-tool/application/ConfirmationPage.js"(exports, module) {\n      "use strict";\n      function escapeHtml(value) {\n        return String(value == null ? "" : value).replace(/[&<>"\']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", \'"\': "&quot;", "\'": "&#39;" })[ch]);\n      }\n      function na(value) {\n        return value == null || String(value).trim() === "" ? \'<span class="paf-na">Not available</span>\' : escapeHtml(value);\n      }\n      function summaryRow(label, value) {\n        return `<div class="paf-summary-row"><span class="paf-summary-label">${escapeHtml(label)}</span><span class="paf-summary-value">${value}</span></div>`;\n      }\n      var ERROR_MESSAGES = {\n        validation: "There was a problem with your application details.",\n        timeout: "The connection timed out before a response was received.",\n        network: "We couldn\'t reach the server. Please check your internet connection.",\n        not_configured: "Submission is not available right now. Please contact your agent.",\n        http_error: "The server rejected the submission.",\n        server: "The submission service was unavailable.",\n        rate_limited: "Too many submission attempts right now. Please wait a minute and try again.",\n        unknown: "Something went wrong while submitting your application."\n      };\n      function friendlyErrorMessage(error) {\n        const type = error && error.type;\n        return type && ERROR_MESSAGES[type] || ERROR_MESSAGES.unknown;\n      }\n      function renderPending() {\n        return `\n    <div class="paf-step paf-confirmation" data-step-id="confirmation">\n      <div class="paf-confirm-icon" aria-hidden="true">&#8943;</div>\n      <h3 class="paf-step-title">Submitting Your Application&hellip;</h3>\n      <p class="paf-step-subtitle">Please wait a moment. Do not close this window.</p>\n    </div>`;\n      }\n      function renderSuccess(view) {\n        const submittedAt = view.submittedAt ? new Date(view.submittedAt).toLocaleString() : null;\n        return `\n    <div class="paf-step paf-confirmation" data-step-id="confirmation">\n      <div class="paf-confirm-icon" aria-hidden="true">&#10003;</div>\n      <h3 class="paf-step-title">Application Submitted</h3>\n      <p class="paf-step-subtitle">Thank you. Your application has been received.</p>\n      <div class="paf-review-section">\n        ${summaryRow("Reference Number", na(view.reference))}\n        ${summaryRow("Submission Time", submittedAt ? escapeHtml(submittedAt) : na(null))}\n        ${summaryRow("Submission Status", "Confirmed")}\n        ${summaryRow("Agent Name", na(view.agentName))}\n      </div>\n      <p class="paf-confirm-note">Your agent will follow up to complete processing of this application.</p>\n    </div>`;\n      }\n      function renderFailed(view) {\n        return `\n    <div class="paf-step paf-confirmation" data-step-id="confirmation">\n      <div class="paf-confirm-icon" aria-hidden="true">&#10007;</div>\n      <h3 class="paf-step-title">Submission Failed</h3>\n      <p class="paf-step-subtitle">${escapeHtml(friendlyErrorMessage(view.error))}</p>\n      <p class="paf-confirm-note">Your details have been saved on this device. Retrying will not ask you to fill in the form again.</p>\n      <div class="paf-nav">\n        <span></span>\n        <button type="button" class="paf-btn paf-btn-primary" data-action="retry">Retry Submission</button>\n      </div>\n    </div>`;\n      }\n      function renderConfirmationHtml(view) {\n        const v = view || {};\n        if (v.status === "success") return renderSuccess(v);\n        if (v.status === "failed") return renderFailed(v);\n        return renderPending();\n      }\n      var PruBSNConfirmationPage = { renderConfirmationHtml };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNConfirmationPage;\n      }\n    }\n  });\n\n  // browser-tool/application/submission.js\n  var require_submission = __commonJS({\n    "browser-tool/application/submission.js"(exports, module) {\n      "use strict";\n      function buildSubmission(prefillData, formState) {\n        const quotation = prefillData && prefillData.quotation || {};\n        const client = {\n          fullName: formState.fullName || "",\n          nric: formState.nric || "",\n          dateOfBirth: formState.dateOfBirth || "",\n          gender: formState.gender || "",\n          mobileNumber: formState.mobileNumber || "",\n          email: formState.email || ""\n        };\n        const application = {\n          address: formState.address || "",\n          postcode: formState.postcode || "",\n          city: formState.city || "",\n          state: formState.state || "",\n          occupation: formState.occupation || "",\n          employer: formState.employer || "",\n          annualIncome: formState.annualIncome || "",\n          beneficiary: {\n            name: formState.beneficiaryName || "",\n            relationship: formState.beneficiaryRelationship || "",\n            percentage: formState.beneficiaryPercentage || ""\n          }\n        };\n        return {\n          quotation,\n          client,\n          application,\n          timestamp: (/* @__PURE__ */ new Date()).toISOString()\n        };\n      }\n      var PruBSNSubmission = { buildSubmission };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNSubmission;\n      }\n    }\n  });\n\n  // browser-tool/models/SubmissionPayload.js\n  var require_SubmissionPayload = __commonJS({\n    "browser-tool/models/SubmissionPayload.js"(exports, module) {\n      "use strict";\n      var { buildSubmission } = require_submission();\n      var PARSER_VERSION = "v1.0-phase1-parser";\n      var RENDERER_VERSION = "v1.1-phase2-renderer";\n      var PAYLOAD_VERSION = "1.2";\n      var SUBMISSION_SOURCE = "quotation-generator-client-application";\n      function buildAgentInfo(prefillData) {\n        const source = prefillData && prefillData.agent || {};\n        const agent = {};\n        if (source.name) agent.name = source.name;\n        if (source.agency) agent.agency = source.agency;\n        if (source.branch) agent.branch = source.branch;\n        if (source.phone) agent.phone = source.phone;\n        if (source.email) agent.email = source.email;\n        return agent;\n      }\n      function buildPlansCompared(prefillData) {\n        return prefillData && Array.isArray(prefillData.plans) ? prefillData.plans : [];\n      }\n      function buildSelectedPlanDetails(prefillData, formState) {\n        const planName = formState && formState.plan || null;\n        if (!planName) return null;\n        const plans = buildPlansCompared(prefillData);\n        const match = plans.find((p) => p.planName === planName);\n        return match ? { ...match } : { planName };\n      }\n      function buildEmployment(formState) {\n        const f = formState || {};\n        return {\n          employmentType: f.employmentType || "",\n          fieldOfWork: f.fieldOfWork || "",\n          employerName: f.employerName || "",\n          workAddress: f.workAddress || "",\n          monthlyIncome: f.monthlyIncome || ""\n        };\n      }\n      function buildFamily(formState) {\n        const f = formState || {};\n        return {\n          maritalStatus: f.maritalStatus || "",\n          spouseName: f.spouseName || "",\n          spouseNric: f.spouseNric || "",\n          numChildren: f.numChildren || "",\n          childrenDetails: f.childrenDetails || ""\n        };\n      }\n      function buildMedicalHistory(formState) {\n        const f = formState || {};\n        return {\n          height: f.height || "",\n          weight: f.weight || "",\n          smokingStatus: f.smokingStatus || "",\n          preExistingConditions: f.preExisting || "",\n          currentMedications: f.medications || "",\n          allergies: f.allergies || "",\n          previousSurgeryOrHospitalisation: f.surgery || ""\n        };\n      }\n      function buildBank(formState) {\n        const f = formState || {};\n        return {\n          bankName: f.bankName || "",\n          accountNumber: f.accountNumber || "",\n          accountHolderName: f.accountHolderName || ""\n        };\n      }\n      function buildSubmissionPayload(prefillData, formState, documents, options) {\n        const { submissionId } = options || {};\n        const legacy = buildSubmission(prefillData, formState);\n        const { beneficiary, ...applicationRest } = legacy.application;\n        const applicant = {\n          ...legacy.client,\n          ...applicationRest,\n          // Step 1 fields the frozen submission.js\'s buildSubmission() never\n          // carried into `client` - added here, not there, so that file stays\n          // wrapped rather than modified (see this file\'s header comment).\n          race: formState && formState.race || "",\n          religion: formState && formState.religion || ""\n        };\n        const beneficiaries = beneficiary && beneficiary.name ? [{ ...beneficiary, nric: formState && formState.beneficiaryNric || "" }] : [];\n        const generatedMeta = prefillData && prefillData.metadata || {};\n        return {\n          version: PAYLOAD_VERSION,\n          quotation: legacy.quotation,\n          plansCompared: buildPlansCompared(prefillData),\n          selectedPlan: formState && formState.plan || null,\n          selectedPlanDetails: buildSelectedPlanDetails(prefillData, formState),\n          agent: buildAgentInfo(prefillData),\n          applicant,\n          beneficiaries,\n          employment: buildEmployment(formState),\n          family: buildFamily(formState),\n          medicalHistory: buildMedicalHistory(formState),\n          bank: buildBank(formState),\n          documents: documents || {},\n          metadata: {\n            submissionId: submissionId || null,\n            quotationId: legacy.quotation && legacy.quotation.quotationNumber || null,\n            parserVersion: PARSER_VERSION,\n            rendererVersion: RENDERER_VERSION,\n            generatedAt: generatedMeta.generatedAt || null,\n            submittedAt: (/* @__PURE__ */ new Date()).toISOString(),\n            product: legacy.quotation && legacy.quotation.planName || null,\n            source: SUBMISSION_SOURCE\n          }\n        };\n      }\n      var PruBSNSubmissionPayload = { buildSubmissionPayload, PARSER_VERSION, RENDERER_VERSION, PAYLOAD_VERSION };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNSubmissionPayload;\n      }\n    }\n  });\n\n  // browser-tool/queue/SubmissionQueue.js\n  var require_SubmissionQueue = __commonJS({\n    "browser-tool/queue/SubmissionQueue.js"(exports, module) {\n      "use strict";\n      var STORAGE_KEY = "prubsn_submission_queue_v1";\n      function hasWorkingLocalStorage() {\n        try {\n          if (typeof localStorage === "undefined") return false;\n          const probeKey = `${STORAGE_KEY}_probe`;\n          localStorage.setItem(probeKey, "1");\n          localStorage.removeItem(probeKey);\n          return true;\n        } catch (e) {\n          return false;\n        }\n      }\n      function createQueue() {\n        const persistent = hasWorkingLocalStorage();\n        let memoryEntries = [];\n        if (!persistent && typeof console !== "undefined") {\n          console.warn("SubmissionQueue: localStorage is unavailable in this context; falling back to in-memory-only queue (entries will not survive a page reload).");\n        }\n        function readAll() {\n          if (!persistent) return memoryEntries;\n          try {\n            const raw = localStorage.getItem(STORAGE_KEY);\n            return raw ? JSON.parse(raw) : [];\n          } catch (e) {\n            return [];\n          }\n        }\n        function writeAll(entries) {\n          if (!persistent) {\n            memoryEntries = entries;\n            return;\n          }\n          try {\n            localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));\n          } catch (e) {\n          }\n        }\n        function enqueue(submissionId, payload, error) {\n          const entries = readAll();\n          const existing = entries.find((e) => e.submissionId === submissionId);\n          const now = (/* @__PURE__ */ new Date()).toISOString();\n          if (existing) {\n            existing.payload = payload;\n            existing.lastError = error || null;\n            existing.attempts += 1;\n            existing.updatedAt = now;\n          } else {\n            entries.push({\n              submissionId,\n              payload,\n              resolved: false,\n              attempts: 1,\n              lastError: error || null,\n              createdAt: now,\n              updatedAt: now\n            });\n          }\n          writeAll(entries);\n        }\n        function markResolved(submissionId, reference) {\n          const entries = readAll();\n          const existing = entries.find((e) => e.submissionId === submissionId);\n          const now = (/* @__PURE__ */ new Date()).toISOString();\n          if (existing) {\n            existing.resolved = true;\n            existing.reference = reference || null;\n            existing.payload = null;\n            existing.updatedAt = now;\n          } else {\n            entries.push({\n              submissionId,\n              payload: null,\n              resolved: true,\n              reference: reference || null,\n              attempts: 1,\n              lastError: null,\n              createdAt: now,\n              updatedAt: now\n            });\n          }\n          writeAll(entries);\n        }\n        function hasResolved(submissionId) {\n          const existing = readAll().find((e) => e.submissionId === submissionId);\n          return Boolean(existing && existing.resolved);\n        }\n        function getReference(submissionId) {\n          const existing = readAll().find((e) => e.submissionId === submissionId);\n          return existing && existing.resolved ? existing.reference : null;\n        }\n        function listPending() {\n          return readAll().filter((e) => !e.resolved);\n        }\n        function isPersistent() {\n          return persistent;\n        }\n        return { enqueue, markResolved, hasResolved, getReference, listPending, isPersistent };\n      }\n      var PruBSNSubmissionQueue = { createQueue };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = PruBSNSubmissionQueue;\n      }\n    }\n  });\n\n  // browser-tool/services/SubmissionService.js\n  var require_SubmissionService = __commonJS({\n    "browser-tool/services/SubmissionService.js"(exports, module) {\n      "use strict";\n      var { createQueue } = require_SubmissionQueue();\n      var defaultQueue = createQueue();\n      function classifyError(err) {\n        const type = err && err.type || "unknown";\n        const message = err && err.message || "Submission failed for an unknown reason.";\n        return { type, message };\n      }\n      function validatePayload(payload) {\n        if (!payload || typeof payload !== "object") return "Payload is missing.";\n        if (!payload.metadata || !payload.metadata.submissionId) return "Payload is missing metadata.submissionId.";\n        if (!payload.applicant || typeof payload.applicant !== "object") return "Payload is missing applicant details.";\n        if (!Array.isArray(payload.beneficiaries)) return "Payload is missing a beneficiaries array.";\n        return null;\n      }\n      async function submit(payload, options) {\n        const { destination, queue = defaultQueue } = options || {};\n        if (!destination || typeof destination.send !== "function") {\n          throw new Error("SubmissionService.submit: a destination with a send() function is required.");\n        }\n        const submissionId = payload && payload.metadata && payload.metadata.submissionId;\n        const validationMessage = validatePayload(payload);\n        if (validationMessage) {\n          const error = { type: "validation", message: validationMessage };\n          if (submissionId) queue.enqueue(submissionId, payload, error);\n          return { status: "failed", submissionId: submissionId || null, error, queued: Boolean(submissionId) };\n        }\n        if (queue.hasResolved(submissionId)) {\n          return { status: "success", submissionId, reference: queue.getReference(submissionId), deduped: true };\n        }\n        queue.enqueue(submissionId, payload, null);\n        try {\n          const result = await destination.send(payload);\n          queue.markResolved(submissionId, result && result.reference);\n          return { status: "success", submissionId, reference: result && result.reference };\n        } catch (err) {\n          const error = classifyError(err);\n          queue.enqueue(submissionId, payload, error);\n          return { status: "failed", submissionId, error, queued: true };\n        }\n      }\n      function listPending(queue = defaultQueue) {\n        return queue.listPending();\n      }\n      var SubmissionService = { submit, listPending, defaultQueue };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = SubmissionService;\n      }\n    }\n  });\n\n  // browser-tool/destinations/AirtableDestination.js\n  var require_AirtableDestination = __commonJS({\n    "browser-tool/destinations/AirtableDestination.js"(exports, module) {\n      "use strict";\n      var endpointUrl = null;\n      var DEFAULT_TIMEOUT_MS = 15e3;\n      function configure(options) {\n        endpointUrl = options && options.endpointUrl || null;\n      }\n      function createTypedError(type, message) {\n        const err = new Error(message);\n        err.type = type;\n        return err;\n      }\n      function fallbackReference(payload) {\n        const submissionId = payload && payload.metadata && payload.metadata.submissionId;\n        return submissionId ? `AT-${String(submissionId).slice(0, 8).toUpperCase()}` : `AT-${Date.now().toString(36).toUpperCase()}`;\n      }\n      function typeForBackendCode(code) {\n        switch (code) {\n          case "not_configured":\n            return "not_configured";\n          case "timeout":\n            return "timeout";\n          case "rate_limited":\n            return "rate_limited";\n          case "invalid_content_type":\n          case "invalid_json":\n          case "invalid_payload":\n          case "payload_too_large":\n          case "method_not_allowed":\n            return "validation";\n          default:\n            return "server";\n        }\n      }\n      async function send(payload) {\n        if (!endpointUrl) {\n          throw createTypedError("not_configured", "AirtableDestination: endpointUrl is not set. See this file\'s header for setup steps.");\n        }\n        const controller = typeof AbortController !== "undefined" ? new AbortController() : null;\n        const timer = controller ? setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS) : null;\n        let response;\n        try {\n          response = await fetch(endpointUrl, {\n            method: "POST",\n            headers: { "Content-Type": "application/json" },\n            body: JSON.stringify(payload),\n            signal: controller ? controller.signal : void 0\n          });\n        } catch (err) {\n          if (err && err.name === "AbortError") {\n            throw createTypedError("timeout", "AirtableDestination: request timed out.");\n          }\n          throw createTypedError("network", `AirtableDestination: network error - ${err && err.message ? err.message : err}`);\n        } finally {\n          if (timer) clearTimeout(timer);\n        }\n        let body = null;\n        try {\n          body = await response.json();\n        } catch (e) {\n        }\n        if (!response.ok || !body || body.success !== true) {\n          const code = body && body.code;\n          const type = code ? typeForBackendCode(code) : "http_error";\n          const message = body && body.error || `AirtableDestination: backend responded with HTTP ${response.status}`;\n          throw createTypedError(type, message);\n        }\n        return { reference: body.recordId || fallbackReference(payload) };\n      }\n      var AirtableDestination = { name: "airtable", send, configure };\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = AirtableDestination;\n      }\n    }\n  });\n\n  // browser-tool/application/clientRuntime.js\n  var require_clientRuntime = __commonJS({\n    "browser-tool/application/clientRuntime.js"(exports, module) {\n      var ApplicationForm = require_ApplicationForm();\n      var ReviewPage = require_ReviewPage();\n      var ConfirmationPage = require_ConfirmationPage();\n      var { buildSubmissionPayload } = require_SubmissionPayload();\n      var SubmissionService = require_SubmissionService();\n      var AirtableDestination = require_AirtableDestination();\n      var REVIEW_STEP = ApplicationForm.TOTAL_STEPS;\n      var CONFIRMATION_STEP = ApplicationForm.TOTAL_STEPS + 1;\n      var STEP_LABELS = ApplicationForm.STEP_DEFS.map((s) => s.title).concat(["Review"]);\n      AirtableDestination.configure({\n        endpointUrl: "https://prubsn-submission-service.YOUR_SUBDOMAIN.workers.dev/submit"\n      });\n      var ACTIVE_DESTINATION = AirtableDestination;\n      var MAX_FILE_BYTES = 5 * 1024 * 1024;\n      function fileToBase64(file) {\n        return new Promise((resolve, reject) => {\n          const reader = new FileReader();\n          reader.onload = () => resolve(String(reader.result).split(",")[1]);\n          reader.onerror = reject;\n          reader.readAsDataURL(file);\n        });\n      }\n      function deriveDobFromNric(nricValue) {\n        const digits = String(nricValue || "").replace(/\\D/g, "").slice(0, 6);\n        if (digits.length !== 6) return null;\n        const yy = parseInt(digits.slice(0, 2), 10);\n        const mm = parseInt(digits.slice(2, 4), 10);\n        const dd = parseInt(digits.slice(4, 6), 10);\n        if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;\n        const currentYY = (/* @__PURE__ */ new Date()).getFullYear() % 100;\n        const century = yy <= currentYY ? 2e3 : 1900;\n        const pad = (n) => String(n).padStart(2, "0");\n        return `${century + yy}-${pad(mm)}-${pad(dd)}`;\n      }\n      function generateSubmissionId() {\n        if (typeof crypto !== "undefined" && crypto.getRandomValues) {\n          const bytes = crypto.getRandomValues(new Uint8Array(16));\n          bytes[6] = bytes[6] & 15 | 64;\n          bytes[8] = bytes[8] & 63 | 128;\n          const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");\n          return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;\n        }\n        return `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;\n      }\n      function buildInitialValues(prefillData) {\n        const client = prefillData && prefillData.client || {};\n        return {\n          fullName: client.fullName || "",\n          dateOfBirth: client.dateOfBirthIso || "",\n          gender: client.gender || ""\n        };\n      }\n      function renderProgressHtml(currentStep) {\n        const items = STEP_LABELS.map((label, i) => {\n          const status = i < currentStep ? "done" : i === currentStep ? "current" : "upcoming";\n          return `<li class="paf-progress-item paf-progress-${status}"><span class="paf-progress-dot">${i + 1}</span><span class="paf-progress-label">${label}</span></li>`;\n        }).join("");\n        return `<ol class="paf-progress">${items}</ol>`;\n      }\n      function renderNavHtml(currentStep) {\n        if (currentStep === CONFIRMATION_STEP) return "";\n        const backBtn = currentStep > 0 ? \'<button type="button" class="paf-btn paf-btn-secondary" data-action="back">Back</button>\' : "<span></span>";\n        const forwardBtn = currentStep === REVIEW_STEP ? \'<button type="button" class="paf-btn paf-btn-primary" data-action="submit">Submit Application</button>\' : \'<button type="button" class="paf-btn paf-btn-primary" data-action="next">Next</button>\';\n        return `<div class="paf-nav">${backBtn}${forwardBtn}</div>`;\n      }\n      function initApplicationFlow(rootEl, prefillData) {\n        if (!rootEl) return;\n        const state = {\n          currentStep: 0,\n          values: buildInitialValues(prefillData),\n          files: {},\n          // Documents step File objects, keyed by field name - never merged into `values`\n          errors: {},\n          submissionId: null,\n          submissionPayload: null,\n          submissionStatus: "idle",\n          // \'idle\' | \'pending\' | \'success\' | \'failed\'\n          submissionResult: null\n          // last SubmissionService.submit() result\n        };\n        const continueBtn = document.getElementById("paf-continue-btn");\n        const quotationCard = document.querySelector(".sheet, #pq-doc");\n        function buildConfirmationView() {\n          const result = state.submissionResult;\n          return {\n            status: state.submissionStatus,\n            reference: result && result.reference,\n            submittedAt: state.submissionPayload && state.submissionPayload.metadata.submittedAt,\n            agentName: prefillData && prefillData.agent && prefillData.agent.name,\n            error: result && result.error\n          };\n        }\n        function render() {\n          const bodyHtml = state.currentStep < REVIEW_STEP ? ApplicationForm.renderStepHtml(state.currentStep, state.values, state.errors, { files: state.files, plans: prefillData && prefillData.plans }) : state.currentStep === REVIEW_STEP ? ReviewPage.renderReviewHtml(prefillData, state.values, state.files) : ConfirmationPage.renderConfirmationHtml(buildConfirmationView());\n          rootEl.innerHTML = `\n      <div class="paf-shell">\n        ${state.currentStep <= REVIEW_STEP ? \'<button type="button" class="paf-back-link" data-action="close">&larr; Back to quotation</button>\' : ""}\n        ${state.currentStep <= REVIEW_STEP ? renderProgressHtml(state.currentStep) : ""}\n        <div class="paf-step-body">${bodyHtml}</div>\n        ${renderNavHtml(state.currentStep)}\n      </div>`;\n          attachHandlers();\n        }\n        function goToStep(index) {\n          const alreadyThere = state.currentStep === index;\n          state.currentStep = index;\n          render();\n          if (!alreadyThere) rootEl.scrollIntoView({ block: "start", behavior: "smooth" });\n        }\n        function persistCurrentStepValues() {\n          if (state.currentStep >= REVIEW_STEP) return;\n          const container = rootEl.querySelector(".paf-step");\n          if (!container) return;\n          Object.assign(state.values, ApplicationForm.collectStepValues(state.currentStep, container));\n          if (!state.values.dateOfBirth) {\n            const derived = deriveDobFromNric(state.values.nric);\n            if (derived) state.values.dateOfBirth = derived;\n          }\n        }\n        function validateDocumentsStep() {\n          const errors = {};\n          for (const name of ApplicationForm.stepFileFieldNames(state.currentStep)) {\n            const file = state.files[name];\n            if (!file) errors[name] = "Please upload this document.";\n            else if (file.size > MAX_FILE_BYTES) errors[name] = "File is too large - please upload a file under 5MB.";\n          }\n          return errors;\n        }\n        function handleNext() {\n          persistCurrentStepValues();\n          const errors = state.currentStep === ApplicationForm.DOCUMENTS_STEP_INDEX ? validateDocumentsStep() : ApplicationForm.validateStep(state.currentStep, state.values);\n          if (state.currentStep === ApplicationForm.PLAN_STEP_INDEX && !state.values.plan) {\n            errors.plan = "Please select a plan.";\n          }\n          if (Object.keys(errors).length > 0) {\n            state.errors = errors;\n            render();\n            return;\n          }\n          state.errors = {};\n          goToStep(state.currentStep + 1);\n        }\n        function handleBack() {\n          persistCurrentStepValues();\n          goToStep(Math.max(0, state.currentStep - 1));\n        }\n        async function handleSubmit() {\n          if (state.submissionStatus === "pending") return;\n          if (!state.submissionId) state.submissionId = generateSubmissionId();\n          state.submissionStatus = "pending";\n          goToStep(CONFIRMATION_STEP);\n          if (!state.submissionPayload) {\n            const documents = {};\n            for (const [name, file] of Object.entries(state.files)) {\n              try {\n                documents[name] = { filename: file.name, mimeType: file.type || "application/octet-stream", base64: await fileToBase64(file) };\n              } catch (e) {\n              }\n            }\n            state.submissionPayload = buildSubmissionPayload(prefillData, state.values, documents, { submissionId: state.submissionId });\n          }\n          const result = await SubmissionService.submit(state.submissionPayload, { destination: ACTIVE_DESTINATION });\n          state.submissionResult = result;\n          state.submissionStatus = result.status;\n          render();\n        }\n        function handleClose() {\n          persistCurrentStepValues();\n          rootEl.hidden = true;\n          if (quotationCard) quotationCard.hidden = false;\n          if (continueBtn) continueBtn.hidden = false;\n        }\n        function attachHandlers() {\n          rootEl.querySelectorAll("[data-action]").forEach((btn) => {\n            btn.addEventListener("click", (evt) => {\n              const action = evt.currentTarget.getAttribute("data-action");\n              if (action === "next") handleNext();\n              else if (action === "back") handleBack();\n              else if (action === "submit") handleSubmit();\n              else if (action === "retry") handleSubmit();\n              else if (action === "close") handleClose();\n            });\n          });\n          rootEl.querySelectorAll("[data-goto-step]").forEach((btn) => {\n            btn.addEventListener("click", (evt) => {\n              persistCurrentStepValues();\n              goToStep(Number(evt.currentTarget.getAttribute("data-goto-step")));\n            });\n          });\n          rootEl.querySelectorAll("[data-file-field]").forEach((input) => {\n            input.addEventListener("change", (evt) => {\n              const name = evt.currentTarget.getAttribute("data-file-field");\n              const file = evt.currentTarget.files && evt.currentTarget.files[0];\n              if (!file) return;\n              state.files[name] = file;\n              if (state.errors[name]) delete state.errors[name];\n              render();\n            });\n          });\n          rootEl.querySelectorAll("[data-plan-index]").forEach((card) => {\n            const select = () => {\n              const idx = Number(card.getAttribute("data-plan-index"));\n              const plans = prefillData && prefillData.plans || [];\n              const chosen = plans[idx];\n              if (!chosen) return;\n              state.values.plan = chosen.planName || `Option ${idx + 1}`;\n              if (state.errors.plan) delete state.errors.plan;\n              render();\n            };\n            card.addEventListener("click", select);\n            card.addEventListener("keydown", (evt) => {\n              if (evt.key === "Enter" || evt.key === " ") {\n                evt.preventDefault();\n                select();\n              }\n            });\n          });\n        }\n        function openFlow() {\n          if (quotationCard) quotationCard.hidden = true;\n          if (continueBtn) continueBtn.hidden = true;\n          rootEl.hidden = false;\n          render();\n          rootEl.scrollIntoView({ block: "start", behavior: "smooth" });\n        }\n        if (continueBtn) {\n          continueBtn.addEventListener("click", openFlow);\n        }\n      }\n      if (typeof window !== "undefined") {\n        window.__prubsnInitApplicationFlow = initApplicationFlow;\n      }\n      if (typeof module !== "undefined" && module.exports) {\n        module.exports = { initApplicationFlow };\n      }\n    }\n  });\n  require_clientRuntime();\n})();\n' : "";
         const prefillJson = JSON.stringify(prefillData || {}).replace(/</g, "\\u003c");
+        const continueButtonHtml = hasOwnContinueButton(quotationHtml) ? "" : '<button type="button" id="paf-continue-btn" class="paf-cta">Continue Application &rarr;</button>';
         return `${quotationHtml}
 <style>${APPLICATION_STYLE}</style>
-<button type="button" id="paf-continue-btn" class="paf-cta">Continue Application &rarr;</button>
+${continueButtonHtml}
 <div id="paf-app-root" class="paf-app-root" hidden></div>
 <script type="application/json" id="paf-prefill-data">${prefillJson}<\/script>
 <script>${runtimeSource}<\/script>

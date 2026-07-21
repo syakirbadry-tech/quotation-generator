@@ -86,5 +86,30 @@ console.log('\n=== composeClientDocument: blocked/gated page passthrough ===');
   check('a page with no .sheet card is returned completely unchanged', out, blockedHtml);
 }
 
+// The narrative renderer (renderer/renderNarrativeQuotation.js) wraps its
+// document in `id="pq-doc"` instead of `class="sheet"`, and supplies its
+// own visible "Continue Application" trigger (its bottom-of-page contact
+// section's button, given the same `id="paf-continue-btn"` this module
+// looks for) rather than relying on this module to inject a generic one.
+console.log('\n=== composeClientDocument: narrative renderer (#pq-doc) is recognised as real ===');
+{
+  const narrativeHtml = `<!doctype html>
+<meta charset="utf-8">
+<title>Quotation — Test Client</title>
+<style>:root{--teal:#178D93}</style>
+<div id="pq-doc">
+  <button type="button" id="paf-continue-btn" class="pq-cta">Continue Application &rarr;</button>
+</div>
+`;
+  const out = composeClientDocument(narrativeHtml, fakePrefillData);
+
+  check('renderer output is preserved byte-for-byte at the start of the document', out.startsWith(narrativeHtml), true);
+  check('application mount root is present and starts hidden', out.includes('id="paf-app-root"') && /id="paf-app-root"[^>]*hidden/.test(out), true);
+  check('prefill data script block is present', out.includes('id="paf-prefill-data"'), true);
+
+  const continueBtnMatches = out.match(/id="paf-continue-btn"/g) || [];
+  check('the renderer\'s own Continue Application button is kept, and no duplicate fallback button is injected', continueBtnMatches.length, 1);
+}
+
 console.log(`\n${pass} passed, ${fail} failed.`);
 process.exit(fail > 0 ? 1 : 0);

@@ -979,7 +979,7 @@
           // last SubmissionService.submit() result
         };
         const continueBtn = document.getElementById("paf-continue-btn");
-        const quotationCard = document.querySelector(".sheet");
+        const quotationCard = document.querySelector(".sheet, #pq-doc");
         function buildConfirmationView() {
           const result = state.submissionResult;
           return {

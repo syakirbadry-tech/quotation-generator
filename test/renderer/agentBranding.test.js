@@ -1,11 +1,20 @@
 /**
  * agentBranding.test.js
  *
- * Regression coverage for the header logo: an agent with a real `logo`
- * configured in parser/agents.js should see it rendered as an <img>;
- * an agent with none (agents.js's documented default - '', never
- * fabricated) should keep getting the generic gold-mark SVG. Temporarily
- * adds a throwaway entry to the real, frozen AGENTS object (never edits
+ * Regression coverage for the agent-footer logo in the narrative
+ * renderer (renderer/renderNarrativeQuotation.js, wired up via
+ * renderClientQuotationHtml as of the official-template migration): an
+ * agent with a real `logo` configured in parser/agents.js should see it
+ * rendered as an <img> in the "Ready When You Are" footer; an agent with
+ * none (agents.js's documented default - '', never fabricated) should
+ * see no <img> at all there - never a broken image, never an invented
+ * URL. (The old medical-card renderer instead always showed some mark -
+ * a real logo <img class="mark"> or a generic gold SVG fallback - which
+ * made sense in that compact card layout; the new long-form layout's
+ * footer is fully identified by the agent's name/code/agency text alone,
+ * so omitting the image entirely when there's no real logo is the
+ * equivalent "never fabricate" behaviour here.) Temporarily adds a
+ * throwaway entry to the real, frozen AGENTS object (never edits
  * agents.js itself) so this can be tested without a mocking framework,
  * and removes it again in `finally` regardless of pass/fail.
  *
@@ -64,15 +73,13 @@ AGENTS['TEST-NO-LOGO-AGENT'] = {
 
 try {
   const withLogo = renderClientQuotationHtml(minimalParseResult('TEST-LOGO-AGENT'), { acknowledged: true });
-  ok('a configured logo renders as an <img class="mark"> using the exact URL from agents.js', withLogo.includes('<img class="mark" src="https://example.com/agency-logo.png"'));
-  ok('the generic SVG mark is NOT used when a real logo is configured', !withLogo.includes('<svg class="mark"'));
+  ok('a configured logo renders as an <img> using the exact URL from agents.js', withLogo.includes('<img src="https://example.com/agency-logo.png"'));
 
   const withoutLogo = renderClientQuotationHtml(minimalParseResult('TEST-NO-LOGO-AGENT'), { acknowledged: true });
-  ok('no logo configured (agents.js default \'\') falls back to the generic SVG mark', withoutLogo.includes('<svg class="mark"'));
-  ok('no <img> tag is fabricated when there is no real logo on file', !withoutLogo.includes('<img class="mark"'));
+  ok('no logo configured (agents.js default \'\') renders no <img> at all in the agent footer', !withoutLogo.includes('<img src='));
 
   const unconfiguredAgent = renderClientQuotationHtml(minimalParseResult('NOT-A-REAL-CODE'), { acknowledged: true });
-  ok('an agent code with no config entry at all also falls back to the generic SVG mark, never a broken <img>', unconfiguredAgent.includes('<svg class="mark"') && !unconfiguredAgent.includes('<img class="mark"'));
+  ok('an agent code with no config entry at all also renders no <img>, never a broken/invented one', !unconfiguredAgent.includes('<img src='));
 } finally {
   delete AGENTS['TEST-LOGO-AGENT'];
   delete AGENTS['TEST-NO-LOGO-AGENT'];

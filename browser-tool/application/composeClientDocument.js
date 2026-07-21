@@ -116,8 +116,28 @@ const APPLICATION_STYLE = `
 }
 `;
 
+/**
+ * "class=\"sheet\"" was the old medical-card renderer's marker. The new
+ * narrative renderer (renderer/renderNarrativeQuotation.js) wraps its
+ * whole document in `<div id="pq-doc">` instead - see that file's header.
+ * Checking for either keeps this module working during the transition and
+ * against any output still produced by the old template's code path.
+ */
 function isRealQuotation(html) {
-  return typeof html === 'string' && html.includes('class="sheet"');
+  return typeof html === 'string' && (html.includes('class="sheet"') || html.includes('id="pq-doc"'));
+}
+
+/**
+ * The narrative renderer already supplies its own visible
+ * `id="paf-continue-btn"` trigger (its "Send My Details"/"Continue
+ * Application" button at the bottom of the page, styled to match its own
+ * design) - see renderContactSection() in renderNarrativeQuotation.js.
+ * Only the OLD medical-card template needs this module to inject a
+ * generic fallback button, to avoid two redundant CTAs stacked one after
+ * another.
+ */
+function hasOwnContinueButton(html) {
+  return typeof html === 'string' && html.includes('id="paf-continue-btn"');
 }
 
 /**
@@ -130,10 +150,13 @@ function composeClientDocument(quotationHtml, prefillData) {
 
   const runtimeSource = typeof __APPLICATION_RUNTIME_SOURCE__ !== 'undefined' ? __APPLICATION_RUNTIME_SOURCE__ : '';
   const prefillJson = JSON.stringify(prefillData || {}).replace(/</g, '\\u003c');
+  const continueButtonHtml = hasOwnContinueButton(quotationHtml)
+    ? ''
+    : '<button type="button" id="paf-continue-btn" class="paf-cta">Continue Application &rarr;</button>';
 
   return `${quotationHtml}
 <style>${APPLICATION_STYLE}</style>
-<button type="button" id="paf-continue-btn" class="paf-cta">Continue Application &rarr;</button>
+${continueButtonHtml}
 <div id="paf-app-root" class="paf-app-root" hidden></div>
 <script type="application/json" id="paf-prefill-data">${prefillJson}</script>
 <script>${runtimeSource}</script>

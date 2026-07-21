@@ -54,6 +54,7 @@ const {
   bareTierNumber,
   primaryValue,
 } = require('./formatters');
+const { renderNarrativeQuotationHtml } = require('./renderNarrativeQuotation');
 
 /** Extracts a "(N days ...)" style parenthetical out of a benefit value, for the little tag badge. */
 function extractDayTag(value) {
@@ -603,9 +604,7 @@ function renderClientQuotationHtml(parseResult, agentReview = {}) {
       'Agent has not yet reviewed and acknowledged this quotation. Open the agent review version first.',
     ]);
   }
-  const clientName = data && data.client && data.client.fullName;
-  const card = renderQuotationCard(data, 'client', agentReview);
-  return documentShell(`Medical Card Quotation — ${clientName || 'Client'}`, card);
+  return renderNarrativeQuotationHtml(data, agentReview);
 }
 
 module.exports = { renderAgentReviewHtml, renderClientQuotationHtml, renderBlockedHtml, SHARED_STYLE };

@@ -138,10 +138,12 @@ function initApplicationFlow(rootEl, prefillData) {
   };
 
   const continueBtn = document.getElementById('paf-continue-btn');
-  // composeClientDocument.js appends the CTA as a SIBLING right after
-  // the renderer's `.sheet` card, not inside it - so the card is found
-  // by document-level lookup, not by walking up from the button.
-  const quotationCard = document.querySelector('.sheet');
+  // composeClientDocument.js appends the CTA as a SIBLING right after the
+  // renderer's own root wrapper, not inside it - so the wrapper is found
+  // by document-level lookup, not by walking up from the button. `.sheet`
+  // is the old medical-card renderer's marker; `#pq-doc` is the current
+  // narrative renderer's (see renderer/renderNarrativeQuotation.js).
+  const quotationCard = document.querySelector('.sheet, #pq-doc');
 
   function buildConfirmationView() {
     const result = state.submissionResult;
