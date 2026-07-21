@@ -29,13 +29,14 @@
 import { validatePayloadShape, parseJsonBody, checkContentLength } from './validate.js';
 import { submitToClientsTable } from './airtable.js';
 import { checkRateLimit } from './rateLimit.js';
+import { validatePublishPayload, slugify, insertQuotation, getQuotationById, notFoundHtml } from './publish.js';
 
 const AIRTABLE_TIMEOUT_MS = 15000;
 
 function corsHeaders(env) {
   return {
     'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
   };
@@ -50,6 +51,13 @@ function json(body, status, env) {
 
 function fail(error, code, status, env) {
   return json({ success: false, error, code }, status, env);
+}
+
+function html(body, status, env) {
+  return new Response(body, {
+    status,
+    headers: { 'Content-Type': 'text/html; charset=utf-8', ...corsHeaders(env) },
+  });
 }
 
 function getClientIp(request) {
@@ -128,21 +136,112 @@ async function handleSubmit(request, env) {
   }
 }
 
+/**
+ * Phase 9: the agent's browser POSTs the already-rendered quotation
+ * document here (see publish.js's header comment for why this Worker
+ * never re-renders anything itself). Stores it in D1 and returns the
+ * public URL the agent copies/sends - derived from the actual request's
+ * own origin, so this works unchanged whether that's a *.workers.dev
+ * default domain or a custom domain attached later (see DEPLOYMENT.md).
+ */
+async function handlePublish(request, env) {
+  if (!env.QUOTATIONS_DB) {
+    console.error('Worker misconfigured - missing QUOTATIONS_DB D1 binding');
+    return fail('Publishing service is not configured.', 'not_configured', 500, env);
+  }
+
+  const contentType = request.headers.get('Content-Type') || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    return fail('Content-Type must be application/json.', 'invalid_content_type', 400, env);
+  }
+
+  const clientIp = getClientIp(request);
+  const rl = await checkRateLimit(env.RATE_LIMIT_KV, clientIp);
+  if (rl.limited) {
+    return fail('Too many publish requests from this connection - please wait a minute and try again.', 'rate_limited', 429, env);
+  }
+
+  let rawBody;
+  try {
+    rawBody = await request.text();
+  } catch (e) {
+    return fail('Could not read the request body.', 'invalid_body', 400, env);
+  }
+
+  const parsed = parseJsonBody(rawBody);
+  if (parsed.error) {
+    const isSize = parsed.error.startsWith('Payload too large');
+    return fail(parsed.error, isSize ? 'payload_too_large' : 'invalid_json', isSize ? 413 : 400, env);
+  }
+
+  const shapeError = validatePublishPayload(parsed.payload);
+  if (shapeError) {
+    return fail(shapeError, 'invalid_payload', 400, env);
+  }
+
+  const payload = parsed.payload;
+  const slug = slugify(payload.clientName);
+
+  try {
+    const { id, generatedDate } = await insertQuotation(env.QUOTATIONS_DB, {
+      slug,
+      clientName: payload.clientName,
+      plan: payload.plan,
+      monthlyTotalPayable: payload.monthlyTotalPayable,
+      annualContribution: payload.annualContribution,
+      rendererVersion: payload.rendererVersion,
+      quotationJson: payload.quotationJson,
+      generatedHtml: payload.generatedHtml,
+    });
+    const url = `${new URL(request.url).origin}/q/${id}`;
+    return json({ success: true, id, url, generatedDate }, 200, env);
+  } catch (err) {
+    console.error('Publish failed:', err && err.message);
+    return fail('Could not publish this quotation. Please try again.', 'publish_error', 500, env);
+  }
+}
+
+/** GET /q/:id and /app/:id both serve the same stored document - see publish.js's header comment for why "Continue Application" doesn't need a separate rendered page. */
+async function handleGetQuotation(env, id) {
+  if (!env.QUOTATIONS_DB) {
+    console.error('Worker misconfigured - missing QUOTATIONS_DB D1 binding');
+    return html(notFoundHtml(), 404, env);
+  }
+  const row = await getQuotationById(env.QUOTATIONS_DB, id);
+  if (!row) {
+    return html(notFoundHtml(), 404, env);
+  }
+  return html(row.generated_html, 200, env);
+}
+
 async function fetchHandler(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders(env) });
   }
-  if (request.method !== 'POST') {
-    return fail('Method not allowed - use POST.', 'method_not_allowed', 405, env);
-  }
 
   try {
-    return await handleSubmit(request, env);
+    if (path === '/submit') {
+      if (request.method !== 'POST') return fail('Method not allowed - use POST.', 'method_not_allowed', 405, env);
+      return await handleSubmit(request, env);
+    }
+    if (path === '/publish') {
+      if (request.method !== 'POST') return fail('Method not allowed - use POST.', 'method_not_allowed', 405, env);
+      return await handlePublish(request, env);
+    }
+    if (path.startsWith('/q/') || path.startsWith('/app/')) {
+      if (request.method !== 'GET') return fail('Method not allowed - use GET.', 'method_not_allowed', 405, env);
+      const id = path.slice(path.indexOf('/', 1) + 1);
+      return await handleGetQuotation(env, id);
+    }
+    return fail('Not found.', 'not_found', 404, env);
   } catch (err) {
     // Last-resort catch: an unexpected exception anywhere above must still
     // produce a well-formed JSON error response, not a raw 5xx with no
     // body (or worse, an unhandled-rejection crash of the isolate).
-    console.error('Unexpected error in submission handler:', err && err.stack);
+    console.error('Unexpected error in fetch handler:', err && err.stack);
     return fail('An unexpected error occurred.', 'internal_error', 500, env);
   }
 }

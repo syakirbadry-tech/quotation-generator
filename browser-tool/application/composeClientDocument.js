@@ -112,8 +112,23 @@ const APPLICATION_STYLE = `
    and an unstyled/greyed-out button there just looks broken. Found via
    an actual PDF export: it showed up on its own near-blank final page. */
 @media print {
-  .paf-cta, #paf-app-root { display: none !important; }
+  .paf-cta, #paf-app-root, .pq-print-fab { display: none !important; }
 }
+
+/* Phase 9: a published quotation (served from GET /q/:id or /app/:id) is
+   the ONLY thing on the page - there is no surrounding agent-tool chrome
+   with its own Print/Save-as-PDF button (see browser-tool/index.html's
+   #print-btn) to fall back on, so the document needs its own. Same
+   window.print() mechanism the agent tool's own button already uses
+   elsewhere - this project has never had a real PDF-generation library,
+   "print to PDF" via the browser's own dialog is the one PDF story
+   throughout. Deliberately understated (bottom-right, small) so it reads
+   as a utility control, not a second competing call-to-action next to
+   "Continue Application". */
+.pq-print-fab{position:fixed;bottom:16px;right:16px;z-index:40;background:rgba(11,37,69,.85);color:#fff;
+  border:none;border-radius:100px;padding:10px 16px;font-family:var(--sans,-apple-system,sans-serif);
+  font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 6px 16px rgba(11,37,69,.3)}
+.pq-print-fab:hover{filter:brightness(1.1)}
 `;
 
 /**
@@ -157,6 +172,7 @@ function composeClientDocument(quotationHtml, prefillData) {
   return `${quotationHtml}
 <style>${APPLICATION_STYLE}</style>
 ${continueButtonHtml}
+<button type="button" id="pq-print-btn" class="pq-print-fab">Print / Save as PDF</button>
 <div id="paf-app-root" class="paf-app-root" hidden></div>
 <script type="application/json" id="paf-prefill-data">${prefillJson}</script>
 <script>${runtimeSource}</script>
@@ -169,6 +185,8 @@ ${continueButtonHtml}
   if (root && typeof window.__prubsnInitApplicationFlow === 'function') {
     window.__prubsnInitApplicationFlow(root, prefill);
   }
+  var printBtn = document.getElementById('pq-print-btn');
+  if (printBtn) printBtn.addEventListener('click', function () { window.print(); });
 })();
 </script>
 `;

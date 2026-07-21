@@ -52,6 +52,16 @@
 
 'use strict';
 
+/**
+ * Bumped whenever this file's markup/behaviour changes in a way that
+ * matters for a previously-*published* quotation (see backend/src/publish.js
+ * and its D1 schema) - stored alongside each published quotation's
+ * already-rendered HTML so it's always possible to tell which renderer
+ * produced a given stored document, even though the stored HTML itself
+ * is never re-rendered after publishing.
+ */
+const RENDERER_VERSION = 'narrative-v1';
+
 const { getAgentConfig } = require('../parser/agents');
 const {
   escapeHtml,
@@ -59,6 +69,7 @@ const {
   formatMoneyFixed2,
   resolveMonthlyTotalPayable,
 } = require('./formatters');
+const AssetManager = require('./AssetManager');
 
 // ---------------------------------------------------------------------------
 // Small client-safe presentation helpers (this file's own - the "missing"
@@ -148,30 +159,31 @@ const PRODUCT_FACTS = {
 };
 
 // ---------------------------------------------------------------------------
-// Ken Burns photo slots - placeholders until the agency supplies real
-// licensed photography. `assetUrl: null` renders a tasteful generic
-// placeholder panel; set it to a real image URL/data-URI per slot once
-// available and the <img class="kenburns"> swaps in automatically.
+// Full-bleed "Ken Burns" photo sections - image selection goes entirely
+// through AssetManager (renderer/AssetManager.js), never a hardcoded
+// filename here. AssetManager always resolves to *some* URL (falling
+// back to a site-wide default), but that file may not actually exist on
+// disk yet (no production photography has been supplied at the time
+// this was written) - imageWithFallback() renders BOTH a real <img> AND
+// a hidden placeholder panel behind it, and the runtime script
+// (NARRATIVE_RUNTIME below) reveals the placeholder if the <img> ever
+// fails to load. This is the "do not crash, never a broken image icon"
+// contract, split across two layers by design - see AssetManager.js's
+// own header comment for why.
 // ---------------------------------------------------------------------------
 
-const KEN_BURNS_SLOTS = {
-  admission: { alt: 'Hospital entrance', assetUrl: null },
-  ward: { alt: 'Private hospital ward', assetUrl: null },
-  surgery: { alt: 'Operating theatre', assetUrl: null },
-  room: { alt: 'Hospital room', assetUrl: null },
-  criticalIllness: { alt: 'Cancer treatment centre', assetUrl: null },
-};
-
-function kenBurnsMedia(slotKey) {
-  const slot = KEN_BURNS_SLOTS[slotKey];
-  if (slot && slot.assetUrl) {
-    return `<img class="reveal kenburns" src="${escapeHtml(slot.assetUrl)}" alt="${escapeHtml(slot.alt)}">`;
-  }
-  // Placeholder: generic gradient panel + icon, no "missing"/diagnostic
-  // text - see file header. The HTML comment is the only trace of the
-  // slot key, for whoever wires in the real photo later.
-  return `<!-- photo slot: ${slotKey} - set KEN_BURNS_SLOTS.${slotKey}.assetUrl to swap in a real photo -->
-      <div class="pq-kb-placeholder" role="img" aria-label="${escapeHtml(slot.alt)}">
+/**
+ * @param {string} url from AssetManager - always a resolved path, never null
+ * @param {string} altText
+ * @param {string} [layoutClass] 'pq-kenburns' for a full-bleed Ken Burns
+ *   section (the default - matches every existing call site), or
+ *   'pq-inline-photo' for a compact, non-full-bleed rounded image used
+ *   inline within an otherwise card-based section (plan/guarantee/
+ *   waiting-period/cash-value placements).
+ */
+function imageWithFallback(url, altText, layoutClass = 'pq-kenburns') {
+  return `<img class="pq-reveal pq-photo ${layoutClass}" src="${escapeHtml(url)}" alt="${escapeHtml(altText)}">
+      <div class="pq-kb-placeholder ${layoutClass === 'pq-inline-photo' ? 'pq-inline-photo' : ''}" style="display:none" role="img" aria-label="${escapeHtml(altText)}">
         <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="#9FB4D1" stroke-width="1.3"><rect x="3" y="8" width="18" height="13" rx="1.2"></rect><path d="M3 8l9-5 9 5"></path><path d="M12 11v6M9 14h6"></path></svg>
       </div>`;
 }
@@ -328,9 +340,9 @@ const NARRATIVE_STYLE = `
   .pq-path-card .pq-path-desc{font-size:13px;color:var(--meta);margin-top:12px}
   .pq-path-card.pq-dark .pq-path-desc{color:#C7D3E3}
 
-  .pq-drama{min-height:56vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:linear-gradient(160deg,#0B2545 0%,#16345E 100%);color:#fff}
-  .pq-drama .pq-headline{color:#fff;font-size:32px;max-width:440px}
-  .pq-drama .pq-eyebrow{color:#CFE0EE}
+  .pq-drama{position:relative;min-height:56vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:linear-gradient(160deg,#0B2545 0%,#16345E 100%);color:#fff;overflow:hidden}
+  .pq-drama .pq-headline{position:relative;color:#fff;font-size:32px;max-width:440px}
+  .pq-drama .pq-eyebrow{position:relative;color:#CFE0EE}
   .pq-drama .pq-figure{color:#F2A65A}
 
   .pq-consequence-steps{display:flex;flex-direction:column;gap:14px;margin-top:26px}
@@ -383,6 +395,15 @@ const NARRATIVE_STYLE = `
   .pq-kb-media{position:absolute;inset:0;overflow:hidden}
   .pq-kb-media img.pq-kenburns{width:100%;height:100%;object-fit:cover}
   .pq-kb-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#16345E 0%,#0B2545 100%)}
+
+  /* Compact, non-full-bleed image used inline within an otherwise
+     card-based section (plan/guarantee/waiting-period/cash-value) -
+     same graceful onerror-fallback mechanism as the full-bleed Ken Burns
+     photos, just a smaller rounded rectangle rather than a whole section
+     background. */
+  .pq-inline-photo-wrap{margin-top:20px;border-radius:12px;overflow:hidden;height:160px;box-shadow:0 6px 20px rgba(11,37,69,.08)}
+  img.pq-inline-photo{width:100%;height:160px;object-fit:cover;border-radius:12px;display:block}
+  .pq-kb-placeholder.pq-inline-photo{height:160px;border-radius:12px}
   .pq-kb-overlay{position:absolute;inset:0;background:linear-gradient(rgba(11,37,69,.5) 0%,rgba(11,37,69,.68) 55%,rgba(11,37,69,.86) 100%)}
   .pq-kb-content{position:relative;color:#fff;max-width:460px}
   .pq-kb-content .pq-eyebrow{color:#CFE0EE}
@@ -483,6 +504,21 @@ const NARRATIVE_RUNTIME = `
       intro.style.visibility = 'hidden';
     });
   }
+
+  // AssetManager (renderer/AssetManager.js) always resolves to *some*
+  // URL, even if that file doesn't actually exist on disk yet (no
+  // production photography supplied at render time). This is the other
+  // half of that contract: never show a broken-image icon - swap to the
+  // sibling placeholder panel instead, exactly once per image.
+  root.querySelectorAll('img.pq-photo').forEach(function (img) {
+    img.addEventListener('error', function () {
+      img.style.display = 'none';
+      var placeholder = img.nextElementSibling;
+      if (placeholder && placeholder.classList.contains('pq-kb-placeholder')) {
+        placeholder.style.display = 'flex';
+      }
+    }, { once: true });
+  });
 
   var soundBtn = root.querySelector('.pq-sound-btn');
   var audioOn = false;
@@ -633,6 +669,8 @@ function renderTwoPaths(vm) {
 function renderDrama(vm) {
   return `
   <section class="pq-drama">
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getAccidentImage(), 'Accident scenario')}</div>
+    <div class="pq-kb-overlay"></div>
     <div class="pq-eyebrow pq-zoom">Then, an accident happens</div>
     <div class="pq-headline pq-zoom">The hospital needs <span class="pq-figure">RM100,000</span> — now.</div>
   </section>`;
@@ -779,6 +817,7 @@ function renderPlanExplainer(vm) {
     <div class="pq-eyebrow pq-reveal">Your Plan — ${textOr(tierLabel)}</div>
     <div class="pq-headline pq-reveal d1" style="font-size:28px">${headline}</div>
     <div class="pq-lede pq-reveal d2">${body}</div>
+    <div class="pq-inline-photo-wrap pq-reveal d3">${imageWithFallback(AssetManager.getPlanImage(vm.medicalPlanTier), tierLabel || 'Plan', 'pq-inline-photo')}</div>
   </section>`;
 }
 
@@ -827,7 +866,7 @@ function renderContributionBreakdown(vm) {
 function renderKenBurnsAdmission(vm) {
   return `
   <section class="pq-kb-section" data-narrate="${escapeHtml(`The moment you're admitted, your ${vm.annualLimit || 'annual limit'} starts working for you.`)}">
-    <div class="pq-kb-media">${kenBurnsMedia('admission')}</div>
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getHospitalImage(), 'Hospital entrance')}</div>
     <div class="pq-kb-overlay"></div>
     <div class="pq-kb-content">
       <div class="pq-eyebrow pq-zoom">Step 1 — You're admitted</div>
@@ -840,7 +879,7 @@ function renderKenBurnsWard(vm) {
   const dayNote = vm.roomBoardDayNote ? escapeHtml(vm.roomBoardDayNote) : 'each rider year';
   return `
   <section class="pq-kb-section" data-narrate="${escapeHtml(`Your Hospital Room and Board benefit takes over from here, ${dayNote}.`)}">
-    <div class="pq-kb-media">${kenBurnsMedia('ward')}</div>
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getRoomBoardImage(vm.roomBoardAmount), 'Private hospital ward')}</div>
     <div class="pq-kb-overlay"></div>
     <div class="pq-kb-content">
       <div class="pq-eyebrow pq-zoom">Step 2 — You're moved to a ward</div>
@@ -854,7 +893,7 @@ function renderKenBurnsSurgery(vm) {
   const covered = surgery && /as charged/i.test(surgery.value || '') ? 'as charged' : 'per your certificate terms';
   return `
   <section class="pq-kb-section" data-narrate="Surgical fees and in-hospital treatment are covered, cashless at panel hospitals.">
-    <div class="pq-kb-media">${kenBurnsMedia('surgery')}</div>
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getSurgeryImage(), 'Operating theatre')}</div>
     <div class="pq-kb-overlay"></div>
     <div class="pq-kb-content">
       <div class="pq-eyebrow pq-zoom">If surgery is needed</div>
@@ -867,7 +906,7 @@ function renderKenBurnsRoom(vm) {
   if (!vm.roomBoardAmount) return '';
   return `
   <section class="pq-kb-section" data-narrate="${escapeHtml(`Your Hospital Room and Board benefit covers ${vm.roomBoardAmount} a day, no need to touch your own savings.`)}">
-    <div class="pq-kb-media">${kenBurnsMedia('room')}</div>
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getRecoveryImage(), 'Hospital room')}</div>
     <div class="pq-kb-overlay"></div>
     <div class="pq-kb-content">
       <div class="pq-kb-figure">${escapeHtml(vm.roomBoardAmount)}<small>/day</small></div>
@@ -882,7 +921,7 @@ function renderKenBurnsCriticalIllness(vm) {
   const conditionText = vm.boost.conditions.length ? vm.boost.conditions.join(', ') : 'a covered critical illness';
   return `
   <section class="pq-kb-section" data-narrate="${escapeHtml(`Diagnosed with ${conditionText}? Your annual limit gets a permanent boost of ${vm.boost.amount}, from the day of diagnosis onward.`)}">
-    <div class="pq-kb-media">${kenBurnsMedia('criticalIllness')}</div>
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getFinancialImage(), 'Critical illness financial protection')}</div>
     <div class="pq-kb-overlay"></div>
     <div class="pq-kb-content">
       <div class="pq-eyebrow pq-zoom">Step 4 — If it's serious</div>
@@ -925,6 +964,7 @@ function renderGuaranteedProtection(vm) {
   <section style="border-top:1px solid var(--line)">
     <div class="pq-eyebrow pq-reveal">C. Guaranteed Protection</div>
     <div class="pq-headline pq-reveal d1" style="font-size:30px">What is promised, regardless of markets</div>
+    <div class="pq-inline-photo-wrap pq-reveal d1">${imageWithFallback(AssetManager.getGuaranteeImage(), 'Guaranteed protection', 'pq-inline-photo')}</div>
     <div class="pq-guarantee-hero pq-reveal d2">
       <div class="pq-eyebrow">Death / TPD Benefit</div>
       <div class="pq-figure">${vm.guaranteedDeathTPDBenefit != null ? escapeHtml(moneyRM(vm.guaranteedDeathTPDBenefit)) : naSpan()}</div>
@@ -943,6 +983,7 @@ function renderWaitingPeriods(vm) {
   <section style="border-top:1px solid var(--line)">
     <div class="pq-eyebrow pq-reveal">Before Your Card Kicks In</div>
     <div class="pq-headline pq-reveal d1" style="font-size:28px">Waiting periods you should know about</div>
+    <div class="pq-inline-photo-wrap pq-reveal d1">${imageWithFallback(AssetManager.getWaitingPeriodImage(), 'Waiting period', 'pq-inline-photo')}</div>
     <div class="pq-wait-list">
       ${vm.waitingPeriods.map((wp, i) => `
       <div class="pq-wait-card ${i === 0 ? 'pq-first' : ''} pq-reveal d${Math.min(i + 1, 4)}">
@@ -960,6 +1001,7 @@ function renderCashValue(vm) {
   <section style="border-top:1px solid var(--line)">
     <div class="pq-eyebrow pq-reveal">D. Non-Guaranteed Cash Value</div>
     <div class="pq-headline pq-reveal d1" style="font-size:28px">How your Individual Special Account could grow</div>
+    <div class="pq-inline-photo-wrap pq-reveal d1">${imageWithFallback(AssetManager.getCashValueImage(), 'Cash value growth', 'pq-inline-photo')}</div>
     <div class="pq-reveal d2" style="margin-top:32px;position:relative">
       <svg viewBox="0 0 400 260" style="width:100%;height:auto;overflow:visible">
         <line x1="0" y1="240" x2="400" y2="240" stroke="rgba(11,37,69,0.15)" stroke-width="1"></line>
@@ -992,6 +1034,7 @@ function renderFullPicture(vm) {
   <section style="border-top:1px solid var(--line)">
     <div class="pq-eyebrow pq-reveal">E. The Full Picture</div>
     <div class="pq-headline pq-reveal d1">${vm.basicPlanTerm != null ? `${vm.basicPlanTerm} years, at a glance` : 'At a glance'}</div>
+    <div class="pq-inline-photo-wrap pq-reveal d1">${imageWithFallback(AssetManager.getCoverageImage(vm.annualLimit), 'Medical coverage', 'pq-inline-photo')}</div>
     <div class="pq-summary4">
       ${cards.map((c, i) => `
       <div class="pq-summary4-card ${c.accent ? 'pq-accent' : ''} pq-reveal d${Math.min(i + 1, 4)}">
@@ -1105,4 +1148,4 @@ function renderNarrativeQuotationHtml(data, agentReview = {}) {
 `;
 }
 
-module.exports = { renderNarrativeQuotationHtml, buildViewModel };
+module.exports = { renderNarrativeQuotationHtml, buildViewModel, RENDERER_VERSION };

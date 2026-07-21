@@ -109,6 +109,9 @@ console.log('\n=== composeClientDocument: narrative renderer (#pq-doc) is recogn
 
   const continueBtnMatches = out.match(/id="paf-continue-btn"/g) || [];
   check('the renderer\'s own Continue Application button is kept, and no duplicate fallback button is injected', continueBtnMatches.length, 1);
+
+  check('a standalone Print/Save-as-PDF control is embedded directly in the document (Phase 9: a published quotation has no surrounding agent-tool chrome to fall back on)', out.includes('id="pq-print-btn"'), true);
+  check('the print control is wired to window.print(), not left dead', /pq-print-btn['"]\)[\s\S]{0,80}window\.print\(\)/.test(out), true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed.`);

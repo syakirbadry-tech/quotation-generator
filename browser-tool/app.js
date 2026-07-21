@@ -27,8 +27,10 @@ const { validateQuotation } = require('../parser/validate.js');
 const { renderAgentReviewHtml, renderClientQuotationHtml } = require('../renderer/renderQuotation.js');
 const { renderComparisonHtml } = require('../renderer/renderComparison.js');
 const { primaryValue } = require('../renderer/formatters.js');
+const { RENDERER_VERSION } = require('../renderer/renderNarrativeQuotation.js');
 const { buildPrefillData } = require('./application/buildPrefillData.js');
 const { composeClientDocument } = require('./application/composeClientDocument.js');
+const { publishQuotation } = require('./publishQuotation.js');
 
 const MAX_QUOTATIONS = 3;
 // A real PruBSN Product Illustration is a few MB at most (the sample used
@@ -206,6 +208,11 @@ const el = {
   startOverBtn: document.getElementById('start-over-btn'),
 
   outputBanner: document.getElementById('output-banner'),
+  publishStatus: document.getElementById('publish-status'),
+  publishLinkRow: document.getElementById('publish-link-row'),
+  publicLinkInput: document.getElementById('public-link-input'),
+  copyLinkBtn: document.getElementById('copy-link-btn'),
+  openClientViewBtn: document.getElementById('open-client-view-btn'),
   comparisonBlock: document.getElementById('comparison-block'),
   comparisonFrame: document.getElementById('comparison-frame'),
   printComparisonBtn: document.getElementById('print-comparison-btn'),
@@ -559,6 +566,29 @@ el.startOverBtn.addEventListener('click', resetAll);
 
 // --- Generate: client quotation(s) + comparison -----------------------------
 
+/**
+ * Publishes every generated doc (in parallel - independent requests, one
+ * failure shouldn't block the others) and stores each result on its own
+ * doc object. Runs AFTER the output stage is already shown with
+ * publish.status = 'pending' for every doc, so the agent sees the
+ * quotation immediately and a live "publishing…" indicator, rather than
+ * waiting on a blocking spinner before anything appears at all.
+ */
+async function publishAllGeneratedDocs() {
+  await Promise.all(
+    state.generatedDocs.map(async (doc) => {
+      const result = await publishQuotation(doc.data, doc.html, RENDERER_VERSION);
+      doc.publish = result;
+      // Only re-render if this doc is still the one on screen - avoids a
+      // slow, since-abandoned publish call clobbering a newer render
+      // (e.g. the agent already clicked "Start a new quotation").
+      if (state.generatedDocs.includes(doc) && state.stage === 'output') {
+        renderOutputStage();
+      }
+    })
+  );
+}
+
 el.generateBtn.addEventListener('click', () => {
   const agentReview = {
     acknowledged: true,
@@ -573,7 +603,7 @@ el.generateBtn.addEventListener('click', () => {
     const quotationHtml = renderClientQuotationHtml({ data: q.data, warnings: q.warnings, errors: q.errors }, agentReview);
     const html = composeClientDocument(quotationHtml, prefillData);
     const safeName = (q.data.client.fullName || 'quotation').replace(/[^a-z0-9]+/gi, '_');
-    return { fileName: `${safeName}_quotation.html`, html, label: quotationLabel(q, 0) };
+    return { fileName: `${safeName}_quotation.html`, html, label: quotationLabel(q, 0), data: q.data, publish: { status: 'pending' } };
   });
 
   state.comparisonHtml = state.quotations.length > 1
@@ -586,13 +616,65 @@ el.generateBtn.addEventListener('click', () => {
   state.activeOutputIndex = 0;
   renderOutputStage();
   showStage('output');
+  publishAllGeneratedDocs();
+});
+
+function renderPublishBlock(doc) {
+  if (!doc) {
+    el.publishStatus.innerHTML = '';
+    el.publishLinkRow.hidden = true;
+    return;
+  }
+  const publish = doc.publish || { status: 'pending' };
+
+  if (publish.status === 'pending') {
+    el.publishStatus.innerHTML = `<div class="banner banner-info"><span class="spinner" aria-hidden="true"></span> Publishing quotation…</div>`;
+    el.publishLinkRow.hidden = true;
+  } else if (publish.status === 'failed') {
+    const errorText = String(publish.error || 'unknown error').trim().replace(/\.+$/, '');
+    el.publishStatus.innerHTML = `<div class="banner banner-error">Could not publish this quotation: ${escapeHtml(errorText)}. <button type="button" class="btn-outline" id="publish-retry-btn">Retry</button></div>`;
+    el.publishLinkRow.hidden = true;
+    const retryBtn = document.getElementById('publish-retry-btn');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', async () => {
+        doc.publish = { status: 'pending' };
+        renderOutputStage();
+        doc.publish = await publishQuotation(doc.data, doc.html, RENDERER_VERSION);
+        if (state.generatedDocs.includes(doc) && state.stage === 'output') renderOutputStage();
+      });
+    }
+  } else {
+    el.publishStatus.innerHTML = `<div class="banner banner-ok">Quotation generated successfully.</div>`;
+    el.publishLinkRow.hidden = false;
+    el.publicLinkInput.value = publish.url;
+  }
+}
+
+el.copyLinkBtn.addEventListener('click', async () => {
+  const doc = state.generatedDocs[state.activeOutputIndex];
+  if (!doc || !doc.publish || doc.publish.status !== 'success') return;
+  try {
+    if (!navigator.clipboard) throw new Error('Clipboard API unavailable');
+    await navigator.clipboard.writeText(doc.publish.url);
+    el.copyLinkBtn.textContent = '✓ Client link copied';
+  } catch (e) {
+    el.copyLinkBtn.textContent = 'Could not copy - select the link above manually';
+    el.publicLinkInput.select();
+  }
+  setTimeout(() => { el.copyLinkBtn.textContent = 'Copy Client Link'; }, 2500);
+});
+
+el.openClientViewBtn.addEventListener('click', () => {
+  const doc = state.generatedDocs[state.activeOutputIndex];
+  if (!doc || !doc.publish || doc.publish.status !== 'success') return;
+  window.open(doc.publish.url, '_blank');
 });
 
 function renderOutputStage() {
   const multi = state.quotations.length > 1;
   el.outputBanner.innerHTML = multi
     ? `<div class="banner banner-ok">${state.quotations.length} quotations generated. A comparison is shown automatically below.</div>`
-    : `<div class="banner banner-ok">Quotation generated and ready to send.</div>`;
+    : '';
 
   el.comparisonBlock.hidden = !multi;
   if (multi) {
@@ -611,6 +693,7 @@ function renderOutputStage() {
   });
 
   const activeDoc = state.generatedDocs[state.activeOutputIndex];
+  renderPublishBlock(activeDoc);
   el.previewFrame.srcdoc = activeDoc ? activeDoc.html : '';
   // Every switch back to "Quotation" (new doc, tab switch) shows the top of
   // the document - the client form only appears once "Continue Application"

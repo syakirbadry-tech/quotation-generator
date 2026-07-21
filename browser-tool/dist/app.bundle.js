@@ -1531,10 +1531,127 @@
     }
   });
 
+  // browser-tool/assets/images/image-manifest.json
+  var require_image_manifest = __commonJS({
+    "browser-tool/assets/images/image-manifest.json"(exports, module) {
+      module.exports = {
+        hero: {},
+        plans: {},
+        coverage: {},
+        roomBoard: {},
+        hospital: {},
+        accident: {},
+        surgery: {},
+        recovery: {},
+        financial: {},
+        waitingPeriod: {},
+        cashValue: {},
+        guarantee: {},
+        misc: {}
+      };
+    }
+  });
+
+  // renderer/AssetManager.js
+  var require_AssetManager = __commonJS({
+    "renderer/AssetManager.js"(exports, module) {
+      "use strict";
+      var manifest = require_image_manifest();
+      var BASE_PATH = "";
+      var DEFAULT_IMAGE_PATH = "default.jpg";
+      function resolveUrl(relativePath) {
+        return `${BASE_PATH}assets/images/${relativePath}`;
+      }
+      function numericKey(raw) {
+        if (raw == null) return null;
+        const digits = String(raw).replace(/[^\d]/g, "");
+        return digits || null;
+      }
+      function siteWideDefault(category, key) {
+        console.warn(`AssetManager: no image configured for category "${category}"${key ? `, key "${key}"` : ""} - falling back to the site-wide default.`);
+        const miscDefault = manifest.misc && manifest.misc.default;
+        return miscDefault ? resolveUrl(miscDefault) : resolveUrl(DEFAULT_IMAGE_PATH);
+      }
+      function lookupSingle(category) {
+        const entry = manifest[category] && manifest[category].default;
+        if (entry) return resolveUrl(entry);
+        return siteWideDefault(category, null);
+      }
+      function lookupKeyed(category, rawKey) {
+        const key = numericKey(rawKey);
+        const categoryMap = manifest[category] || {};
+        if (key && categoryMap[key]) return resolveUrl(categoryMap[key]);
+        if (categoryMap.default) {
+          if (key) console.warn(`AssetManager: no image configured for category "${category}", key "${key}" - using that category's default image instead.`);
+          return resolveUrl(categoryMap.default);
+        }
+        return siteWideDefault(category, key);
+      }
+      function getHeroImage() {
+        return lookupSingle("hero");
+      }
+      function getPlanImage(planTier) {
+        return lookupKeyed("plans", planTier);
+      }
+      function getCoverageImage(annualLimit) {
+        return lookupKeyed("coverage", annualLimit);
+      }
+      function getRoomBoardImage(roomBoardRate) {
+        return lookupKeyed("roomBoard", roomBoardRate);
+      }
+      function getHospitalImage() {
+        return lookupSingle("hospital");
+      }
+      function getAccidentImage() {
+        return lookupSingle("accident");
+      }
+      function getSurgeryImage() {
+        return lookupSingle("surgery");
+      }
+      function getRecoveryImage() {
+        return lookupSingle("recovery");
+      }
+      function getFinancialImage() {
+        return lookupSingle("financial");
+      }
+      function getWaitingPeriodImage() {
+        return lookupSingle("waitingPeriod");
+      }
+      function getCashValueImage() {
+        return lookupSingle("cashValue");
+      }
+      function getGuaranteeImage() {
+        return lookupSingle("guarantee");
+      }
+      function getMiscImage(key) {
+        return lookupKeyed("misc", key);
+      }
+      module.exports = {
+        getHeroImage,
+        getPlanImage,
+        getCoverageImage,
+        getRoomBoardImage,
+        getHospitalImage,
+        getAccidentImage,
+        getSurgeryImage,
+        getRecoveryImage,
+        getFinancialImage,
+        getWaitingPeriodImage,
+        getCashValueImage,
+        getGuaranteeImage,
+        getMiscImage,
+        // Exposed for tests only - not part of the intended public surface.
+        _numericKey: numericKey,
+        _resolveUrl: resolveUrl
+      };
+    }
+  });
+
   // renderer/renderNarrativeQuotation.js
   var require_renderNarrativeQuotation = __commonJS({
     "renderer/renderNarrativeQuotation.js"(exports, module) {
       "use strict";
+      var RENDERER_VERSION2 = "narrative-v1";
       var { getAgentConfig } = require_agents();
       var {
         escapeHtml: escapeHtml2,
@@ -1542,6 +1659,7 @@
         formatMoneyFixed2,
         resolveMonthlyTotalPayable
       } = require_formatters();
+      var AssetManager = require_AssetManager();
       function naSpan(text) {
         return `<span class="pq-na">${escapeHtml2(text || "Refer to certificate")}</span>`;
       }
@@ -1587,20 +1705,9 @@
           pidmProtected: true
         }
       };
-      var KEN_BURNS_SLOTS = {
-        admission: { alt: "Hospital entrance", assetUrl: null },
-        ward: { alt: "Private hospital ward", assetUrl: null },
-        surgery: { alt: "Operating theatre", assetUrl: null },
-        room: { alt: "Hospital room", assetUrl: null },
-        criticalIllness: { alt: "Cancer treatment centre", assetUrl: null }
-      };
-      function kenBurnsMedia(slotKey) {
-        const slot = KEN_BURNS_SLOTS[slotKey];
-        if (slot && slot.assetUrl) {
-          return `<img class="reveal kenburns" src="${escapeHtml2(slot.assetUrl)}" alt="${escapeHtml2(slot.alt)}">`;
-        }
-        return `<!-- photo slot: ${slotKey} - set KEN_BURNS_SLOTS.${slotKey}.assetUrl to swap in a real photo -->
-      <div class="pq-kb-placeholder" role="img" aria-label="${escapeHtml2(slot.alt)}">
+      function imageWithFallback(url, altText, layoutClass = "pq-kenburns") {
+        return `<img class="pq-reveal pq-photo ${layoutClass}" src="${escapeHtml2(url)}" alt="${escapeHtml2(altText)}">
+      <div class="pq-kb-placeholder ${layoutClass === "pq-inline-photo" ? "pq-inline-photo" : ""}" style="display:none" role="img" aria-label="${escapeHtml2(altText)}">
         <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="#9FB4D1" stroke-width="1.3"><rect x="3" y="8" width="18" height="13" rx="1.2"></rect><path d="M3 8l9-5 9 5"></path><path d="M12 11v6M9 14h6"></path></svg>
       </div>`;
       }
@@ -1721,9 +1828,9 @@
   .pq-path-card .pq-path-desc{font-size:13px;color:var(--meta);margin-top:12px}
   .pq-path-card.pq-dark .pq-path-desc{color:#C7D3E3}
 
-  .pq-drama{min-height:56vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:linear-gradient(160deg,#0B2545 0%,#16345E 100%);color:#fff}
-  .pq-drama .pq-headline{color:#fff;font-size:32px;max-width:440px}
-  .pq-drama .pq-eyebrow{color:#CFE0EE}
+  .pq-drama{position:relative;min-height:56vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:linear-gradient(160deg,#0B2545 0%,#16345E 100%);color:#fff;overflow:hidden}
+  .pq-drama .pq-headline{position:relative;color:#fff;font-size:32px;max-width:440px}
+  .pq-drama .pq-eyebrow{position:relative;color:#CFE0EE}
   .pq-drama .pq-figure{color:#F2A65A}
 
   .pq-consequence-steps{display:flex;flex-direction:column;gap:14px;margin-top:26px}
@@ -1776,6 +1883,15 @@
   .pq-kb-media{position:absolute;inset:0;overflow:hidden}
   .pq-kb-media img.pq-kenburns{width:100%;height:100%;object-fit:cover}
   .pq-kb-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#16345E 0%,#0B2545 100%)}
+
+  /* Compact, non-full-bleed image used inline within an otherwise
+     card-based section (plan/guarantee/waiting-period/cash-value) -
+     same graceful onerror-fallback mechanism as the full-bleed Ken Burns
+     photos, just a smaller rounded rectangle rather than a whole section
+     background. */
+  .pq-inline-photo-wrap{margin-top:20px;border-radius:12px;overflow:hidden;height:160px;box-shadow:0 6px 20px rgba(11,37,69,.08)}
+  img.pq-inline-photo{width:100%;height:160px;object-fit:cover;border-radius:12px;display:block}
+  .pq-kb-placeholder.pq-inline-photo{height:160px;border-radius:12px}
   .pq-kb-overlay{position:absolute;inset:0;background:linear-gradient(rgba(11,37,69,.5) 0%,rgba(11,37,69,.68) 55%,rgba(11,37,69,.86) 100%)}
   .pq-kb-content{position:relative;color:#fff;max-width:460px}
   .pq-kb-content .pq-eyebrow{color:#CFE0EE}
@@ -1867,6 +1983,21 @@
       intro.style.visibility = 'hidden';
     });
   }
+
+  // AssetManager (renderer/AssetManager.js) always resolves to *some*
+  // URL, even if that file doesn't actually exist on disk yet (no
+  // production photography supplied at render time). This is the other
+  // half of that contract: never show a broken-image icon - swap to the
+  // sibling placeholder panel instead, exactly once per image.
+  root.querySelectorAll('img.pq-photo').forEach(function (img) {
+    img.addEventListener('error', function () {
+      img.style.display = 'none';
+      var placeholder = img.nextElementSibling;
+      if (placeholder && placeholder.classList.contains('pq-kb-placeholder')) {
+        placeholder.style.display = 'flex';
+      }
+    }, { once: true });
+  });
 
   var soundBtn = root.querySelector('.pq-sound-btn');
   var audioOn = false;
@@ -2008,6 +2139,8 @@
       function renderDrama(vm) {
         return `
   <section class="pq-drama">
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getAccidentImage(), "Accident scenario")}</div>
+    <div class="pq-kb-overlay"></div>
     <div class="pq-eyebrow pq-zoom">Then, an accident happens</div>
     <div class="pq-headline pq-zoom">The hospital needs <span class="pq-figure">RM100,000</span> \u2014 now.</div>
   </section>`;
@@ -2146,6 +2279,7 @@
     <div class="pq-eyebrow pq-reveal">Your Plan \u2014 ${textOr(tierLabel)}</div>
     <div class="pq-headline pq-reveal d1" style="font-size:28px">${headline}</div>
     <div class="pq-lede pq-reveal d2">${body}</div>
+    <div class="pq-inline-photo-wrap pq-reveal d3">${imageWithFallback(AssetManager.getPlanImage(vm.medicalPlanTier), tierLabel || "Plan", "pq-inline-photo")}</div>
   </section>`;
       }
       function donutSegStyle(fraction, offsetSoFar, circ) {
@@ -2191,7 +2325,7 @@
       function renderKenBurnsAdmission(vm) {
         return `
   <section class="pq-kb-section" data-narrate="${escapeHtml2(`The moment you're admitted, your ${vm.annualLimit || "annual limit"} starts working for you.`)}">
-    <div class="pq-kb-media">${kenBurnsMedia("admission")}</div>
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getHospitalImage(), "Hospital entrance")}</div>
     <div class="pq-kb-overlay"></div>
     <div class="pq-kb-content">
       <div class="pq-eyebrow pq-zoom">Step 1 \u2014 You're admitted</div>
@@ -2203,7 +2337,7 @@
         const dayNote = vm.roomBoardDayNote ? escapeHtml2(vm.roomBoardDayNote) : "each rider year";
         return `
   <section class="pq-kb-section" data-narrate="${escapeHtml2(`Your Hospital Room and Board benefit takes over from here, ${dayNote}.`)}">
-    <div class="pq-kb-media">${kenBurnsMedia("ward")}</div>
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getRoomBoardImage(vm.roomBoardAmount), "Private hospital ward")}</div>
     <div class="pq-kb-overlay"></div>
     <div class="pq-kb-content">
       <div class="pq-eyebrow pq-zoom">Step 2 \u2014 You're moved to a ward</div>
@@ -2216,7 +2350,7 @@
         const covered = surgery && /as charged/i.test(surgery.value || "") ? "as charged" : "per your certificate terms";
         return `
   <section class="pq-kb-section" data-narrate="Surgical fees and in-hospital treatment are covered, cashless at panel hospitals.">
-    <div class="pq-kb-media">${kenBurnsMedia("surgery")}</div>
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getSurgeryImage(), "Operating theatre")}</div>
     <div class="pq-kb-overlay"></div>
     <div class="pq-kb-content">
       <div class="pq-eyebrow pq-zoom">If surgery is needed</div>
@@ -2228,7 +2362,7 @@
         if (!vm.roomBoardAmount) return "";
         return `
   <section class="pq-kb-section" data-narrate="${escapeHtml2(`Your Hospital Room and Board benefit covers ${vm.roomBoardAmount} a day, no need to touch your own savings.`)}">
-    <div class="pq-kb-media">${kenBurnsMedia("room")}</div>
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getRecoveryImage(), "Hospital room")}</div>
     <div class="pq-kb-overlay"></div>
     <div class="pq-kb-content">
       <div class="pq-kb-figure">${escapeHtml2(vm.roomBoardAmount)}<small>/day</small></div>
@@ -2242,7 +2376,7 @@
         const conditionText = vm.boost.conditions.length ? vm.boost.conditions.join(", ") : "a covered critical illness";
         return `
   <section class="pq-kb-section" data-narrate="${escapeHtml2(`Diagnosed with ${conditionText}? Your annual limit gets a permanent boost of ${vm.boost.amount}, from the day of diagnosis onward.`)}">
-    <div class="pq-kb-media">${kenBurnsMedia("criticalIllness")}</div>
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getFinancialImage(), "Critical illness financial protection")}</div>
     <div class="pq-kb-overlay"></div>
     <div class="pq-kb-content">
       <div class="pq-eyebrow pq-zoom">Step 4 \u2014 If it's serious</div>
@@ -2283,6 +2417,7 @@
   <section style="border-top:1px solid var(--line)">
     <div class="pq-eyebrow pq-reveal">C. Guaranteed Protection</div>
     <div class="pq-headline pq-reveal d1" style="font-size:30px">What is promised, regardless of markets</div>
+    <div class="pq-inline-photo-wrap pq-reveal d1">${imageWithFallback(AssetManager.getGuaranteeImage(), "Guaranteed protection", "pq-inline-photo")}</div>
     <div class="pq-guarantee-hero pq-reveal d2">
       <div class="pq-eyebrow">Death / TPD Benefit</div>
       <div class="pq-figure">${vm.guaranteedDeathTPDBenefit != null ? escapeHtml2(moneyRM(vm.guaranteedDeathTPDBenefit)) : naSpan()}</div>
@@ -2300,6 +2435,7 @@
   <section style="border-top:1px solid var(--line)">
     <div class="pq-eyebrow pq-reveal">Before Your Card Kicks In</div>
     <div class="pq-headline pq-reveal d1" style="font-size:28px">Waiting periods you should know about</div>
+    <div class="pq-inline-photo-wrap pq-reveal d1">${imageWithFallback(AssetManager.getWaitingPeriodImage(), "Waiting period", "pq-inline-photo")}</div>
     <div class="pq-wait-list">
       ${vm.waitingPeriods.map((wp, i) => `
       <div class="pq-wait-card ${i === 0 ? "pq-first" : ""} pq-reveal d${Math.min(i + 1, 4)}">
@@ -2316,6 +2452,7 @@
   <section style="border-top:1px solid var(--line)">
     <div class="pq-eyebrow pq-reveal">D. Non-Guaranteed Cash Value</div>
     <div class="pq-headline pq-reveal d1" style="font-size:28px">How your Individual Special Account could grow</div>
+    <div class="pq-inline-photo-wrap pq-reveal d1">${imageWithFallback(AssetManager.getCashValueImage(), "Cash value growth", "pq-inline-photo")}</div>
     <div class="pq-reveal d2" style="margin-top:32px;position:relative">
       <svg viewBox="0 0 400 260" style="width:100%;height:auto;overflow:visible">
         <line x1="0" y1="240" x2="400" y2="240" stroke="rgba(11,37,69,0.15)" stroke-width="1"></line>
@@ -2347,6 +2484,7 @@
   <section style="border-top:1px solid var(--line)">
     <div class="pq-eyebrow pq-reveal">E. The Full Picture</div>
     <div class="pq-headline pq-reveal d1">${vm.basicPlanTerm != null ? `${vm.basicPlanTerm} years, at a glance` : "At a glance"}</div>
+    <div class="pq-inline-photo-wrap pq-reveal d1">${imageWithFallback(AssetManager.getCoverageImage(vm.annualLimit), "Medical coverage", "pq-inline-photo")}</div>
     <div class="pq-summary4">
       ${cards.map((c, i) => `
       <div class="pq-summary4-card ${c.accent ? "pq-accent" : ""} pq-reveal d${Math.min(i + 1, 4)}">
@@ -2447,7 +2585,7 @@
 <script>${NARRATIVE_RUNTIME}<\/script>
 `;
       }
-      module.exports = { renderNarrativeQuotationHtml, buildViewModel };
+      module.exports = { renderNarrativeQuotationHtml, buildViewModel, RENDERER_VERSION: RENDERER_VERSION2 };
     }
   });
 
@@ -3256,8 +3394,23 @@ ${bodyHtml}
    and an unstyled/greyed-out button there just looks broken. Found via
    an actual PDF export: it showed up on its own near-blank final page. */
 @media print {
-  .paf-cta, #paf-app-root { display: none !important; }
+  .paf-cta, #paf-app-root, .pq-print-fab { display: none !important; }
 }
+
+/* Phase 9: a published quotation (served from GET /q/:id or /app/:id) is
+   the ONLY thing on the page - there is no surrounding agent-tool chrome
+   with its own Print/Save-as-PDF button (see browser-tool/index.html's
+   #print-btn) to fall back on, so the document needs its own. Same
+   window.print() mechanism the agent tool's own button already uses
+   elsewhere - this project has never had a real PDF-generation library,
+   "print to PDF" via the browser's own dialog is the one PDF story
+   throughout. Deliberately understated (bottom-right, small) so it reads
+   as a utility control, not a second competing call-to-action next to
+   "Continue Application". */
+.pq-print-fab{position:fixed;bottom:16px;right:16px;z-index:40;background:rgba(11,37,69,.85);color:#fff;
+  border:none;border-radius:100px;padding:10px 16px;font-family:var(--sans,-apple-system,sans-serif);
+  font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 6px 16px rgba(11,37,69,.3)}
+.pq-print-fab:hover{filter:brightness(1.1)}
 `;
       function isRealQuotation(html) {
         return typeof html === "string" && (html.includes('class="sheet"') || html.includes('id="pq-doc"'));
@@ -3273,6 +3426,7 @@ ${bodyHtml}
         return `${quotationHtml}
 <style>${APPLICATION_STYLE}</style>
 ${continueButtonHtml}
+<button type="button" id="pq-print-btn" class="pq-print-fab">Print / Save as PDF</button>
 <div id="paf-app-root" class="paf-app-root" hidden></div>
 <script type="application/json" id="paf-prefill-data">${prefillJson}<\/script>
 <script>${runtimeSource}<\/script>
@@ -3285,11 +3439,59 @@ ${continueButtonHtml}
   if (root && typeof window.__prubsnInitApplicationFlow === 'function') {
     window.__prubsnInitApplicationFlow(root, prefill);
   }
+  var printBtn = document.getElementById('pq-print-btn');
+  if (printBtn) printBtn.addEventListener('click', function () { window.print(); });
 })();
 <\/script>
 `;
       }
       module.exports = { composeClientDocument: composeClientDocument2 };
+    }
+  });
+
+  // browser-tool/publishQuotation.js
+  var require_publishQuotation = __commonJS({
+    "browser-tool/publishQuotation.js"(exports, module) {
+      "use strict";
+      var PUBLISH_ENDPOINT = "https://prubsn-submission-service.YOUR_SUBDOMAIN.workers.dev/publish";
+      var { formatMoney, formatMoneyFixed2, resolveMonthlyTotalPayable } = require_formatters();
+      function buildPublishPayload(data, generatedHtml, rendererVersion) {
+        const contributions = data && data.contributions || {};
+        const monthlyValue = resolveMonthlyTotalPayable(contributions);
+        const annualValue = contributions.totalAnnualContribution;
+        return {
+          clientName: data && data.client && data.client.fullName || "Client",
+          plan: data && data.metadata && data.metadata.productName || null,
+          monthlyTotalPayable: monthlyValue != null ? `RM ${formatMoneyFixed2(monthlyValue)}` : null,
+          annualContribution: annualValue != null ? `RM ${formatMoney(annualValue)}` : null,
+          rendererVersion,
+          quotationJson: data,
+          generatedHtml
+        };
+      }
+      async function publishQuotation2(data, generatedHtml, rendererVersion) {
+        const payload = buildPublishPayload(data, generatedHtml, rendererVersion);
+        try {
+          const res = await fetch(PUBLISH_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          let body;
+          try {
+            body = await res.json();
+          } catch (e) {
+            return { status: "failed", error: "The publishing service returned an unexpected response." };
+          }
+          if (!res.ok || !body.success) {
+            return { status: "failed", error: body && body.error || "Could not publish this quotation." };
+          }
+          return { status: "success", url: body.url, id: body.id };
+        } catch (err) {
+          return { status: "failed", error: "Could not reach the publishing service. Check your connection and try again." };
+        }
+      }
+      module.exports = { publishQuotation: publishQuotation2, buildPublishPayload, PUBLISH_ENDPOINT };
     }
   });
 
@@ -3300,8 +3502,10 @@ ${continueButtonHtml}
   var { renderAgentReviewHtml, renderClientQuotationHtml } = require_renderQuotation();
   var { renderComparisonHtml } = require_renderComparison();
   var { primaryValue } = require_formatters();
+  var { RENDERER_VERSION } = require_renderNarrativeQuotation();
   var { buildPrefillData } = require_buildPrefillData();
   var { composeClientDocument } = require_composeClientDocument();
+  var { publishQuotation } = require_publishQuotation();
   var MAX_QUOTATIONS = 3;
   var MAX_PDF_BYTES = 50 * 1024 * 1024;
   var KNOWN_MERGED_BENEFIT_VALUES = {
@@ -3418,6 +3622,11 @@ ${continueButtonHtml}
     backToUploadBtn: document.getElementById("back-to-upload-btn"),
     startOverBtn: document.getElementById("start-over-btn"),
     outputBanner: document.getElementById("output-banner"),
+    publishStatus: document.getElementById("publish-status"),
+    publishLinkRow: document.getElementById("publish-link-row"),
+    publicLinkInput: document.getElementById("public-link-input"),
+    copyLinkBtn: document.getElementById("copy-link-btn"),
+    openClientViewBtn: document.getElementById("open-client-view-btn"),
     comparisonBlock: document.getElementById("comparison-block"),
     comparisonFrame: document.getElementById("comparison-frame"),
     printComparisonBtn: document.getElementById("print-comparison-btn"),
@@ -3718,6 +3927,17 @@ ${continueButtonHtml}
   el.ackCheckbox.addEventListener("change", updateGateState);
   el.backToUploadBtn.addEventListener("click", () => showStage("upload"));
   el.startOverBtn.addEventListener("click", resetAll);
+  async function publishAllGeneratedDocs() {
+    await Promise.all(
+      state.generatedDocs.map(async (doc) => {
+        const result = await publishQuotation(doc.data, doc.html, RENDERER_VERSION);
+        doc.publish = result;
+        if (state.generatedDocs.includes(doc) && state.stage === "output") {
+          renderOutputStage();
+        }
+      })
+    );
+  }
   el.generateBtn.addEventListener("click", () => {
     const agentReview = {
       acknowledged: true,
@@ -3730,7 +3950,7 @@ ${continueButtonHtml}
       const quotationHtml = renderClientQuotationHtml({ data: q.data, warnings: q.warnings, errors: q.errors }, agentReview);
       const html = composeClientDocument(quotationHtml, prefillData);
       const safeName = (q.data.client.fullName || "quotation").replace(/[^a-z0-9]+/gi, "_");
-      return { fileName: `${safeName}_quotation.html`, html, label: quotationLabel(q, 0) };
+      return { fileName: `${safeName}_quotation.html`, html, label: quotationLabel(q, 0), data: q.data, publish: { status: "pending" } };
     });
     state.comparisonHtml = state.quotations.length > 1 ? renderComparisonHtml(
       state.quotations.map((q) => ({ data: q.data, warnings: q.warnings, errors: [] })),
@@ -3739,10 +3959,60 @@ ${continueButtonHtml}
     state.activeOutputIndex = 0;
     renderOutputStage();
     showStage("output");
+    publishAllGeneratedDocs();
+  });
+  function renderPublishBlock(doc) {
+    if (!doc) {
+      el.publishStatus.innerHTML = "";
+      el.publishLinkRow.hidden = true;
+      return;
+    }
+    const publish = doc.publish || { status: "pending" };
+    if (publish.status === "pending") {
+      el.publishStatus.innerHTML = `<div class="banner banner-info"><span class="spinner" aria-hidden="true"></span> Publishing quotation\u2026</div>`;
+      el.publishLinkRow.hidden = true;
+    } else if (publish.status === "failed") {
+      const errorText = String(publish.error || "unknown error").trim().replace(/\.+$/, "");
+      el.publishStatus.innerHTML = `<div class="banner banner-error">Could not publish this quotation: ${escapeHtml(errorText)}. <button type="button" class="btn-outline" id="publish-retry-btn">Retry</button></div>`;
+      el.publishLinkRow.hidden = true;
+      const retryBtn = document.getElementById("publish-retry-btn");
+      if (retryBtn) {
+        retryBtn.addEventListener("click", async () => {
+          doc.publish = { status: "pending" };
+          renderOutputStage();
+          doc.publish = await publishQuotation(doc.data, doc.html, RENDERER_VERSION);
+          if (state.generatedDocs.includes(doc) && state.stage === "output") renderOutputStage();
+        });
+      }
+    } else {
+      el.publishStatus.innerHTML = `<div class="banner banner-ok">Quotation generated successfully.</div>`;
+      el.publishLinkRow.hidden = false;
+      el.publicLinkInput.value = publish.url;
+    }
+  }
+  el.copyLinkBtn.addEventListener("click", async () => {
+    const doc = state.generatedDocs[state.activeOutputIndex];
+    if (!doc || !doc.publish || doc.publish.status !== "success") return;
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard API unavailable");
+      await navigator.clipboard.writeText(doc.publish.url);
+      el.copyLinkBtn.textContent = "\u2713 Client link copied";
+    } catch (e) {
+      el.copyLinkBtn.textContent = "Could not copy - select the link above manually";
+      el.publicLinkInput.select();
+    }
+    setTimeout(() => {
+      el.copyLinkBtn.textContent = "Copy Client Link";
+    }, 2500);
+  });
+  el.openClientViewBtn.addEventListener("click", () => {
+    const doc = state.generatedDocs[state.activeOutputIndex];
+    if (!doc || !doc.publish || doc.publish.status !== "success") return;
+    window.open(doc.publish.url, "_blank");
   });
   function renderOutputStage() {
     const multi = state.quotations.length > 1;
-    el.outputBanner.innerHTML = multi ? `<div class="banner banner-ok">${state.quotations.length} quotations generated. A comparison is shown automatically below.</div>` : `<div class="banner banner-ok">Quotation generated and ready to send.</div>`;
+    el.outputBanner.innerHTML = multi ? `<div class="banner banner-ok">${state.quotations.length} quotations generated. A comparison is shown automatically below.</div>` : "";
     el.comparisonBlock.hidden = !multi;
     if (multi) {
       el.comparisonFrame.srcdoc = state.comparisonHtml;
@@ -3758,6 +4028,7 @@ ${continueButtonHtml}
       });
     });
     const activeDoc = state.generatedDocs[state.activeOutputIndex];
+    renderPublishBlock(activeDoc);
     el.previewFrame.srcdoc = activeDoc ? activeDoc.html : "";
     el.previewViewQuotationBtn.classList.add("active");
     el.previewViewFormBtn.classList.remove("active");
