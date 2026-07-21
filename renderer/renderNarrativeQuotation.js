@@ -90,6 +90,17 @@ function moneyRM(n) {
   return formatted == null ? null : `RM ${formatted}`;
 }
 
+/** Matches the no-space "RM200" style already used throughout this file (mirrors the source PDF's own printed format) - moneyRM()'s "RM 200" (with a space) is a different, already-established convention used only for narrative prose mentions. */
+function moneyRMNoSpace(n) {
+  const formatted = formatMoney(n);
+  return formatted == null ? null : `RM${formatted}`;
+}
+
+/** "(maximum N days per year)" - the parenthetical note style already used throughout this file for room & board day limits. */
+function maxDaysNote(days) {
+  return days != null ? `(maximum ${days} days per year)` : null;
+}
+
 /** First given name only, for the narrative's direct-address lines - falls back to the full name if it can't be split. */
 function firstName(fullName) {
   if (!fullName) return null;
@@ -196,17 +207,42 @@ function imageWithFallback(url, altText, layoutClass = 'pq-kenburns') {
 // ---------------------------------------------------------------------------
 
 function buildViewModel(data, agentReview) {
-  const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, benefits = {}, projection = {} } = data || {};
+  const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, medical = {}, projection = {} } = data || {};
   const agentConfig = getAgentConfig(agent.agentCode) || {};
-  const benefitItems = benefits.benefitItems || [];
+  // Every medical fact (rider name, tier, co-payment, coverage term, room &
+  // board, benefit items, waiting periods, coverage model) is read from the
+  // product-agnostic data.medical, not data.plan/data.benefits directly -
+  // this renderer must not need to know which product generated the data
+  // (see the Medical Card Engine plan). For AnugerahMax, data.medical is an
+  // additive mirror of data.plan/data.benefits (identical values), so this
+  // is a no-op switch for that product; for Asas360, data.plan/data.benefits
+  // simply don't exist in the same shape, so this is what makes the medical
+  // sections populate at all.
+  const benefitItems = medical.benefitItems || [];
 
-  const monthlyValue = resolveMonthlyTotalPayable(contributions);
+  // resolveMonthlyTotalPayable() only reads AnugerahMax's own
+  // `contributions` shape; Asas360's directly-printed "Monthly Total
+  // Amount Payable" / "Total Annual Contribution" live at the top level of
+  // `data` instead (see extractors/asas360.js) - falling back to those,
+  // real printed figures, never derived/estimated for either product.
+  const monthlyValue =
+    resolveMonthlyTotalPayable(contributions) ??
+    (data && data.monthlyTotalAmountPayable != null
+      ? data.monthlyTotalAmountPayable
+      : data && data.totalAnnualContribution != null
+      ? Math.round((data.totalAnnualContribution / 12) * 100) / 100
+      : null);
   const monthlyFormatted = monthlyValue != null ? `RM ${formatMoneyFixed2(monthlyValue)}` : null;
   const monthlyCompact = monthlyValue != null ? moneyRM(monthlyValue) : null; // for narrative prose mentions only - never the formal labelled figure
 
-  const roomBoardItem = findBenefit(benefitItems, 'Hospital Daily Room and Board');
-  const roomBoardAmount = roomBoardItem ? extractRmAmount(roomBoardItem.value) : null;
-  const roomBoardDayNote = roomBoardItem ? extractDayNote(roomBoardItem.value) : null;
+  // Sourced from medical.roomAndBoard's already-normalized {amount,
+  // maxDaysPerYear} rather than re-deriving from a benefit item by its
+  // exact label text - Asas360's real label ("Hospital Daily Room & Board")
+  // differs from AnugerahMax's ("Hospital Daily Room and Board"), and the
+  // renderer must not hardcode either product's specific wording.
+  const roomAndBoard = medical.roomAndBoard || {};
+  const roomBoardAmount = moneyRMNoSpace(roomAndBoard.amount);
+  const roomBoardDayNote = maxDaysNote(roomAndBoard.maxDaysPerYear);
 
   const boost = criticalIllnessBoost(benefitItems);
 
@@ -219,6 +255,19 @@ function buildViewModel(data, agentReview) {
 
   const currentRow = (projection.projectionRows || []).find((r) => r.age === client.ageNextBirthday) || null;
 
+  // Certificate term in years - AnugerahMax's own extracted plan.basicPlanTerm
+  // is used directly (byte-identical, zero risk); Asas360 has no equivalent
+  // extracted field in Version 1's medical-only scope, so it's derived from
+  // the same two product-agnostic facts every certificate has (coverageToAge,
+  // client's current age) - verified against the real Asas360 sample's own
+  // printed "Certificate Term: 59 years" line (60 - 1 = 59).
+  const coverageTermYears =
+    plan.basicPlanTerm != null
+      ? plan.basicPlanTerm
+      : medical.coverageToAge != null && client.ageNextBirthday != null
+      ? medical.coverageToAge - client.ageNextBirthday
+      : null;
+
   return {
     clientName: client.fullName || null,
     clientFirstName: firstName(client.fullName),
@@ -230,11 +279,12 @@ function buildViewModel(data, agentReview) {
     paymentMode: plan.paymentMode,
 
     productName: metadata.productName,
-    medicalRiderName: plan.medicalRiderName,
-    medicalPlanTier: plan.medicalPlanTier,
-    coPaymentOption: plan.coPaymentOption,
-    basicPlanTerm: plan.basicPlanTerm,
-    coverageToAge: plan.coverageToAge,
+    medicalRiderName: medical.riderName,
+    medicalPlanTier: medical.planTier,
+    planName: medical.planName,
+    coPaymentOption: medical.coPayment,
+    basicPlanTerm: coverageTermYears,
+    coverageToAge: medical.coverageToAge,
     coverageStartAge: client.ageNextBirthday != null ? client.ageNextBirthday + 1 : null,
 
     agentName: agentConfig.name || agent.agentNameOnDocument || null,
@@ -244,7 +294,7 @@ function buildViewModel(data, agentReview) {
 
     monthlyFormatted,
     monthlyCompact,
-    totalAnnualContribution: contributions.totalAnnualContribution,
+    totalAnnualContribution: contributions.totalAnnualContribution != null ? contributions.totalAnnualContribution : (data && data.totalAnnualContribution),
     totalContributionOverTerm: contributions.totalContributionOverTerm,
     guaranteedDeathTPDBenefit: contributions.guaranteedDeathTPDBenefit,
     isaContribution: contributions.isaContribution,
@@ -253,10 +303,18 @@ function buildViewModel(data, agentReview) {
     cashValueX: contributions.nonGuaranteedCashValueScenarioX,
     cashValueY: contributions.nonGuaranteedCashValueScenarioY,
 
-    annualLimit: benefits.annualLimit,
-    lifetimeLimit: benefits.lifetimeLimit,
+    coverageModel: medical.coverageModel,
+    coverageExplanation: medical.coverageExplanation,
+    annualLimit: medical.annualLimit,
+    lifetimeLimit: medical.lifetimeLimit,
+    lifetimeFundAmount: medical.lifetimeFundAmount,
+    costSharingAfterExhaustion: medical.costSharingAfterExhaustion,
+    // A single, coverage-model-agnostic headline figure for sections that
+    // just need "the number that describes how much cover you have" -
+    // never both at once, since exactly one is non-null per coverage model.
+    coverageHeadline: medical.annualLimit || medical.lifetimeLimit || null,
     benefitItems,
-    waitingPeriods: (benefits.waitingPeriods || []).slice().sort((a, b) => a.days - b.days),
+    waitingPeriods: (medical.waitingPeriods || []).slice().sort((a, b) => a.days - b.days),
 
     roomBoardAmount,
     roomBoardDayNote,
@@ -801,23 +859,32 @@ function renderMedicalCardIntro(vm) {
 }
 
 function renderPlanExplainer(vm) {
-  const tierLabel = [vm.medicalRiderName, vm.medicalPlanTier].filter(Boolean).join(' ');
   let headline;
   let body;
-  if (vm.boost) {
-    const conditionText = vm.boost.conditions.length ? vm.boost.conditions.join(', ') : 'a covered critical illness';
-    headline = `${textOr(tierLabel, 'Your plan')} gives you ${textOr(vm.annualLimit, 'your annual limit')} a year, with a permanent boost of ${escapeHtml(vm.boost.amount)} if it turns serious.`;
-    body = `For ${vm.monthlyFormatted ? escapeHtml(vm.monthlyFormatted) : 'your monthly contribution'}, your ${textOr(vm.annualLimit, 'annual limit')} automatically increases by ${escapeHtml(vm.boost.amount)} the moment you're diagnosed with ${escapeHtml(conditionText)} — permanently, every year after.`;
+  if (vm.coverageModel === 'LIFETIME_MEDICAL_FUND') {
+    const fundAmount = vm.lifetimeFundAmount != null ? moneyRM(vm.lifetimeFundAmount) : null;
+    const sharing = vm.costSharingAfterExhaustion;
+    headline = `${textOr(vm.planName, 'Your plan')} gives you ${textOr(fundAmount, 'a lifetime medical fund')} to draw on, for as long as you need it.`;
+    body = `For ${vm.monthlyFormatted ? escapeHtml(vm.monthlyFormatted) : 'your monthly contribution'}, your medical card covers eligible hospitalisation and treatment against your ${textOr(fundAmount, 'lifetime medical fund')}${sharing ? ` — and even after it's fully used, PruBSN continues paying ${escapeHtml(String(sharing.insurerPct))}% of every further eligible claim, so you're never left facing the full bill alone.` : '.'}`;
   } else {
-    headline = `${textOr(tierLabel, 'Your plan')} gives you ${textOr(vm.annualLimit, 'protection')} a year to lean on.`;
+    // ANNUAL_LIMIT model - text unchanged from before the Medical Card
+    // Engine refactor (only the tier-label source changed, to an
+    // identical value - see buildViewModel's medical.planName comment).
+    headline = `${textOr(vm.planName, 'Your plan')} gives you ${textOr(vm.annualLimit, 'protection')} a year to lean on.`;
     body = `For ${vm.monthlyFormatted ? escapeHtml(vm.monthlyFormatted) : 'your monthly contribution'}, your medical card covers eligible hospitalisation and treatment up to your ${textOr(vm.annualLimit, 'annual limit')}.`;
+    if (vm.boost) {
+      const conditionText = vm.boost.conditions.length ? vm.boost.conditions.join(', ') : 'a covered critical illness';
+      headline = `${textOr(vm.planName, 'Your plan')} gives you ${textOr(vm.annualLimit, 'your annual limit')} a year, with a permanent boost of ${escapeHtml(vm.boost.amount)} if it turns serious.`;
+      body = `For ${vm.monthlyFormatted ? escapeHtml(vm.monthlyFormatted) : 'your monthly contribution'}, your ${textOr(vm.annualLimit, 'annual limit')} automatically increases by ${escapeHtml(vm.boost.amount)} the moment you're diagnosed with ${escapeHtml(conditionText)} — permanently, every year after.`;
+    }
   }
   return `
   <section style="padding-bottom:44px">
-    <div class="pq-eyebrow pq-reveal">Your Plan — ${textOr(tierLabel)}</div>
+    <div class="pq-eyebrow pq-reveal">Your Plan — ${textOr(vm.planName)}</div>
     <div class="pq-headline pq-reveal d1" style="font-size:28px">${headline}</div>
+    ${vm.coverageExplanation ? `<div class="pq-lede pq-reveal d2" style="font-style:italic">${escapeHtml(vm.coverageExplanation)}</div>` : ''}
     <div class="pq-lede pq-reveal d2">${body}</div>
-    <div class="pq-inline-photo-wrap pq-reveal d3">${imageWithFallback(AssetManager.getPlanImage(vm.medicalPlanTier), tierLabel || 'Plan', 'pq-inline-photo')}</div>
+    <div class="pq-inline-photo-wrap pq-reveal d3">${imageWithFallback(AssetManager.getPlanImage(vm.medicalPlanTier), vm.planName || 'Plan', 'pq-inline-photo')}</div>
   </section>`;
 }
 
@@ -826,6 +893,12 @@ function donutSegStyle(fraction, offsetSoFar, circ) {
 }
 
 function renderContributionBreakdown(vm) {
+  // This 3-way Protection/Wakalah/ISA contribution split is specific to
+  // AnugerahMax's own account structure - Asas360's real contribution
+  // structure (PUA/IUA investment-linked accounts) is out of Version 1's
+  // medical-only scope (see extractors/asas360.js's header comment), so
+  // there is nothing honest to show here for that product.
+  if (vm.protectionContribution == null && vm.wakalahCertificateCharge == null && vm.isaContribution == null) return '';
   const protection = vm.protectionContribution || 0;
   const wakalah = vm.wakalahCertificateCharge || 0;
   const isa = vm.isaContribution || 0;
@@ -865,12 +938,12 @@ function renderContributionBreakdown(vm) {
 
 function renderKenBurnsAdmission(vm) {
   return `
-  <section class="pq-kb-section" data-narrate="${escapeHtml(`The moment you're admitted, your ${vm.annualLimit || 'annual limit'} starts working for you.`)}">
+  <section class="pq-kb-section" data-narrate="${escapeHtml(`The moment you're admitted, your ${vm.coverageHeadline || 'annual limit'} starts working for you.`)}">
     <div class="pq-kb-media">${imageWithFallback(AssetManager.getHospitalImage(), 'Hospital entrance')}</div>
     <div class="pq-kb-overlay"></div>
     <div class="pq-kb-content">
       <div class="pq-eyebrow pq-zoom">Step 1 — You're admitted</div>
-      <div class="pq-headline pq-zoom">The moment you're admitted, your <span style="color:#4FD1D9">${textOr(vm.annualLimit, 'annual limit')}</span> starts working for you.</div>
+      <div class="pq-headline pq-zoom">The moment you're admitted, your <span style="color:#4FD1D9">${textOr(vm.coverageHeadline, 'annual limit')}</span> starts working for you.</div>
     </div>
   </section>`;
 }
@@ -928,6 +1001,35 @@ function renderKenBurnsCriticalIllness(vm) {
       <div class="pq-headline pq-zoom">Diagnosed with <span style="color:#4FD1D9">${escapeHtml(conditionText)}</span>? Your limit gets a permanent boost.</div>
       <div class="pq-kb-figure">+${escapeHtml(vm.boost.amount)}</div>
       <div class="pq-kb-note">On top of your base ${textOr(vm.annualLimit, 'annual limit')} — permanently, every year, from the day of diagnosis onward.</div>
+    </div>
+  </section>`;
+}
+
+/**
+ * LIFETIME_MEDICAL_FUND's counterpart to renderKenBurnsCriticalIllness
+ * above - Health360-style plans have no critical-illness annual-limit-
+ * doubling mechanic (there's no annual limit to double), but they do have
+ * a real, materially important mechanic of their own: what happens once
+ * the lifetime fund itself runs out. Uses only real, printed figures
+ * (lifetimeFundAmount, the cost-sharing split) - never invented.
+ */
+function renderLifetimeFundSection(vm) {
+  if (vm.coverageModel !== 'LIFETIME_MEDICAL_FUND') return '';
+  const fundAmount = vm.lifetimeFundAmount != null ? moneyRM(vm.lifetimeFundAmount) : null;
+  const sharing = vm.costSharingAfterExhaustion;
+  return `
+  <section class="pq-kb-section" data-narrate="${escapeHtml(`Your ${fundAmount || 'lifetime medical fund'} isn't a yearly limit - it's yours for as long as your certificate is in force.`)}">
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getFinancialImage(), 'Lifetime medical fund')}</div>
+    <div class="pq-kb-overlay"></div>
+    <div class="pq-kb-content">
+      <div class="pq-eyebrow pq-zoom">Step 4 — No yearly reset, no annual limit</div>
+      <div class="pq-headline pq-zoom">Your fund carries over, year after year.</div>
+      <div class="pq-kb-figure">${textOr(fundAmount, 'Lifetime fund')}</div>
+      <div class="pq-kb-note">
+        ${sharing
+          ? `Unlike a plan that resets every policy year, this fund only runs down as you claim. If your eligible claims ever exceed it, PruBSN continues paying ${escapeHtml(String(sharing.insurerPct))}% of every further eligible cost — you're responsible for the remaining ${escapeHtml(String(sharing.clientPct))}%, subject to your certificate's terms.`
+          : `Unlike a plan that resets every policy year, this fund only runs down as you actually claim against it.`}
+      </div>
     </div>
   </section>`;
 }
@@ -1027,14 +1129,14 @@ function renderFullPicture(vm) {
     { k: 'Contribution Paid', v: vm.totalContributionOverTerm != null ? moneyRM(vm.totalContributionOverTerm) : null, s: vm.basicPlanTerm != null ? `${vm.basicPlanTerm} years total` : '' },
     { k: 'Guaranteed Benefit', v: vm.guaranteedDeathTPDBenefit != null ? moneyRM(vm.guaranteedDeathTPDBenefit) : null, s: 'Death / TPD' },
     { k: 'Cash Value (Y)', v: vm.cashValueY != null ? moneyRM(vm.cashValueY) : null, s: 'At maturity', accent: true },
-    { k: 'Medical Coverage', v: vm.annualLimit, s: 'Annual limit' },
+    { k: 'Medical Coverage', v: vm.coverageHeadline, s: vm.coverageModel === 'LIFETIME_MEDICAL_FUND' ? 'Lifetime medical fund' : 'Annual limit' },
   ];
   if (cards.every((c) => c.v == null)) return '';
   return `
   <section style="border-top:1px solid var(--line)">
     <div class="pq-eyebrow pq-reveal">E. The Full Picture</div>
     <div class="pq-headline pq-reveal d1">${vm.basicPlanTerm != null ? `${vm.basicPlanTerm} years, at a glance` : 'At a glance'}</div>
-    <div class="pq-inline-photo-wrap pq-reveal d1">${imageWithFallback(AssetManager.getCoverageImage(vm.annualLimit), 'Medical coverage', 'pq-inline-photo')}</div>
+    <div class="pq-inline-photo-wrap pq-reveal d1">${imageWithFallback(AssetManager.getCoverageImage(vm.coverageHeadline), 'Medical coverage', 'pq-inline-photo')}</div>
     <div class="pq-summary4">
       ${cards.map((c, i) => `
       <div class="pq-summary4-card ${c.accent ? 'pq-accent' : ''} pq-reveal d${Math.min(i + 1, 4)}">
@@ -1125,6 +1227,7 @@ function renderNarrativeQuotationHtml(data, agentReview = {}) {
     renderKenBurnsSurgery(vm),
     renderKenBurnsRoom(vm),
     renderKenBurnsCriticalIllness(vm),
+    renderLifetimeFundSection(vm),
     renderEverythingElse(vm),
     renderGuaranteedProtection(vm),
     renderWaitingPeriods(vm),
