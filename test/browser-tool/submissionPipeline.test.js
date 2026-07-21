@@ -36,8 +36,14 @@ function ok(label, condition) {
   check(label, Boolean(condition), true);
 }
 
+const fakePlans = [
+  { planName: 'PruBSN Fake Plan', monthlyContribution: 'RM 123.45', roomAndBoard: 'RM 200 per day', annualLimit: 'RM 200,000' },
+  { planName: 'PruBSN Fake Plan (Higher Tier)', monthlyContribution: 'RM 189.00', roomAndBoard: 'RM 300 per day', annualLimit: 'No Limit' },
+];
+
 const fakePrefillData = {
-  quotation: { quotationNumber: 'Q-TEST-001', validUntil: '19 August 2026', planName: 'PruBSN Fake Plan', monthlyContribution: 'RM 123.45', riders: ['Fake Rider - Plan 200'] },
+  quotation: { quotationNumber: 'Q-TEST-001', validUntil: '19 August 2026', validUntilIso: '2026-08-19', planName: 'PruBSN Fake Plan', monthlyContribution: 'RM 123.45', riders: ['Fake Rider - Plan 200'] },
+  plans: fakePlans,
   agent: { name: 'Fake Agent', agency: 'Fake Agency', branch: 'Fake Branch', phone: '', email: '' },
   client: { fullName: 'Test Client', dateOfBirthIso: '1990-01-01', gender: 'Male' },
   metadata: { generatedAt: '2026-07-20T01:00:00.000Z' },
@@ -45,19 +51,25 @@ const fakePrefillData = {
 
 const fakeFormState = {
   fullName: 'Test Client', nric: '900101-01-1234', dateOfBirth: '1990-01-01', gender: 'Male',
+  race: 'Malay', religion: 'Islam',
   mobileNumber: '012-3456789', email: 'test@example.com',
   address: '123 Jalan Test', postcode: '05100', city: 'Alor Setar', state: 'Kedah',
   occupation: 'Engineer', employer: 'Acme', annualIncome: '60000',
+  plan: 'PruBSN Fake Plan (Higher Tier)',
   beneficiaryName: 'Jane Doe', beneficiaryRelationship: 'Spouse', beneficiaryPercentage: '100',
 };
 
 console.log('=== SubmissionPayload: shape + backward compatibility ===');
 {
   const payload = buildSubmissionPayload(fakePrefillData, fakeFormState, {}, { submissionId: 'sub-1' });
-  check('version is stamped', payload.version, '1.1');
+  check('version is stamped', payload.version, '1.2');
   check('quotation is passed through unchanged from prefillData', payload.quotation, fakePrefillData.quotation);
   ok('applicant merges personal + address + employment fields', payload.applicant.fullName === 'Test Client' && payload.applicant.address === '123 Jalan Test' && payload.applicant.occupation === 'Engineer');
+  check('applicant carries race and religion, collected on Step 1 but previously dropped before submission', { race: payload.applicant.race, religion: payload.applicant.religion }, { race: 'Malay', religion: 'Islam' });
   ok('applicant does not itself carry a nested beneficiary key', !('beneficiary' in payload.applicant));
+  check('plansCompared carries every quotation the client was shown, verbatim', payload.plansCompared, fakePlans);
+  check('selectedPlan is still the bare plan-name string (unchanged shape)', payload.selectedPlan, 'PruBSN Fake Plan (Higher Tier)');
+  check('selectedPlanDetails resolves the choice back to its full price/room&board/annual-limit summary, even though it is NOT the primary (first) quotation', payload.selectedPlanDetails, fakePlans[1]);
   check('beneficiaries is an array wrapping the single Phase 4 beneficiary object, extended with the 7-step form\'s beneficiary NRIC', payload.beneficiaries, [{ name: 'Jane Doe', relationship: 'Spouse', percentage: '100', nric: '' }]);
   check('metadata.submissionId round-trips the id passed in', payload.metadata.submissionId, 'sub-1');
   check('metadata.quotationId comes from the quotation number', payload.metadata.quotationId, 'Q-TEST-001');
@@ -65,10 +77,14 @@ console.log('=== SubmissionPayload: shape + backward compatibility ===');
   ok('metadata.submittedAt is a fresh ISO timestamp', /^\d{4}-\d{2}-\d{2}T/.test(payload.metadata.submittedAt));
   ok('metadata carries parser/renderer version tags', typeof payload.metadata.parserVersion === 'string' && typeof payload.metadata.rendererVersion === 'string');
 
-  console.log('\n=== SubmissionPayload: agent attribution (Phase 6A) ===');
+  console.log('\n=== SubmissionPayload: agent attribution (Phase 6A/8) ===');
   check('agent object carries name/agency/branch from prefillData.agent', payload.agent, { name: 'Fake Agent', agency: 'Fake Agency', branch: 'Fake Branch' });
   ok('agentCode is never present - buildPrefillData.js never exposes it to client-runtime code', !('agentCode' in payload.agent));
-  ok('agent contact fields (phone/email) are not included - out of scope for attribution', !('phone' in payload.agent) && !('email' in payload.agent));
+  ok('agent contact fields (phone/email) are omitted here only because this fixture leaves them blank, not because they are excluded', !('phone' in payload.agent) && !('email' in payload.agent));
+
+  const contactableAgentPrefill = { ...fakePrefillData, agent: { name: 'Fake Agent', agency: 'Fake Agency', branch: 'Fake Branch', phone: '012-3456789', email: 'agent@example.com' } };
+  const contactableAgentPayload = buildSubmissionPayload(contactableAgentPrefill, fakeFormState, {}, { submissionId: 'sub-1e' });
+  check('agent phone/email ARE included once present, so the Clients table can populate Agent Phone/Agent Email', { phone: contactableAgentPayload.agent.phone, email: contactableAgentPayload.agent.email }, { phone: '012-3456789', email: 'agent@example.com' });
 
   const partialAgentPrefill = { ...fakePrefillData, agent: { name: 'Solo Agent', agency: null, branch: null, phone: '', email: '' } };
   const partialAgentPayload = buildSubmissionPayload(partialAgentPrefill, fakeFormState, {}, { submissionId: 'sub-1b' });
@@ -77,6 +93,14 @@ console.log('=== SubmissionPayload: shape + backward compatibility ===');
   const noAgentPrefill = { ...fakePrefillData, agent: undefined };
   const noAgentPayload = buildSubmissionPayload(noAgentPrefill, fakeFormState, {}, { submissionId: 'sub-1c' });
   check('missing prefillData.agent entirely still produces a safe empty object, never throws', noAgentPayload.agent, {});
+
+  const noMatchFormState = { ...fakeFormState, plan: 'A Plan Name That Was Never Compared' };
+  const noMatchPayload = buildSubmissionPayload(fakePrefillData, noMatchFormState, {}, { submissionId: 'sub-1f' });
+  check('selectedPlanDetails falls back to { planName } (never dropped) if the chosen name has no match in plansCompared', noMatchPayload.selectedPlanDetails, { planName: 'A Plan Name That Was Never Compared' });
+
+  const noPlanFormState = { ...fakeFormState, plan: '' };
+  const noPlanPayload = buildSubmissionPayload(fakePrefillData, noPlanFormState, {}, { submissionId: 'sub-1g' });
+  check('selectedPlanDetails is null when no plan was selected at all', noPlanPayload.selectedPlanDetails, null);
 
   const documentsPayload = buildSubmissionPayload(fakePrefillData, fakeFormState, { nricFront: { filename: 'ic.jpg', mimeType: 'image/jpeg', base64: 'ZmFrZQ==' } }, { submissionId: 'sub-1d' });
   check('documents section carries through base64-encoded uploads keyed by field name', documentsPayload.documents, { nricFront: { filename: 'ic.jpg', mimeType: 'image/jpeg', base64: 'ZmFrZQ==' } });
@@ -167,6 +191,25 @@ console.log('\n=== SubmissionService: success via MockDestination ===');
       check('resolves with the reference the webhook echoed back', atResult.reference, 'recFAKE123');
       ok('POSTed to the configured webhook URL', capturedUrl === 'https://hooks.airtable.com/workflows/v1/genericWebhook/fake-test-only');
       check('request body is the exact payload, unmodified', capturedBody.metadata.submissionId, 'at-1');
+
+      console.log('\n=== Regression: clientRuntime.js\'s actual wiring pattern (configure() then use the MODULE as destination) ===');
+      // clientRuntime.js does `AirtableDestination.configure({...})` for its
+      // side effect, then hands the AirtableDestination module itself (not
+      // configure()'s return value) to SubmissionService.submit() as
+      // `destination`. A prior real bug passed `configure()`'s return value
+      // instead - undefined, since configure() has no `return` statement -
+      // which made every real submission fail with "a destination with a
+      // send() function is required." This regression test exercises the
+      // exact call shape clientRuntime.js uses, through SubmissionService,
+      // not AirtableDestination.send() directly (the tests above already
+      // covered that layer and still didn't catch the wiring bug).
+      ok('configure() returns undefined - a reminder that its return value must never be used as a destination', AirtableDestination.configure({ webhookUrl: 'https://hooks.airtable.com/workflows/v1/genericWebhook/fake-test-only' }) === undefined);
+      const wiringQueue = createQueue();
+      const wiringResult = await SubmissionService.submit(
+        { version: '1.2', quotation: {}, applicant: { fullName: 'Wiring Check' }, beneficiaries: [], metadata: { submissionId: 'wiring-1' } },
+        { destination: AirtableDestination, queue: wiringQueue }
+      );
+      check('a submission built the way clientRuntime.js actually builds it succeeds end-to-end', wiringResult.status, 'success');
     } finally {
       global.fetch = originalFetch;
       AirtableDestination.configure({ webhookUrl: null });

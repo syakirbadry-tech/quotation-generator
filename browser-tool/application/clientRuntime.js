@@ -35,11 +35,25 @@ const CONFIRMATION_STEP = ApplicationForm.TOTAL_STEPS + 1; // index 5
 const STEP_LABELS = ApplicationForm.STEP_DEFS.map((s) => s.title).concat(['Review']);
 
 // Phase 6A: live Airtable webhook configured with duplicate prevention (see
-// destinations/AirtableDestination.js). Webhook is scoped to this automation
-// and POST data is mapped to Applications table via field references.
-const ACTIVE_DESTINATION = AirtableDestination.configure({
+// destinations/AirtableDestination.js). Webhook is scoped to this
+// automation; as of Phase 8 the Automation's action should map incoming
+// fields onto the "Clients" table (the single source of truth for a
+// customer's whole application - see docs/AIRTABLE_FIELD_MAPPING.md), not
+// the older, now-deprecated "Applications" table.
+//
+// AirtableDestination.configure() is a side-effecting call (it sets the
+// module's internal webhookUrl) and returns nothing - the destination
+// SubmissionService.submit() needs is the AirtableDestination module
+// object itself ({ name, send }), not configure()'s return value. Passing
+// configure()'s undefined return as `destination` made every real
+// submission fail with "a destination with a send() function is
+// required." - caught via an actual end-to-end browser run of the
+// Submit step, not by the unit tests (which call AirtableDestination.send
+// directly and never exercised this wiring).
+AirtableDestination.configure({
   webhookUrl: 'https://hooks.airtable.com/workflows/v1/genericWebhook/appcA4lwc8KrLNxwM/wflQdJbGW3L2C8hoC/wtr78zDfdM03qbWWI'
 });
+const ACTIVE_DESTINATION = AirtableDestination;
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB per document, enforced client-side before it ever hits the webhook payload
 

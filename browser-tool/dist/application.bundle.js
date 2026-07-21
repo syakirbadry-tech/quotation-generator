@@ -357,7 +357,7 @@
       <h4 class="paf-review-heading">Quotation Summary</h4>
       ${summaryRow("Quotation Number", na(q.quotationNumber))}
       ${summaryRow("Valid Until", na(q.validUntil))}
-      ${summaryRow("Selected Plan", na(q.planName))}
+      ${summaryRow("Base Plan", na(q.planName))}
       ${summaryRow("Monthly Contribution", na(q.monthlyContribution))}
       <div class="paf-summary-row paf-summary-row-block">
         <span class="paf-summary-label">Optional Riders</span>
@@ -542,7 +542,7 @@
       var { buildSubmission } = require_submission();
       var PARSER_VERSION = "v1.0-phase1-parser";
       var RENDERER_VERSION = "v1.1-phase2-renderer";
-      var PAYLOAD_VERSION = "1.1";
+      var PAYLOAD_VERSION = "1.2";
       var SUBMISSION_SOURCE = "quotation-generator-client-application";
       function buildAgentInfo(prefillData) {
         const source = prefillData && prefillData.agent || {};
@@ -550,7 +550,19 @@
         if (source.name) agent.name = source.name;
         if (source.agency) agent.agency = source.agency;
         if (source.branch) agent.branch = source.branch;
+        if (source.phone) agent.phone = source.phone;
+        if (source.email) agent.email = source.email;
         return agent;
+      }
+      function buildPlansCompared(prefillData) {
+        return prefillData && Array.isArray(prefillData.plans) ? prefillData.plans : [];
+      }
+      function buildSelectedPlanDetails(prefillData, formState) {
+        const planName = formState && formState.plan || null;
+        if (!planName) return null;
+        const plans = buildPlansCompared(prefillData);
+        const match = plans.find((p) => p.planName === planName);
+        return match ? { ...match } : { planName };
       }
       function buildEmployment(formState) {
         const f = formState || {};
@@ -598,14 +610,21 @@
         const { beneficiary, ...applicationRest } = legacy.application;
         const applicant = {
           ...legacy.client,
-          ...applicationRest
+          ...applicationRest,
+          // Step 1 fields the frozen submission.js's buildSubmission() never
+          // carried into `client` - added here, not there, so that file stays
+          // wrapped rather than modified (see this file's header comment).
+          race: formState && formState.race || "",
+          religion: formState && formState.religion || ""
         };
         const beneficiaries = beneficiary && beneficiary.name ? [{ ...beneficiary, nric: formState && formState.beneficiaryNric || "" }] : [];
         const generatedMeta = prefillData && prefillData.metadata || {};
         return {
           version: PAYLOAD_VERSION,
           quotation: legacy.quotation,
+          plansCompared: buildPlansCompared(prefillData),
           selectedPlan: formState && formState.plan || null,
+          selectedPlanDetails: buildSelectedPlanDetails(prefillData, formState),
           agent: buildAgentInfo(prefillData),
           applicant,
           beneficiaries,
@@ -864,9 +883,10 @@
       var REVIEW_STEP = ApplicationForm.TOTAL_STEPS;
       var CONFIRMATION_STEP = ApplicationForm.TOTAL_STEPS + 1;
       var STEP_LABELS = ApplicationForm.STEP_DEFS.map((s) => s.title).concat(["Review"]);
-      var ACTIVE_DESTINATION = AirtableDestination.configure({
+      AirtableDestination.configure({
         webhookUrl: "https://hooks.airtable.com/workflows/v1/genericWebhook/appcA4lwc8KrLNxwM/wflQdJbGW3L2C8hoC/wtr78zDfdM03qbWWI"
       });
+      var ACTIVE_DESTINATION = AirtableDestination;
       var MAX_FILE_BYTES = 5 * 1024 * 1024;
       function fileToBase64(file) {
         return new Promise((resolve, reject) => {

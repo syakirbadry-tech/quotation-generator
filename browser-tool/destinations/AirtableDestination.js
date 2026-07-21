@@ -27,12 +27,18 @@
  *      "When webhook received". Airtable generates the trigger URL -
  *      paste it into AIRTABLE_WEBHOOK_URL below.
  *   2. Add a "Create record" (or "Run script") action that reads fields
- *      off the incoming JSON body (this file's `payload` argument,
- *      verbatim: { version, quotation, applicant, beneficiaries,
- *      metadata }) and maps them to your table's columns. That mapping
- *      lives entirely in Airtable's Automation editor - never in this
- *      codebase, so "no Airtable schema outside the adapter" holds even
- *      though there IS a schema, it's just not here.
+ *      off the incoming JSON body (this file's `payload` argument -
+ *      see models/SubmissionPayload.js for the full shape: { version,
+ *      quotation, plansCompared, selectedPlan, selectedPlanDetails,
+ *      agent, applicant, beneficiaries, employment, family,
+ *      medicalHistory, bank, documents, metadata }) and maps them onto
+ *      the "Clients" table's columns - see
+ *      docs/AIRTABLE_FIELD_MAPPING.md for the full field-by-field
+ *      mapping and setup notes (select-option casing, attachment
+ *      base64 handling). That mapping lives entirely in Airtable's
+ *      Automation editor - never in this codebase, so "no Airtable
+ *      schema outside the adapter" holds even though there IS a
+ *      schema, it's just not here.
  *   3. Optionally configure the Automation to respond with a JSON body
  *      containing `{ reference: "<your record id>" }` so the client sees
  *      a real Airtable-side reference; if omitted, this adapter falls

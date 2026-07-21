@@ -41,7 +41,7 @@ function renderQuotationSummary(quotation) {
       <h4 class="paf-review-heading">Quotation Summary</h4>
       ${summaryRow('Quotation Number', na(q.quotationNumber))}
       ${summaryRow('Valid Until', na(q.validUntil))}
-      ${summaryRow('Selected Plan', na(q.planName))}
+      ${summaryRow('Base Plan', na(q.planName))}
       ${summaryRow('Monthly Contribution', na(q.monthlyContribution))}
       <div class="paf-summary-row paf-summary-row-block">
         <span class="paf-summary-label">Optional Riders</span>

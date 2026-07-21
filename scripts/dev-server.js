@@ -30,7 +30,17 @@ const MIME = {
 http
   .createServer((req, res) => {
     const urlPath = decodeURIComponent(req.url.split('?')[0]);
-    const filePath = path.normalize(path.join(ROOT, urlPath === '/' ? '/browser-tool/index.html' : urlPath));
+    // Redirect (not silently serve) "/" to the real path - index.html's
+    // own asset tags are relative ("vendor/pdf.min.js", "dist/app.bundle.js"),
+    // so serving its bytes AT "/" without moving the browser's URL there
+    // resolves those to the wrong directory and 404s every asset, leaving
+    // a blank page with no visible error for whoever's testing.
+    if (urlPath === '/') {
+      res.writeHead(302, { Location: '/browser-tool/index.html' });
+      res.end();
+      return;
+    }
+    const filePath = path.normalize(path.join(ROOT, urlPath));
     if (!filePath.startsWith(ROOT)) {
       res.writeHead(403);
       res.end('Forbidden');

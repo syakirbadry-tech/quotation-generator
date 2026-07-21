@@ -91,7 +91,16 @@ function buildHelpers(mode) {
     if (mode === 'agent') {
       return `<span class="missing">— ${escapeHtml(agentMessage || 'not found in PDF - please confirm')} —</span>`;
     }
-    return `<span class="na">${escapeHtml(clientText || 'Refer to certificate')}</span>`;
+    // "Refer to certificate" is the right default when a caller omits
+    // clientText entirely (most calls - a benefit figure, a plan detail,
+    // something the client's actual certificate genuinely does contain).
+    // It's wrong for a caller that explicitly passes '' meaning "there is
+    // nothing to show here" (e.g. the footer's dealership line, when the
+    // agent's config has none on file) - a certificate has no
+    // "dealership" section to refer to. `??` (not `||`) so an explicit
+    // '' is honoured as "render nothing" instead of being coerced to the
+    // generic fallback phrase.
+    return `<span class="na">${escapeHtml(clientText ?? 'Refer to certificate')}</span>`;
   }
   function money(n, opts = {}) {
     const formatted = formatMoney(n);
@@ -199,6 +208,7 @@ const SHARED_STYLE = `
   .head{padding:26px 34px 18px;display:flex;align-items:center;gap:14px;
     border-bottom:3px solid transparent;border-image:linear-gradient(90deg,var(--gold-a),var(--gold-b)) 1}
   .mark{width:46px;height:46px;flex:none}
+  img.mark{border-radius:14px;object-fit:cover;background:#000}
   .head .co{font-family:var(--serif);font-size:18px;font-weight:700;color:#111;line-height:1.1}
   .head .co small{display:block;font-family:var(--sans);font-size:10.5px;font-weight:400;color:var(--meta);margin-top:3px;letter-spacing:.02em}
   .head .rt{margin-left:auto;text-align:right;font-size:11px;color:var(--meta);line-height:1.7}
@@ -298,6 +308,45 @@ const SHARED_STYLE = `
   .review-section{margin-top:8px}
   .review-section ul{margin:6px 0 0;padding-left:20px}
   .review-ok{color:#9fd6a3}
+
+  /* ---------- print / save-as-PDF ----------
+     Found via an actual printed/PDF-exported quotation, not just on
+     screen: with no rules here at all, (1) the medical card's dark
+     background and white text are a CSS background, which most browsers
+     omit by default when printing without "background graphics" -
+     leaving the card a blank white box (the text is white-on-white, not
+     just unstyled), and (2) with no page-break hints, a page break can
+     land inside the footer block and strand the agent/dealership line
+     alone at the top of an otherwise blank final page.
+
+     print-color-adjust is scoped to the specific elements whose CSS
+     background carries real information (the medical card, key-figure
+     card accents, the contribution total row, the recommended-option
+     border, table value colour, day-count tag pills) - keep this list
+     explicit and add to it deliberately as the template evolves, rather
+     than forcing it everywhere with a catch-all selector.
+
+     .medcard::after is turned off in print rather than added to that
+     list: it draws the card's thin gold ring border with a
+     mask-composite:exclude trick (a full gradient square masked down to
+     just the outer 1.4px), and that mask does not survive Chromium's
+     print rendering - forced or not, it paints as a solid, opaque gold
+     rectangle covering the *entire* card, hiding the card's own
+     background and every line of white text on it. Losing a decorative
+     1.4px ring in print is a fair trade for the card actually being
+     legible. */
+  @media print {
+    body{background:#fff;padding:0;display:block}
+    .sheet{box-shadow:none;border-radius:0;max-width:100%}
+    .medcard::after{content:none}
+    .medcard, .medcard .brandrow .g, .fig::before,
+    .contrib .row.total, .opt.pick, table.ben td.v, .tag{
+      -webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact}
+    .medcard{break-inside:avoid;page-break-inside:avoid}
+    .fig, .opt, .contrib{break-inside:avoid;page-break-inside:avoid}
+    h2.sec{break-after:avoid;page-break-after:avoid}
+    .foot2{break-before:avoid;page-break-before:avoid}
+  }
 `;
 
 /**
@@ -332,6 +381,22 @@ function renderQuotationCard(data, mode, agentReview = {}) {
       : missing('agent name not found', 'your servicing agent');
   const agentLine = [preparedByName, agent.agentCode ? `Agent ${escapeHtml(agent.agentCode)}` : null].filter(Boolean).join(' · ');
   const dealershipLine = [agentConfig.branch, agentConfig.agency, agentConfig.location].filter(Boolean).join(' · ');
+
+  // Agent branding: use the agent's own logo from agents.js if one has
+  // been filled in there, falling back to the generic gold-mark SVG
+  // otherwise - never fabricated, exactly what agents.js already has (or
+  // doesn't). agentConfig.logo is expected to be a URL or a data: URI;
+  // agents.js's own header documents it as intentionally left '' until a
+  // real asset exists.
+  const logoHtml = agentConfig.logo
+    ? `<img class="mark" src="${escapeHtml(agentConfig.logo)}" alt="${escapeHtml(agencyPlain || 'our agency')} logo">`
+    : `<svg class="mark" viewBox="0 0 100 100" aria-label="${escapeHtml(agencyPlain || 'our agency')}">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#FDB913"/><stop offset="1" stop-color="#D4AF37"/></linearGradient></defs>
+      <rect width="100" height="100" rx="14" fill="#000"/>
+      <path d="M50 20 L70 66 L58 66 L50 44 L42 66 L30 66 Z" fill="url(#g)"/>
+      <path d="M62 40 L80 80 L68 80 L58 56 Z" fill="url(#g)" opacity=".55"/>
+    </svg>`;
 
   // --- Quotation No / Valid until: client mode only shows these if the
   // agent explicitly supplied them via `agentReview` - never the parser's
@@ -384,13 +449,7 @@ function renderQuotationCard(data, mode, agentReview = {}) {
 <div class="sheet">
 
   <div class="head">
-    <svg class="mark" viewBox="0 0 100 100" aria-label="${escapeHtml(agencyPlain || 'our agency')}">
-      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stop-color="#FDB913"/><stop offset="1" stop-color="#D4AF37"/></linearGradient></defs>
-      <rect width="100" height="100" rx="14" fill="#000"/>
-      <path d="M50 20 L70 66 L58 66 L50 44 L42 66 L30 66 Z" fill="url(#g)"/>
-      <path d="M62 40 L80 80 L68 80 L58 56 Z" fill="url(#g)" opacity=".55"/>
-    </svg>
+    ${logoHtml}
     <div class="co">${agencyName}<small>${branchName}</small></div>
     <div class="rt">${headerLines.join('<br>')}</div>
   </div>

@@ -171,6 +171,7 @@
       <input type="file" id="file-input" accept="application/pdf,.pdf" multiple style="display:none">
     </div>
 
+    <div id="upload-notice" class="banner banner-warn" hidden></div>
     <div id="file-list"></div>
     <div id="upload-actions">
       <button id="continue-to-review-btn" class="btn-primary" type="button" hidden>Continue to Review &rarr;</button>
@@ -210,8 +211,12 @@
       </div>
     </div>
 
-    <h2 class="section-title">Client Quotation<small>Exactly what the client will receive &mdash; including their application form</small></h2>
+    <h2 class="section-title">Client Quotation &amp; Application Form<small>Both are one file the client receives &mdash; preview each before sending</small></h2>
     <div class="output-tabs" id="output-tabs"></div>
+    <div class="tabs">
+      <button type="button" id="preview-view-quotation-btn" class="tab-btn active">Quotation</button>
+      <button type="button" id="preview-view-form-btn" class="tab-btn">Client Application Form</button>
+    </div>
     <div class="preview-wrap"><iframe id="preview-frame" class="preview-frame" title="Client quotation preview"></iframe></div>
     <div class="output-actions">
       <button id="download-btn" class="btn-teal" type="button">Download HTML</button>

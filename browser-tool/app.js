@@ -183,6 +183,7 @@ const el = {
   fileInput: document.getElementById('file-input'),
   dropZone: document.getElementById('drop-zone'),
   fileList: document.getElementById('file-list'),
+  uploadNotice: document.getElementById('upload-notice'),
   continueBtn: document.getElementById('continue-to-review-btn'),
 
   reviewTabs: document.getElementById('review-tabs'),
@@ -201,6 +202,8 @@ const el = {
   printComparisonBtn: document.getElementById('print-comparison-btn'),
   outputTabs: document.getElementById('output-tabs'),
   previewFrame: document.getElementById('preview-frame'),
+  previewViewQuotationBtn: document.getElementById('preview-view-quotation-btn'),
+  previewViewFormBtn: document.getElementById('preview-view-form-btn'),
   downloadBtn: document.getElementById('download-btn'),
   printBtn: document.getElementById('print-btn'),
   outputBackBtn: document.getElementById('output-back-btn'),
@@ -259,6 +262,21 @@ function updateContinueButton() {
   el.continueBtn.textContent = hasParsing ? 'Parsing…' : 'Continue to Review →';
 }
 
+function showUploadNotice(message) {
+  el.uploadNotice.textContent = message;
+  el.uploadNotice.hidden = false;
+}
+
+function clearUploadNotice() {
+  el.uploadNotice.hidden = true;
+  el.uploadNotice.textContent = '';
+}
+
+/** Same name + same size is treated as the same file re-selected by accident (drag-drop and the file picker both make this easy to do without noticing). */
+function isDuplicateOfExisting(file) {
+  return state.quotations.some((q) => q.fileName === file.name && q.fileSize === file.size);
+}
+
 async function parseOneFile(entry, file) {
   try {
     const buffer = await file.arrayBuffer();
@@ -282,13 +300,28 @@ async function parseOneFile(entry, file) {
 function handleFiles(fileList) {
   const incoming = Array.from(fileList || []);
   if (!incoming.length) return;
+  clearUploadNotice();
+
+  // Duplicates are filtered out before the slot-count check below, so a
+  // re-dropped file doesn't eat into the 3-quotation limit.
+  const duplicateNames = [];
+  const deduped = incoming.filter((file) => {
+    if (isDuplicateOfExisting(file)) {
+      duplicateNames.push(file.name);
+      return false;
+    }
+    return true;
+  });
+
   const remainingSlots = MAX_QUOTATIONS - state.quotations.length;
-  const accepted = incoming.slice(0, Math.max(0, remainingSlots));
+  const accepted = deduped.slice(0, Math.max(0, remainingSlots));
+  const overflowCount = deduped.length - accepted.length;
 
   for (const file of accepted) {
     const entry = {
       id: `q${quotationIdCounter++}`,
       fileName: file.name,
+      fileSize: file.size,
       status: 'parsing',
       errorMessage: null,
       data: null,
@@ -304,6 +337,15 @@ function handleFiles(fileList) {
     state.quotations.push(entry);
     parseOneFile(entry, file);
   }
+
+  const notices = [];
+  if (duplicateNames.length) {
+    notices.push(`Already added, skipped: ${duplicateNames.join(', ')}.`);
+  }
+  if (overflowCount > 0) {
+    notices.push(`Only ${MAX_QUOTATIONS} quotations can be compared at once - ${overflowCount} file${overflowCount > 1 ? 's were' : ' was'} not added. Remove one above to add another.`);
+  }
+  if (notices.length) showUploadNotice(notices.join(' '));
 
   renderFileList();
   updateContinueButton();
@@ -555,7 +597,34 @@ function renderOutputStage() {
 
   const activeDoc = state.generatedDocs[state.activeOutputIndex];
   el.previewFrame.srcdoc = activeDoc ? activeDoc.html : '';
+  // Every switch back to "Quotation" (new doc, tab switch) shows the top of
+  // the document - the client form only appears once "Continue Application"
+  // is triggered inside the iframe, via showClientForm() below.
+  el.previewViewQuotationBtn.classList.add('active');
+  el.previewViewFormBtn.classList.remove('active');
 }
+
+/** Reaches into the (unsandboxed, same-file) preview iframe and opens its embedded "Continue Application" flow, so the agent can preview the client form as its own explicit step rather than scrolling/clicking inside the quotation preview themselves. */
+function showClientFormInPreview() {
+  const doc = el.previewFrame.contentDocument;
+  if (!doc) return;
+  const continueBtn = doc.getElementById('paf-continue-btn');
+  const root = doc.getElementById('paf-app-root');
+  if (continueBtn && root && root.hidden) continueBtn.click();
+  if (root) root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  el.previewViewFormBtn.classList.add('active');
+  el.previewViewQuotationBtn.classList.remove('active');
+}
+
+function showQuotationInPreview() {
+  const doc = el.previewFrame.contentDocument;
+  if (doc && doc.documentElement) doc.documentElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  el.previewViewQuotationBtn.classList.add('active');
+  el.previewViewFormBtn.classList.remove('active');
+}
+
+el.previewViewFormBtn.addEventListener('click', showClientFormInPreview);
+el.previewViewQuotationBtn.addEventListener('click', showQuotationInPreview);
 
 el.downloadBtn.addEventListener('click', () => {
   const doc = state.generatedDocs[state.activeOutputIndex];
@@ -611,6 +680,7 @@ function resetAll() {
   el.quotationNumberInput.value = '';
   el.validUntilInput.value = '';
   el.ackCheckbox.checked = false;
+  clearUploadNotice();
   renderFileList();
   updateContinueButton();
   showStage('upload');

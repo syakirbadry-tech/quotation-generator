@@ -105,6 +105,14 @@ const APPLICATION_STYLE = `
 .paf-plan-price small{font-family:var(--sans);font-size:11px;color:var(--meta);font-weight:400}
 .paf-plan-meta{font-size:11px;color:var(--meta);margin-top:6px}
 .paf-plan-empty{grid-column:1/-1;font-size:13px;color:var(--meta);font-style:italic}
+
+/* A "Continue Application" button (or the live form itself) makes no
+   sense on a printed/PDF-exported copy - nothing on paper is clickable,
+   and an unstyled/greyed-out button there just looks broken. Found via
+   an actual PDF export: it showed up on its own near-blank final page. */
+@media print {
+  .paf-cta, #paf-app-root { display: none !important; }
+}
 `;
 
 function isRealQuotation(html) {

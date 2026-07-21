@@ -25,11 +25,17 @@ const { buildSubmission } = require('../application/submission');
 
 const PARSER_VERSION = 'v1.0-phase1-parser';
 const RENDERER_VERSION = 'v1.1-phase2-renderer';
-// 1.1 additively extends the 1.0 shape with `employment`, `family`,
-// `medicalHistory`, `plan`, `bank`, and `documents` - the Phase 7 7-step
-// form's fields beyond the original 4-step Phase 4/5 shape. Every 1.0
-// field is still present at the same path; nothing was renamed or moved.
-const PAYLOAD_VERSION = '1.1';
+// 1.2 additively extends 1.1 to close gaps found while mapping the payload
+// onto the Airtable "Clients" table (the single source of truth - see
+// docs/AIRTABLE_FIELD_MAPPING.md): `applicant.race`/`applicant.religion`
+// were collected on Step 1 but never left this file; `agent.phone`/
+// `agent.email` were available on prefillData.agent but never included;
+// `selectedPlan` was only ever a bare plan-name string with no way to
+// recover its price/room&board/annual limit if the client picked option 2
+// or 3 of a compared set; and the other 1-2 quotations the client actually
+// saw (but didn't pick) were never sent at all. Every 1.1 field is still
+// present at the same path; nothing was renamed or moved.
+const PAYLOAD_VERSION = '1.2';
 const SUBMISSION_SOURCE = 'quotation-generator-client-application';
 
 /**
@@ -50,7 +56,38 @@ function buildAgentInfo(prefillData) {
   if (source.name) agent.name = source.name;
   if (source.agency) agent.agency = source.agency;
   if (source.branch) agent.branch = source.branch;
+  if (source.phone) agent.phone = source.phone;
+  if (source.email) agent.email = source.email;
   return agent;
+}
+
+/**
+ * The full quotation(s) the client was actually shown (1-3, in comparison
+ * order) - not just the primary one. Kept verbatim so which options a
+ * client compared before choosing is never lost, even though only the
+ * primary quotation's own number/validity/riders are surfaced elsewhere
+ * in the payload (`quotation`).
+ */
+function buildPlansCompared(prefillData) {
+  return (prefillData && Array.isArray(prefillData.plans)) ? prefillData.plans : [];
+}
+
+/**
+ * The client's actually-selected plan, resolved back to its full summary
+ * (price, room & board, annual limit) - not just the name string stored in
+ * `formState.plan`. Matters when a client is shown 2-3 quotations and
+ * picks option 2 or 3: the top-level `quotation` object always describes
+ * the *primary* (first-generated) quotation, which is only correct by
+ * coincidence if the client picked option 1. Falls back to `{ planName }`
+ * if no match is found (e.g. a single-plan session) rather than dropping
+ * the selection entirely.
+ */
+function buildSelectedPlanDetails(prefillData, formState) {
+  const planName = (formState && formState.plan) || null;
+  if (!planName) return null;
+  const plans = buildPlansCompared(prefillData);
+  const match = plans.find((p) => p.planName === planName);
+  return match ? { ...match } : { planName };
 }
 
 /** Step 2 (Employment Details) fields beyond the frozen submission.js's `occupation`/`employer`/`annualIncome`. */
@@ -116,6 +153,11 @@ function buildSubmissionPayload(prefillData, formState, documents, options) {
   const applicant = {
     ...legacy.client,
     ...applicationRest,
+    // Step 1 fields the frozen submission.js's buildSubmission() never
+    // carried into `client` - added here, not there, so that file stays
+    // wrapped rather than modified (see this file's header comment).
+    race: (formState && formState.race) || '',
+    religion: (formState && formState.religion) || '',
   };
 
   const beneficiaries = beneficiary && beneficiary.name
@@ -127,7 +169,9 @@ function buildSubmissionPayload(prefillData, formState, documents, options) {
   return {
     version: PAYLOAD_VERSION,
     quotation: legacy.quotation,
+    plansCompared: buildPlansCompared(prefillData),
     selectedPlan: (formState && formState.plan) || null,
+    selectedPlanDetails: buildSelectedPlanDetails(prefillData, formState),
     agent: buildAgentInfo(prefillData),
     applicant,
     beneficiaries,

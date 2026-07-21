@@ -42,13 +42,33 @@ function formatDateLong(iso) {
 /**
  * A benefit-item value string like "RM200 per day (maximum 150 days per
  * rider year)" carries a lot of detail for a compact summary card. This
- * trims it to the part before the first parenthetical note. Presentation
- * only - the full string is still used wherever there's room for it
- * (e.g. the benefits table).
+ * strips the parenthetical day-count note(s) out, keeping just the
+ * headline figure. Presentation only - the full string is still used
+ * wherever there's room for it (e.g. the benefits table).
+ *
+ * Strips every parenthetical group, not just text before the first "(" -
+ * a real source value can carry the note BEFORE the figure too (e.g.
+ * "(maximum 150 days per rider year) RM200 per day", seen in the
+ * synthetic test fixture), and taking only the text before the first "("
+ * silently returned an empty string for those, making the Room & Board
+ * key-figure card and medical-card mockup fall back to "Refer to
+ * certificate" even though the benefits table right below it, which
+ * extracts the same value with a different helper (primaryValue), showed
+ * the real figure.
+ *
+ * When a value is NOTHING but a parenthetical note (e.g. the ICU/CCU row
+ * described in docs/KNOWN_LIMITATIONS.md item 2, whose only extracted
+ * text is "(maximum 150 days per rider year)" - the real "As charged"
+ * token sits on a neighbouring merged cell), stripping parens leaves an
+ * empty string, and this correctly returns null rather than falling back
+ * to the raw parenthetical text - a bare day-count note is not a real
+ * coverage figure and must still hit the caller's "missing" treatment,
+ * not be displayed as if it were data.
  */
 function shortValue(value) {
   if (!value) return null;
-  return value.split('(')[0].trim();
+  const stripped = value.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  return stripped || null;
 }
 
 /** Pulls the leading digits out of a co-payment option label, e.g. "SmartSaver300" -> "300". */

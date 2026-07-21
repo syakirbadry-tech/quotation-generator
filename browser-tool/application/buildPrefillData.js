@@ -77,6 +77,11 @@ function buildPrefillData(dataOrArray, agentReview) {
     quotation: {
       quotationNumber,
       validUntil: formatDateLong(validUntilIso),
+      // Raw ISO alongside the display string above, so downstream
+      // consumers (Airtable's Clients table - see
+      // docs/AIRTABLE_FIELD_MAPPING.md) can store it in a real date field
+      // instead of re-parsing a human-formatted date.
+      validUntilIso: validUntilIso || null,
       planName: plan.basicPlanName || null,
       monthlyContribution: monthlyContribution != null ? `RM ${monthlyContribution}` : null,
       riders: buildRidersList(plan),
