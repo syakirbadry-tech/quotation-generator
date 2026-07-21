@@ -90,8 +90,8 @@ console.log('=== buildClientsFields: full payload maps every documented section 
   }, { 'Agent Name': 'Agent Name', 'Agent Agency': 'Agency', 'Agent Branch': 'Branch', 'Agent Phone': '012-3456789', 'Agent Email': 'agent@example.com' });
   check('Quotation Information', {
     'Quotation Number': fields['Quotation Number'], 'Quotation Valid Until': fields['Quotation Valid Until'],
-    'Quotation Monthly Contribution': fields['Quotation Monthly Contribution'], 'Quotation Riders': fields['Quotation Riders'], 'Quotation Product': fields['Quotation Product'],
-  }, { 'Quotation Number': 'Q-1', 'Quotation Valid Until': '2026-08-19', 'Quotation Monthly Contribution': 'RM 176.00', 'Quotation Riders': 'Medic TotalCare - Plan 200', 'Quotation Product': 'PruBSN AnugerahMax' });
+    'Quotation Monthly Total Amount Payable': fields['Quotation Monthly Total Amount Payable'], 'Quotation Riders': fields['Quotation Riders'], 'Quotation Product': fields['Quotation Product'],
+  }, { 'Quotation Number': 'Q-1', 'Quotation Valid Until': '2026-08-19', 'Quotation Monthly Total Amount Payable': 'RM 176.00', 'Quotation Riders': 'Medic TotalCare - Plan 200', 'Quotation Product': 'PruBSN AnugerahMax' });
   check('Plans Compared is JSON-stringified verbatim', JSON.parse(fields['Plans Compared (JSON)']), fullPayload.plansCompared);
   check('Submission Status defaults to Received on creation (no Automation exists to set this anymore)', fields['Submission Status'], 'Received');
   check('Submission ID / version audit trail', {

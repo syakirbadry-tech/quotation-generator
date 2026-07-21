@@ -115,7 +115,12 @@ export function buildClientsFields(payload) {
   // Quotation Information
   setIfPresent(fields, 'Quotation Number', str(quotation.quotationNumber));
   setIfPresent(fields, 'Quotation Valid Until', str(quotation.validUntilIso));
-  setIfPresent(fields, 'Quotation Monthly Contribution', str(quotation.monthlyContribution));
+  // Field renamed in Airtable from "Quotation Monthly Contribution" to
+  // match the PruBSN Product Illustration's own term for this figure -
+  // see docs/AIRTABLE_FIELD_MAPPING.md. The value itself
+  // (quotation.monthlyContribution) is already formatted "RM 246.00"
+  // (fixed 2dp) by the frontend - see renderer/formatters.js.
+  setIfPresent(fields, 'Quotation Monthly Total Amount Payable', str(quotation.monthlyContribution));
   if (Array.isArray(quotation.riders) && quotation.riders.length) {
     fields['Quotation Riders'] = quotation.riders.join('\n');
   }

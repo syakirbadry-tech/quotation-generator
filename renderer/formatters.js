@@ -31,6 +31,42 @@ function formatMoney(n) {
   });
 }
 
+/**
+ * Always exactly 2 decimal places - 176 -> "176.00", 2112.5 -> "2,112.50".
+ * Reserved for "Monthly Total Amount Payable" (the PruBSN Product
+ * Illustration's own term for this figure), which must render as
+ * "RM 246.00" everywhere it appears, never "RM246", "RM 246", "246", or
+ * "RM 246/mo" - formatMoney()'s variable decimal count (it drops ".00"
+ * for whole numbers) is the wrong tool for this one specific figure.
+ */
+function formatMoneyFixed2(n) {
+  if (n == null || !Number.isFinite(n)) return null;
+  return n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Resolves "Monthly Total Amount Payable". Priority 1 is always the
+ * PDF's own printed figure (contributions.totalMonthlyContribution - a
+ * Required, directly-extracted field per docs/PARSER_API.md, never
+ * computed by the parser itself). Only falls back to deriving it from
+ * the annual figure (divided by 12, rounded to 2dp) when the primary field is
+ * genuinely absent - e.g. a malformed source document - matching the
+ * same "derive only when the real value is missing, and only when
+ * mathematically safe" rule already used for plan.coverageToAge's
+ * fallback in parseQuotation.js. Returns a number (or null if neither
+ * source is available) - callers format it with formatMoneyFixed2().
+ */
+function resolveMonthlyTotalPayable(contributions) {
+  const c = contributions || {};
+  if (c.totalMonthlyContribution != null && Number.isFinite(c.totalMonthlyContribution)) {
+    return c.totalMonthlyContribution;
+  }
+  if (c.totalAnnualContribution != null && Number.isFinite(c.totalAnnualContribution)) {
+    return Math.round((c.totalAnnualContribution / 12) * 100) / 100;
+  }
+  return null;
+}
+
 /** "2026-07-14" -> "14 July 2026" */
 function formatDateLong(iso) {
   if (!iso) return null;
@@ -130,6 +166,8 @@ function bareTierNumber(planTier) {
 module.exports = {
   escapeHtml,
   formatMoney,
+  formatMoneyFixed2,
+  resolveMonthlyTotalPayable,
   formatDateLong,
   shortValue,
   coPaymentAmount,

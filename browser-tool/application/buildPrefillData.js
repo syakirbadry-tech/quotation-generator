@@ -29,7 +29,7 @@
 'use strict';
 
 const { getAgentConfig } = require('../../parser/agents');
-const { formatMoney, formatDateLong } = require('../../renderer/formatters');
+const { formatMoneyFixed2, resolveMonthlyTotalPayable, formatDateLong } = require('../../renderer/formatters');
 
 function buildRidersList(plan) {
   if (!plan || !plan.medicalRiderName) return [];
@@ -38,15 +38,21 @@ function buildRidersList(plan) {
   return [`${plan.medicalRiderName}${tierPart}${coPayPart}`];
 }
 
+/** "Monthly Total Amount Payable" - always "RM 246.00" (fixed 2dp), extracted-first with an annual/12 fallback. See renderer/formatters.js. */
+function formatMonthlyTotalPayable(contributions) {
+  const value = resolveMonthlyTotalPayable(contributions);
+  const formatted = formatMoneyFixed2(value);
+  return formatted != null ? `RM ${formatted}` : null;
+}
+
 function planSummaryFor(d) {
   const plan = (d && d.plan) || {};
   const contributions = (d && d.contributions) || {};
   const benefits = (d && d.benefits) || {};
   const roomBoardItem = (benefits.benefitItems || []).find((i) => i.label === 'Hospital Daily Room and Board');
-  const monthlyContribution = formatMoney(contributions.totalMonthlyContribution);
   return {
     planName: [plan.medicalRiderName, plan.medicalPlanTier].filter(Boolean).join(' ') || plan.basicPlanName || null,
-    monthlyContribution: monthlyContribution != null ? `RM ${monthlyContribution}` : null,
+    monthlyContribution: formatMonthlyTotalPayable(contributions),
     roomAndBoard: roomBoardItem ? roomBoardItem.value : null,
     annualLimit: benefits.annualLimit || null,
   };
@@ -69,7 +75,6 @@ function buildPrefillData(dataOrArray, agentReview) {
 
   const quotationNumber = review.quotationNumber || (metadata.quotationNumber && metadata.quotationNumber.value) || null;
   const validUntilIso = review.validUntilIso || (metadata.validUntil && metadata.validUntil.iso) || null;
-  const monthlyContribution = formatMoney(contributions.totalMonthlyContribution);
 
   const agentCfg = getAgentConfig(d.agent && d.agent.agentCode) || {};
 
@@ -83,7 +88,7 @@ function buildPrefillData(dataOrArray, agentReview) {
       // instead of re-parsing a human-formatted date.
       validUntilIso: validUntilIso || null,
       planName: plan.basicPlanName || null,
-      monthlyContribution: monthlyContribution != null ? `RM ${monthlyContribution}` : null,
+      monthlyContribution: formatMonthlyTotalPayable(contributions),
       riders: buildRidersList(plan),
     },
     // Real generated quotation(s), in comparison order - drives the Plan

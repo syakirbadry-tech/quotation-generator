@@ -26,6 +26,8 @@ const { getAgentConfig } = require('../parser/agents');
 const {
   escapeHtml,
   formatMoney,
+  formatMoneyFixed2,
+  resolveMonthlyTotalPayable,
   coPaymentAmount,
   compactRate,
   primaryValue,
@@ -60,6 +62,12 @@ function textOr(value, clientText) {
 
 function money(n) {
   const formatted = formatMoney(n);
+  return formatted == null ? `<span class="na">Refer to certificate</span>` : `RM ${formatted}`;
+}
+
+/** "Monthly Total Amount Payable" always renders with exactly 2 decimal places - see formatters.js's formatMoneyFixed2. */
+function moneyFixed2(n) {
+  const formatted = formatMoneyFixed2(n);
   return formatted == null ? `<span class="na">Refer to certificate</span>` : `RM ${formatted}`;
 }
 
@@ -117,14 +125,14 @@ function allEqual(values) {
 }
 
 function renderKeyFiguresTable(allData) {
-  const monthly = allData.map((d) => (d.contributions || {}).totalMonthlyContribution);
+  const monthly = allData.map((d) => resolveMonthlyTotalPayable(d.contributions || {}));
   const annual = allData.map((d) => (d.contributions || {}).totalAnnualContribution);
   const bestMonthly = indexOfLowest(monthly);
   const bestAnnual = indexOfLowest(annual);
 
   const headerCells = allData.map((d, i) => `<th>${escapeHtml(`Option ${i + 1}`)}</th>`).join('');
   const planRow = `<tr><th>Plan</th>${allData.map((d) => `<td><div class="cmp-plan-name">${textOr(planLabel(d))}</div><div class="cmp-plan-sub">${escapeHtml(planSubtitle(d) || '')}</div></td>`).join('')}</tr>`;
-  const monthlyRow = `<tr><th>Monthly Contribution</th>${allData.map((d, i) => `<td${i === bestMonthly ? ' class="cmp-best"' : ''}>${money(monthly[i])}</td>`).join('')}</tr>`;
+  const monthlyRow = `<tr><th>Monthly Total Amount Payable</th>${allData.map((d, i) => `<td${i === bestMonthly ? ' class="cmp-best"' : ''}>${moneyFixed2(monthly[i])}</td>`).join('')}</tr>`;
   const annualRow = `<tr><th>Annual Contribution</th>${allData.map((d, i) => `<td${i === bestAnnual ? ' class="cmp-best"' : ''}>${money(annual[i])}</td>`).join('')}</tr>`;
   const roomBoardRow = `<tr><th>Room &amp; Board</th>${allData.map((d) => `<td>${textOr(roomBoardValue(d))}</td>`).join('')}</tr>`;
   const annualLimitRow = `<tr><th>Annual Limit</th>${allData.map((d) => `<td>${textOr((d.benefits || {}).annualLimit)}</td>`).join('')}</tr>`;

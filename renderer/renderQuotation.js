@@ -46,6 +46,8 @@ const { getAgentConfig } = require('../parser/agents');
 const {
   escapeHtml,
   formatMoney,
+  formatMoneyFixed2,
+  resolveMonthlyTotalPayable,
   formatDateLong,
   coPaymentAmount,
   compactRate,
@@ -431,6 +433,13 @@ function renderQuotationCard(data, mode, agentReview = {}) {
       ? `<div class="src-note">Interactive quotation prepared from the PruBSN Product Illustration dated ${escapeHtml(quotationDateFormatted)}.</div>`
       : '';
 
+  // "Monthly Total Amount Payable" - the PruBSN Product Illustration's own
+  // term for this figure. Always rendered as "RM 246.00" (fixed 2dp, never
+  // "/mo") wherever it appears - see formatters.js's resolveMonthlyTotalPayable/
+  // formatMoneyFixed2 for the extraction-first, annual-divided-by-12-fallback-only rule.
+  const monthlyTotalPayableValue = resolveMonthlyTotalPayable(contributions);
+  const monthlyTotalPayable = monthlyTotalPayableValue != null ? `RM ${formatMoneyFixed2(monthlyTotalPayableValue)}` : null;
+
   const roomBoardItem = (benefits.benefitItems || []).find((i) => i.label === 'Hospital Daily Room and Board');
   const roomBoardCompact = roomBoardItem ? compactRate(roomBoardItem.value) : null;
   const roomBoardTag = roomBoardItem ? extractDayTag(roomBoardItem.value) : null;
@@ -485,7 +494,7 @@ function renderQuotationCard(data, mode, agentReview = {}) {
     </div>
 
     <div class="figs">
-      <div class="fig"><div class="lab">Monthly Contribution</div><div class="amt">${money(contributions.totalMonthlyContribution)}<small>/mo</small></div><div class="sub">${contributions.totalAnnualContribution != null ? `${money(contributions.totalAnnualContribution)} / year` : ''}</div></div>
+      <div class="fig"><div class="lab">Monthly Total Amount Payable</div><div class="amt">${monthlyTotalPayable ? escapeHtml(monthlyTotalPayable) : missing()}</div><div class="sub">${contributions.totalAnnualContribution != null ? `${money(contributions.totalAnnualContribution)} / year` : ''}</div></div>
       <div class="fig"><div class="lab">Annual Limit</div><div class="amt">${textOr(benefits.annualLimit)}</div><div class="sub">${textOr(benefits.lifetimeLimit)}</div></div>
       <div class="fig"><div class="lab">Room &amp; Board</div><div class="amt">${roomBoardCompact ? escapeHtml(roomBoardCompact) : missing()}</div><div class="sub">${roomBoardTag ? escapeHtml(roomBoardTag) : ''}</div></div>
       <div class="fig"><div class="lab">Co-payment</div><div class="amt">${textOr(plan.coPaymentOption)}</div><div class="sub">${coPaymentAmount(plan.coPaymentOption) ? `RM ${coPaymentAmount(plan.coPaymentOption)} per disability` : ''}</div></div>
@@ -503,7 +512,7 @@ ${renderBenefitsTable(benefits.benefitItems, helpers)}
       <div class="row"><span class="l">${textOr(plan.basicPlanName)} — Sum Covered ${plan.basicSumCovered != null ? money(plan.basicSumCovered) : missing()}</span><span class="r">${money(contributions.isaContribution)}</span></div>
       <div class="row"><span class="l">${textOr(plan.medicalRiderName)} — ${textOr(plan.medicalPlanTier)}, ${textOr(plan.coPaymentOption)}</span><span class="r">${money(contributions.medicTotalCareContribution)}</span></div>
       <div class="row"><span class="l">Wakalah Certificate Charge</span><span class="r">${money(contributions.wakalahCertificateCharge)}</span></div>
-      <div class="row total"><span class="l">Total monthly amount payable</span><span class="r">${money(contributions.totalMonthlyContribution)} ${contributions.totalAnnualContribution != null ? `<small>· ${money(contributions.totalAnnualContribution)}/yr</small>` : ''}</span></div>
+      <div class="row total"><span class="l">Monthly Total Amount Payable</span><span class="r">${monthlyTotalPayable ? escapeHtml(monthlyTotalPayable) : missing()} ${contributions.totalAnnualContribution != null ? `<small>· ${money(contributions.totalAnnualContribution)}/yr</small>` : ''}</span></div>
     </div>
 
     <h2 class="sec">Other options to consider</h2>
