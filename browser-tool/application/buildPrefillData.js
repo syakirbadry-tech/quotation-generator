@@ -31,30 +31,47 @@
 const { getAgentConfig } = require('../../parser/agents');
 const { formatMoneyFixed2, resolveMonthlyTotalPayable, formatDateLong } = require('../../renderer/formatters');
 
-function buildRidersList(plan) {
-  if (!plan || !plan.medicalRiderName) return [];
-  const tierPart = plan.medicalPlanTier ? ` - ${plan.medicalPlanTier}` : '';
-  const coPayPart = plan.coPaymentOption ? ` (${plan.coPaymentOption})` : '';
-  return [`${plan.medicalRiderName}${tierPart}${coPayPart}`];
+// Reads only data.medical (product-agnostic - see
+// parser/normalize/toMedicalJson.js) so this compose-time bundle never
+// has to know whether it's looking at an AnugerahMax or Asas360
+// quotation. medical.coPayment is already the right field for either
+// product's co-payment option string.
+function buildRidersList(medical) {
+  if (!medical || !medical.riderName) return [];
+  const tierPart = medical.planTier ? ` - Plan ${medical.planTier}` : '';
+  const coPayPart = medical.coPayment ? ` (${medical.coPayment})` : '';
+  return [`${medical.riderName}${tierPart}${coPayPart}`];
 }
 
 /** "Monthly Total Amount Payable" - always "RM 246.00" (fixed 2dp), extracted-first with an annual/12 fallback. See renderer/formatters.js. */
-function formatMonthlyTotalPayable(contributions) {
-  const value = resolveMonthlyTotalPayable(contributions);
+function formatMonthlyTotalPayable(contributions, fallbackMonthly) {
+  const value = resolveMonthlyTotalPayable(contributions) ?? (fallbackMonthly != null ? fallbackMonthly : null);
   const formatted = formatMoneyFixed2(value);
   return formatted != null ? `RM ${formatted}` : null;
 }
 
 function planSummaryFor(d) {
-  const plan = (d && d.plan) || {};
   const contributions = (d && d.contributions) || {};
-  const benefits = (d && d.benefits) || {};
-  const roomBoardItem = (benefits.benefitItems || []).find((i) => i.label === 'Hospital Daily Room and Board');
+  const medical = (d && d.medical) || {};
   return {
-    planName: [plan.medicalRiderName, plan.medicalPlanTier].filter(Boolean).join(' ') || plan.basicPlanName || null,
-    monthlyContribution: formatMonthlyTotalPayable(contributions),
-    roomAndBoard: roomBoardItem ? roomBoardItem.value : null,
-    annualLimit: benefits.annualLimit || null,
+    planName: medical.planName || null,
+    monthlyContribution: formatMonthlyTotalPayable(contributions, d && d.monthlyTotalAmountPayable),
+    roomAndBoard: medical.roomAndBoard && medical.roomAndBoard.amount != null ? `RM${medical.roomAndBoard.amount} per day` : null,
+    // Exactly one of these is non-null per coverage model - never both, never neither invented.
+    annualLimit: medical.annualLimit || medical.lifetimeLimit || null,
+    // Phase 5: additive fields for Airtable's "Coverage Model" (single
+    // select: "Annual Limit" / "Lifetime Medical Fund") and "Lifetime Fund
+    // Amount" (currency) columns - see backend/src/airtable.js.
+    // coverageModelLabel intentionally spells out the select option text
+    // rather than the internal ANNUAL_LIMIT/LIFETIME_MEDICAL_FUND enum
+    // value, since this flows straight into that Airtable field.
+    coverageModelLabel:
+      medical.coverageModel === 'LIFETIME_MEDICAL_FUND'
+        ? 'Lifetime Medical Fund'
+        : medical.coverageModel === 'ANNUAL_LIMIT'
+        ? 'Annual Limit'
+        : null,
+    lifetimeFundAmount: medical.lifetimeFundAmount != null ? medical.lifetimeFundAmount : null,
   };
 }
 
@@ -70,6 +87,7 @@ function buildPrefillData(dataOrArray, agentReview) {
 
   const plan = d.plan || {};
   const contributions = d.contributions || {};
+  const medical = d.medical || {};
   const metadata = d.metadata || {};
   const client = d.client || {};
 
@@ -87,9 +105,14 @@ function buildPrefillData(dataOrArray, agentReview) {
       // docs/AIRTABLE_FIELD_MAPPING.md) can store it in a real date field
       // instead of re-parsing a human-formatted date.
       validUntilIso: validUntilIso || null,
-      planName: plan.basicPlanName || null,
-      monthlyContribution: formatMonthlyTotalPayable(contributions),
-      riders: buildRidersList(plan),
+      // "Base Plan" - AnugerahMax's own basic-plan component name when
+      // present (unchanged from before); Asas360 has no equivalent
+      // basic-plan concept in Version 1's medical-only scope (see
+      // extractors/asas360.js), so the overall product name is shown
+      // instead - still accurate, never invented.
+      planName: plan.basicPlanName || metadata.productName || null,
+      monthlyContribution: formatMonthlyTotalPayable(contributions, d.monthlyTotalAmountPayable),
+      riders: buildRidersList(medical),
     },
     // Real generated quotation(s), in comparison order - drives the Plan
     // Selection step's card picker. Length 1 when the agent generated a

@@ -33,7 +33,7 @@ const fullPayload = {
   quotation: { quotationNumber: 'Q-1', validUntil: '19 August 2026', validUntilIso: '2026-08-19', monthlyContribution: 'RM 176.00', riders: ['Medic TotalCare - Plan 200'] },
   plansCompared: [{ planName: 'Plan A', monthlyContribution: 'RM 176' }, { planName: 'Plan B', monthlyContribution: 'RM 200' }],
   selectedPlan: 'Plan B',
-  selectedPlanDetails: { planName: 'Plan B', monthlyContribution: 'RM 200', roomAndBoard: 'RM 200/day', annualLimit: 'RM200,000' },
+  selectedPlanDetails: { planName: 'Plan B', monthlyContribution: 'RM 200', roomAndBoard: 'RM 200/day', annualLimit: 'RM200,000', coverageModelLabel: 'Lifetime Medical Fund', lifetimeFundAmount: 1000000 },
   agent: { name: 'Agent Name', agency: 'Agency', branch: 'Branch', phone: '012-3456789', email: 'agent@example.com' },
   applicant: {
     fullName: 'Ahmad Bin Test', nric: '900101-01-1234', dateOfBirth: '1990-01-01', gender: 'Male',
@@ -82,6 +82,12 @@ console.log('=== buildClientsFields: full payload maps every documented section 
     'Selected Plan': fields['Selected Plan'], 'Selected Plan Monthly Contribution': fields['Selected Plan Monthly Contribution'],
     'Selected Plan Room & Board': fields['Selected Plan Room & Board'], 'Selected Plan Annual Limit': fields['Selected Plan Annual Limit'],
   }, { 'Selected Plan': 'Plan B', 'Selected Plan Monthly Contribution': 'RM 200', 'Selected Plan Room & Board': 'RM 200/day', 'Selected Plan Annual Limit': 'RM200,000' });
+
+  // Medical Card Engine Phase 5: additive Coverage Model / Lifetime Fund
+  // Amount columns (see buildPrefillData.js's planSummaryFor()).
+  check('Coverage Model / Lifetime Fund Amount (Asas360/Health360-style plan)', {
+    'Coverage Model': fields['Coverage Model'], 'Lifetime Fund Amount': fields['Lifetime Fund Amount'],
+  }, { 'Coverage Model': 'Lifetime Medical Fund', 'Lifetime Fund Amount': 1000000 });
   check('Bank Details', { 'Bank Name': fields['Bank Name'], 'Account Number': fields['Account Number'], 'Account Holder Name': fields['Account Holder Name'] },
     { 'Bank Name': 'Maybank', 'Account Number': '1234567890', 'Account Holder Name': 'Ahmad Bin Test' });
   check('Agent Information (incl. phone/email fixed in payload v1.2)', {

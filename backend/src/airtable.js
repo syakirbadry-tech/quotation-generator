@@ -99,6 +99,12 @@ export function buildClientsFields(payload) {
   setIfPresent(fields, 'Selected Plan Monthly Contribution', str(selectedPlanDetails.monthlyContribution));
   setIfPresent(fields, 'Selected Plan Room & Board', str(selectedPlanDetails.roomAndBoard));
   setIfPresent(fields, 'Selected Plan Annual Limit', str(selectedPlanDetails.annualLimit));
+  // Additive (Medical Card Engine Phase 5 - see
+  // parser/coverageStrategy.js and browser-tool/application/
+  // buildPrefillData.js's planSummaryFor()): blank for products/plans
+  // that predate this field, never a fabricated default.
+  setIfPresent(fields, 'Coverage Model', str(selectedPlanDetails.coverageModelLabel));
+  setIfPresent(fields, 'Lifetime Fund Amount', num(selectedPlanDetails.lifetimeFundAmount));
 
   // Bank Details
   setIfPresent(fields, 'Bank Name', str(bank.bankName));
