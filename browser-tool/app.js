@@ -31,6 +31,15 @@ const { buildPrefillData } = require('./application/buildPrefillData.js');
 const { composeClientDocument } = require('./application/composeClientDocument.js');
 
 const MAX_QUOTATIONS = 3;
+// A real PruBSN Product Illustration is a few MB at most (the sample used
+// throughout development is ~1.7MB). This is a generous ceiling meant only
+// to stop an accidentally-selected huge/wrong file (a misclick can easily
+// pick a multi-hundred-MB video or disk image) from being read entirely
+// into memory and handed to pdf.js, which can hang or crash the tab -
+// there was previously no size check at all on this upload step (only the
+// later, separate 5MB document-upload step in the client-facing form had
+// one).
+const MAX_PDF_BYTES = 50 * 1024 * 1024;
 
 // --- Known merged-cell benefit values -----------------------------------
 // The frozen parser deliberately leaves a benefit item's value as `null`
@@ -334,6 +343,12 @@ function handleFiles(fileList) {
       state.quotations.push(entry);
       continue;
     }
+    if (file.size > MAX_PDF_BYTES) {
+      entry.status = 'error';
+      entry.errorMessage = `File is too large (${Math.round(file.size / 1024 / 1024)}MB) - please check this is the right file.`;
+      state.quotations.push(entry);
+      continue;
+    }
     state.quotations.push(entry);
     parseOneFile(entry, file);
   }
@@ -414,7 +429,7 @@ function benefitItemsTableHtml(q, qIndex) {
       </tr>
       ${note ? `<tr class="note-row"><td colspan="2" class="field-note field-note-warn">${escapeHtml(note)}</td></tr>` : ''}`;
   }).join('');
-  return `<table><thead><tr><th>Benefit</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<div class="table-scroll"><table><thead><tr><th>Benefit</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function optionsTableHtml(q, qIndex) {
@@ -425,7 +440,7 @@ function optionsTableHtml(q, qIndex) {
       <th>${escapeHtml(label)}</th>
       ${columns.map((c, i) => `<td><input type="text" data-q-index="${qIndex}" data-option-index="${i}" data-option-key="${key}" value="${escapeHtml(c[key] == null ? '' : String(c[key]))}" class="field-input"></td>`).join('')}
     </tr>`).join('');
-  return `<table><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+  return `<div class="table-scroll"><table><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function reviewPanelHtml(q, qIndex) {

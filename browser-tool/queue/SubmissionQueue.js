@@ -87,7 +87,19 @@ function createQueue() {
     writeAll(entries);
   }
 
-  /** Marks a submissionId as successfully resolved (creating the entry if this is the first record of it); kept in the log, not deleted, so hasResolved() can dedupe future attempts. */
+  /**
+   * Marks a submissionId as successfully resolved (creating the entry if
+   * this is the first record of it); kept in the log, not deleted, so
+   * hasResolved() can dedupe future attempts. The (now unneeded) payload
+   * is cleared out - it carries the client's full PII and base64-encoded
+   * ID document photos, and once a submission has actually gone through,
+   * nothing in this module ever reads `.payload` again (getReference()/
+   * hasResolved() only look at `.reference`/`.resolved`). Leaving it
+   * behind meant every successful retry (an entry that failed once, then
+   * resolved) left that data sitting in localStorage indefinitely, with
+   * no code path to it - not the "durable retry queue" this module
+   * documents itself as.
+   */
   function markResolved(submissionId, reference) {
     const entries = readAll();
     const existing = entries.find((e) => e.submissionId === submissionId);
@@ -95,6 +107,7 @@ function createQueue() {
     if (existing) {
       existing.resolved = true;
       existing.reference = reference || null;
+      existing.payload = null;
       existing.updatedAt = now;
     } else {
       entries.push({

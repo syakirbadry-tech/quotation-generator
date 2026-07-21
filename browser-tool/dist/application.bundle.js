@@ -238,7 +238,7 @@
       function fieldHtml(field, value, error) {
         const id = `paf-field-${field.name}`;
         const errorId = `${id}-error`;
-        const commonAttrs = `id="${id}" name="${field.name}" class="paf-input${error ? " paf-input-error" : ""}"` + (field.autocomplete ? ` autocomplete="${field.autocomplete}"` : "") + (error ? ` aria-invalid="true" aria-describedby="${errorId}"` : "");
+        const commonAttrs = `id="${id}" name="${field.name}" class="paf-input${error ? " paf-input-error" : ""}"` + (field.autocomplete ? ` autocomplete="${field.autocomplete}"` : "") + (field.optional ? "" : ' aria-required="true"') + (error ? ` aria-invalid="true" aria-describedby="${errorId}"` : "");
         let control;
         if (field.type === "select") {
           const options = field.options.map((opt) => `<option value="${escapeHtml(opt)}"${value === opt ? " selected" : ""}>${escapeHtml(opt)}</option>`).join("");
@@ -248,8 +248,9 @@
         } else {
           control = `<input type="${field.type}" ${commonAttrs} value="${escapeHtml(value)}" placeholder="${escapeHtml(field.placeholder || "")}">`;
         }
+        const wideClass = field.type === "textarea" ? " paf-field-wide" : "";
         return `
-    <div class="paf-field">
+    <div class="paf-field${wideClass}">
       <label class="paf-label" for="${id}">${escapeHtml(field.label)}${field.optional ? ' <span class="paf-optional">(optional)</span>' : ""}</label>
       ${control}
       ${error ? `<div class="paf-error" id="${errorId}">${escapeHtml(error)}</div>` : ""}
@@ -722,6 +723,7 @@
           if (existing) {
             existing.resolved = true;
             existing.reference = reference || null;
+            existing.payload = null;
             existing.updatedAt = now;
           } else {
             entries.push({

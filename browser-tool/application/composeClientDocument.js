@@ -40,6 +40,7 @@ const APPLICATION_STYLE = `
 .paf-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .paf-field{display:flex;flex-direction:column;gap:6px}
 .paf-field:has(textarea){grid-column:1/-1}
+.paf-field-wide{grid-column:1/-1}
 .paf-label{font-size:12px;font-weight:600;color:var(--ink)}
 .paf-optional{font-weight:400;color:var(--meta)}
 .paf-input{font-family:var(--sans);font-size:14px;padding:10px 12px;border:1px solid var(--line);

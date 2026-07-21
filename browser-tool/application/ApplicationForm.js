@@ -151,6 +151,7 @@ function fieldHtml(field, value, error) {
   const errorId = `${id}-error`;
   const commonAttrs = `id="${id}" name="${field.name}" class="paf-input${error ? ' paf-input-error' : ''}"` +
     (field.autocomplete ? ` autocomplete="${field.autocomplete}"` : '') +
+    (field.optional ? '' : ' aria-required="true"') +
     (error ? ` aria-invalid="true" aria-describedby="${errorId}"` : '');
 
   let control;
@@ -165,8 +166,16 @@ function fieldHtml(field, value, error) {
     control = `<input type="${field.type}" ${commonAttrs} value="${escapeHtml(value)}" placeholder="${escapeHtml(field.placeholder || '')}">`;
   }
 
+  // Textarea fields span the full grid width. Done with an explicit class
+  // here (not just the CSS ":has(textarea)" rule in composeClientDocument.js)
+  // because :has() has no effect in browsers that don't support it
+  // (Firefox before v121/2023, older Safari/mobile WebViews) - the class
+  // keeps the layout correct there too instead of silently degrading to a
+  // half-width, cramped address/notes box.
+  const wideClass = field.type === 'textarea' ? ' paf-field-wide' : '';
+
   return `
-    <div class="paf-field">
+    <div class="paf-field${wideClass}">
       <label class="paf-label" for="${id}">${escapeHtml(field.label)}${field.optional ? ' <span class="paf-optional">(optional)</span>' : ''}</label>
       ${control}
       ${error ? `<div class="paf-error" id="${errorId}">${escapeHtml(error)}</div>` : ''}

@@ -132,6 +132,40 @@ console.log('\n=== SubmissionQueue: enqueue / resolve / duplicate detection ==='
   check('markResolved works even without a prior enqueue call (first-attempt success)', queue.hasResolved('q-2-never-enqueued'), true);
 }
 
+console.log('\n=== SubmissionQueue: resolved entries do not retain PII/documents (persistent/localStorage path) ===');
+{
+  // Node has no `localStorage` global - a minimal in-memory polyfill lets
+  // this exercise the REAL persistent-storage code path (readAll/writeAll
+  // via JSON in localStorage), not just the in-memory fallback every
+  // other test in this file runs under.
+  const store = {};
+  global.localStorage = {
+    getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: (k) => { delete store[k]; },
+  };
+  try {
+    const queue = createQueue();
+    ok('this queue instance is actually using the persistent (localStorage) path, not the in-memory fallback', queue.isPersistent());
+
+    const sensitivePayload = {
+      applicant: { nric: '900101-01-1234' },
+      documents: { nricFront: { filename: 'ic.jpg', mimeType: 'image/jpeg', base64: 'ZmFrZS1iYXNlNjQtaWMtcGhvdG8=' } },
+    };
+    queue.enqueue('q-pii-1', sensitivePayload, { type: 'network', message: 'boom' });
+    ok('the failed attempt\'s payload (incl. base64 ID photo) really did get written to localStorage', JSON.stringify(store).includes('fake-base64-ic-photo') === false && JSON.stringify(store).includes('ZmFrZS1iYXNlNjQtaWMtcGhvdG8='));
+
+    queue.markResolved('q-pii-1', 'REF-PII-1');
+    ok(
+      'once resolved, the base64 document payload is gone from localStorage entirely - it does not linger after a successful retry',
+      !JSON.stringify(store).includes('ZmFrZS1iYXNlNjQtaWMtcGhvdG8=') && !JSON.stringify(store).includes('900101-01-1234')
+    );
+    check('the reference is still retrievable after the payload is cleared', queue.getReference('q-pii-1'), 'REF-PII-1');
+  } finally {
+    delete global.localStorage;
+  }
+}
+
 console.log('\n=== SubmissionService: success via MockDestination ===');
 {
   const queue = createQueue();
