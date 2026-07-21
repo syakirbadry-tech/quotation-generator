@@ -38,6 +38,7 @@ const ERROR_MESSAGES = {
   not_configured: 'Submission is not available right now. Please contact your agent.',
   http_error: 'The server rejected the submission.',
   server: 'The submission service was unavailable.',
+  rate_limited: 'Too many submission attempts right now. Please wait a minute and try again.',
   unknown: 'Something went wrong while submitting your application.',
 };
 

@@ -1,0 +1,7 @@
+# Real local secrets - never commit. See .dev.vars.example.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+node_modules/
+.wrangler/

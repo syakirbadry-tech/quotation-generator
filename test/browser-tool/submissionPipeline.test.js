@@ -210,21 +210,46 @@ console.log('\n=== SubmissionService: success via MockDestination ===');
     ok('resolves with a synthetic reference', typeof consoleResult.reference === 'string');
 
     console.log('\n=== AirtableDestination: request shape against a mocked fetch (no real network call) ===');
+    // Phase 9: this adapter now posts to our own backend (see backend/),
+    // not straight to Airtable's webhook - direct-to-webhook cannot work
+    // at all (Airtable's webhook sends no CORS headers; see
+    // AirtableDestination.js's header comment). The backend's response
+    // contract is { success, recordId, message } / { success: false,
+    // error, code }, not Airtable's own raw webhook response shape.
     let capturedUrl = null;
     let capturedBody = null;
     const originalFetch = global.fetch;
     global.fetch = async (url, opts) => {
       capturedUrl = url;
       capturedBody = JSON.parse(opts.body);
-      return { ok: true, status: 200, json: async () => ({ reference: 'recFAKE123' }) };
+      return { ok: true, status: 200, json: async () => ({ success: true, recordId: 'recFAKE123', message: 'Application submitted successfully.' }) };
     };
     try {
       check('send() rejects with not_configured before configure() is called', await AirtableDestination.send({ metadata: { submissionId: 'at-1' } }).catch((e) => e.type), 'not_configured');
-      AirtableDestination.configure({ webhookUrl: 'https://hooks.airtable.com/workflows/v1/genericWebhook/fake-test-only' });
-      const atResult = await AirtableDestination.send({ version: '1.0', metadata: { submissionId: 'at-1' }, applicant: { fullName: 'X' } });
-      check('resolves with the reference the webhook echoed back', atResult.reference, 'recFAKE123');
-      ok('POSTed to the configured webhook URL', capturedUrl === 'https://hooks.airtable.com/workflows/v1/genericWebhook/fake-test-only');
+      AirtableDestination.configure({ endpointUrl: 'https://prubsn-submission-service.example.workers.dev/submit' });
+      const atResult = await AirtableDestination.send({ version: '1.2', metadata: { submissionId: 'at-1' }, applicant: { fullName: 'X' } });
+      check('resolves with the recordId the backend returned, as `reference` (unchanged downstream contract)', atResult.reference, 'recFAKE123');
+      ok('POSTed to the configured backend endpoint', capturedUrl === 'https://prubsn-submission-service.example.workers.dev/submit');
       check('request body is the exact payload, unmodified', capturedBody.metadata.submissionId, 'at-1');
+
+      console.log('\n=== AirtableDestination: backend error responses map onto the existing typed-error vocabulary ===');
+      global.fetch = async () => ({ ok: false, status: 400, json: async () => ({ success: false, error: 'Payload is missing applicant details.', code: 'invalid_payload' }) });
+      const validationErr = await AirtableDestination.send({ metadata: { submissionId: 'at-2' } }).catch((e) => e);
+      check('a 400 invalid_payload response maps to type "validation"', validationErr.type, 'validation');
+
+      global.fetch = async () => ({ ok: false, status: 429, json: async () => ({ success: false, error: 'Too many submissions.', code: 'rate_limited' }) });
+      const rateLimitErr = await AirtableDestination.send({ metadata: { submissionId: 'at-3' } }).catch((e) => e);
+      check('a 429 rate_limited response maps to type "rate_limited"', rateLimitErr.type, 'rate_limited');
+
+      global.fetch = async () => ({ ok: false, status: 500, json: async () => ({ success: false, error: 'Could not submit to Airtable.', code: 'airtable_error' }) });
+      const serverErr = await AirtableDestination.send({ metadata: { submissionId: 'at-4' } }).catch((e) => e);
+      check('a 500 airtable_error response maps to type "server"', serverErr.type, 'server');
+
+      global.fetch = async (url, opts) => {
+        capturedUrl = url;
+        capturedBody = JSON.parse(opts.body);
+        return { ok: true, status: 200, json: async () => ({ success: true, recordId: 'recFAKE123', message: 'Application submitted successfully.' }) };
+      };
 
       console.log('\n=== Regression: clientRuntime.js\'s actual wiring pattern (configure() then use the MODULE as destination) ===');
       // clientRuntime.js does `AirtableDestination.configure({...})` for its
@@ -237,7 +262,7 @@ console.log('\n=== SubmissionService: success via MockDestination ===');
       // exact call shape clientRuntime.js uses, through SubmissionService,
       // not AirtableDestination.send() directly (the tests above already
       // covered that layer and still didn't catch the wiring bug).
-      ok('configure() returns undefined - a reminder that its return value must never be used as a destination', AirtableDestination.configure({ webhookUrl: 'https://hooks.airtable.com/workflows/v1/genericWebhook/fake-test-only' }) === undefined);
+      ok('configure() returns undefined - a reminder that its return value must never be used as a destination', AirtableDestination.configure({ endpointUrl: 'https://prubsn-submission-service.example.workers.dev/submit' }) === undefined);
       const wiringQueue = createQueue();
       const wiringResult = await SubmissionService.submit(
         { version: '1.2', quotation: {}, applicant: { fullName: 'Wiring Check' }, beneficiaries: [], metadata: { submissionId: 'wiring-1' } },
@@ -246,7 +271,7 @@ console.log('\n=== SubmissionService: success via MockDestination ===');
       check('a submission built the way clientRuntime.js actually builds it succeeds end-to-end', wiringResult.status, 'success');
     } finally {
       global.fetch = originalFetch;
-      AirtableDestination.configure({ webhookUrl: null });
+      AirtableDestination.configure({ endpointUrl: null });
     }
 
     console.log(`\n${pass} passed, ${fail} failed.`);

@@ -1,0 +1,7 @@
+# Copy this file to .dev.vars (untracked - see .gitignore) for local
+# `wrangler dev`. Never commit a real token to any tracked file.
+#
+# Create the token at https://airtable.com/create/tokens with:
+#   - scope: data.records:write
+#   - access: the base containing the Clients table (appcA4lwc8KrLNxwM)
+AIRTABLE_PAT=patXXXXXXXXXXXXXX.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

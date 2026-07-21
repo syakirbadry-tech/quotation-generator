@@ -1,0 +1,35 @@
+name = "prubsn-submission-service"
+main = "src/worker.js"
+compatibility_date = "2026-07-21"
+
+# Non-secret configuration. Overridable per-environment below.
+[vars]
+AIRTABLE_BASE_ID = "appcA4lwc8KrLNxwM"
+AIRTABLE_TABLE_ID = "tblmBQko8J7yOsBbv"
+ALLOWED_ORIGIN = "*"
+
+# AIRTABLE_PAT is a SECRET and must never be written here or committed
+# anywhere. Set it with:
+#   wrangler secret put AIRTABLE_PAT
+# (production) and in .dev.vars (untracked, see .dev.vars.example) for
+# local `wrangler dev`. See ../DEPLOYMENT.md.
+
+# Optional rate limiting: uncomment after creating a KV namespace with
+#   wrangler kv namespace create RATE_LIMIT_KV
+# and pasting the id it prints below. Entirely optional - the Worker
+# works without this binding, just without rate limiting.
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT_KV"
+# id = "<paste-the-namespace-id-here>"
+
+# --- Optional named environments (see DEPLOYMENT.md) ---
+# `wrangler deploy --env staging` etc. Each environment gets its own
+# secrets (`wrangler secret put AIRTABLE_PAT --env staging`) and, if
+# desired, a different Airtable base/table for a safe testing sandbox.
+#
+# [env.staging]
+# name = "prubsn-submission-service-staging"
+# [env.staging.vars]
+# AIRTABLE_BASE_ID = "appcA4lwc8KrLNxwM"
+# AIRTABLE_TABLE_ID = "tblmBQko8J7yOsBbv"
+# ALLOWED_ORIGIN = "*"

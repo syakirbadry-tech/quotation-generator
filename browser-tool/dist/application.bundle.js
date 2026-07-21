@@ -438,6 +438,7 @@
         not_configured: "Submission is not available right now. Please contact your agent.",
         http_error: "The server rejected the submission.",
         server: "The submission service was unavailable.",
+        rate_limited: "Too many submission attempts right now. Please wait a minute and try again.",
         unknown: "Something went wrong while submitting your application."
       };
       function friendlyErrorMessage(error) {
@@ -820,10 +821,10 @@
   var require_AirtableDestination = __commonJS({
     "browser-tool/destinations/AirtableDestination.js"(exports, module) {
       "use strict";
-      var webhookUrl = null;
+      var endpointUrl = null;
       var DEFAULT_TIMEOUT_MS = 15e3;
       function configure(options) {
-        webhookUrl = options && options.webhookUrl || null;
+        endpointUrl = options && options.endpointUrl || null;
       }
       function createTypedError(type, message) {
         const err = new Error(message);
@@ -834,15 +835,33 @@
         const submissionId = payload && payload.metadata && payload.metadata.submissionId;
         return submissionId ? `AT-${String(submissionId).slice(0, 8).toUpperCase()}` : `AT-${Date.now().toString(36).toUpperCase()}`;
       }
+      function typeForBackendCode(code) {
+        switch (code) {
+          case "not_configured":
+            return "not_configured";
+          case "timeout":
+            return "timeout";
+          case "rate_limited":
+            return "rate_limited";
+          case "invalid_content_type":
+          case "invalid_json":
+          case "invalid_payload":
+          case "payload_too_large":
+          case "method_not_allowed":
+            return "validation";
+          default:
+            return "server";
+        }
+      }
       async function send(payload) {
-        if (!webhookUrl) {
-          throw createTypedError("not_configured", "AirtableDestination: webhookUrl is not set. See this file's header for setup steps.");
+        if (!endpointUrl) {
+          throw createTypedError("not_configured", "AirtableDestination: endpointUrl is not set. See this file's header for setup steps.");
         }
         const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
         const timer = controller ? setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS) : null;
         let response;
         try {
-          response = await fetch(webhookUrl, {
+          response = await fetch(endpointUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -856,15 +875,18 @@
         } finally {
           if (timer) clearTimeout(timer);
         }
-        if (!response.ok) {
-          throw createTypedError("http_error", `AirtableDestination: webhook responded with HTTP ${response.status}`);
-        }
         let body = null;
         try {
           body = await response.json();
         } catch (e) {
         }
-        return { reference: body && body.reference || fallbackReference(payload) };
+        if (!response.ok || !body || body.success !== true) {
+          const code = body && body.code;
+          const type = code ? typeForBackendCode(code) : "http_error";
+          const message = body && body.error || `AirtableDestination: backend responded with HTTP ${response.status}`;
+          throw createTypedError(type, message);
+        }
+        return { reference: body.recordId || fallbackReference(payload) };
       }
       var AirtableDestination = { name: "airtable", send, configure };
       if (typeof module !== "undefined" && module.exports) {
@@ -886,7 +908,7 @@
       var CONFIRMATION_STEP = ApplicationForm.TOTAL_STEPS + 1;
       var STEP_LABELS = ApplicationForm.STEP_DEFS.map((s) => s.title).concat(["Review"]);
       AirtableDestination.configure({
-        webhookUrl: "https://hooks.airtable.com/workflows/v1/genericWebhook/appcA4lwc8KrLNxwM/wflQdJbGW3L2C8hoC/wtr78zDfdM03qbWWI"
+        endpointUrl: "https://prubsn-submission-service.YOUR_SUBDOMAIN.workers.dev/submit"
       });
       var ACTIVE_DESTINATION = AirtableDestination;
       var MAX_FILE_BYTES = 5 * 1024 * 1024;

@@ -1,0 +1,15 @@
+{
+  "name": "prubsn-submission-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker backend that submits client applications to Airtable's REST API on the Clients table - replaces the direct browser-to-Airtable-webhook call, which cannot work due to Airtable's webhook not supporting CORS.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node test/validate.test.js && node test/airtable.test.js && node test/worker.test.js"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

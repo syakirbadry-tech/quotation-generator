@@ -34,24 +34,25 @@ const REVIEW_STEP = ApplicationForm.TOTAL_STEPS; // index 4
 const CONFIRMATION_STEP = ApplicationForm.TOTAL_STEPS + 1; // index 5
 const STEP_LABELS = ApplicationForm.STEP_DEFS.map((s) => s.title).concat(['Review']);
 
-// Phase 6A: live Airtable webhook configured with duplicate prevention (see
-// destinations/AirtableDestination.js). Webhook is scoped to this
-// automation; as of Phase 8 the Automation's action should map incoming
-// fields onto the "Clients" table (the single source of truth for a
-// customer's whole application - see docs/AIRTABLE_FIELD_MAPPING.md), not
-// the older, now-deprecated "Applications" table.
+// Phase 9: submissions go to our own backend (see backend/), not straight
+// to Airtable - a production audit found the direct-webhook architecture
+// could never work at all (Airtable's webhook sends no CORS headers, so
+// no browser fetch() to it can ever succeed, from any origin - see
+// AirtableDestination.js's header comment for the full verification).
+// The backend holds the real Airtable credential and maps the payload
+// onto the "Clients" table itself (single source of truth for a
+// customer's whole application - see docs/AIRTABLE_FIELD_MAPPING.md).
 //
 // AirtableDestination.configure() is a side-effecting call (it sets the
-// module's internal webhookUrl) and returns nothing - the destination
+// module's internal endpointUrl) and returns nothing - the destination
 // SubmissionService.submit() needs is the AirtableDestination module
-// object itself ({ name, send }), not configure()'s return value. Passing
-// configure()'s undefined return as `destination` made every real
-// submission fail with "a destination with a send() function is
-// required." - caught via an actual end-to-end browser run of the
-// Submit step, not by the unit tests (which call AirtableDestination.send
-// directly and never exercised this wiring).
+// object itself ({ name, send }), not configure()'s return value.
+//
+// Replace this URL with the real one `wrangler deploy` prints for your
+// account (see backend/DEPLOYMENT.md) - this default is a placeholder,
+// not a live endpoint.
 AirtableDestination.configure({
-  webhookUrl: 'https://hooks.airtable.com/workflows/v1/genericWebhook/appcA4lwc8KrLNxwM/wflQdJbGW3L2C8hoC/wtr78zDfdM03qbWWI'
+  endpointUrl: 'https://prubsn-submission-service.YOUR_SUBDOMAIN.workers.dev/submit'
 });
 const ACTIVE_DESTINATION = AirtableDestination;
 
