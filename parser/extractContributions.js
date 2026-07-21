@@ -8,8 +8,13 @@
  *   - The "Details / Person to be Covered" block: "Total Annual Contribution".
  *   - The "A. SUMMARY" section (bounded until "B. MARKETING ILLUSTRATION
  *     TABLE"): the "RM x X n Years = RM y" contribution-over-term formula,
- *     "Total direct commission", and the guaranteed death/TPD amount next
- *     to "If you die or suffer TPD".
+ *     "Total direct commission", the guaranteed death/TPD amount next
+ *     to "If you die or suffer TPD", and the "Non-Guaranteed Benefits ...
+ *     At maturity" cash value under the PDF's own two hypothetical
+ *     investment scenarios ("Scenario X : RM x.xx" / "Scenario Y : RM
+ *     y.yy" - X is 2% p.a., Y is 5% p.a., per that section's own footnote
+ *     elsewhere on the page; this extractor only reads the printed cash
+ *     figures, not the percentage assumption behind them).
  *
  * Extraction method: anchor-label for every field. Numbers that print on
  * the same line as their label are pulled directly; numbers that PruBSN's
@@ -31,7 +36,9 @@
  *   { isaContribution, medicTotalCareContribution, protectionContribution,
  *     wakalahCertificateCharge, totalMonthlyContribution,
  *     totalAnnualContribution, totalContributionOverTerm,
- *     totalDirectCommission, guaranteedDeathTPDBenefit, _warnings }
+ *     totalDirectCommission, guaranteedDeathTPDBenefit,
+ *     nonGuaranteedCashValueScenarioX, nonGuaranteedCashValueScenarioY,
+ *     _warnings }
  */
 
 'use strict';
@@ -111,6 +118,8 @@ function extractContributions(doc) {
   let totalContributionOverTerm = null;
   let totalDirectCommission = null;
   let guaranteedDeathTPDBenefit = null;
+  let nonGuaranteedCashValueScenarioX = null;
+  let nonGuaranteedCashValueScenarioY = null;
 
   if (summarySection.startIndex === -1) {
     warnings.push({ field: 'contributions', message: 'Could not locate the "A. SUMMARY" section.' });
@@ -140,6 +149,29 @@ function extractContributions(doc) {
     } else {
       warnings.push({ field: 'contributions.guaranteedDeathTPDBenefit', message: 'Could not locate "If you die or suffer TPD".' });
     }
+
+    // "Non-Guaranteed Benefits ... At maturity" - the ISA/IUA cash value
+    // under PruBSN's two hypothetical investment scenarios (2% p.a. /
+    // 5% p.a. - defined elsewhere in the PDF, not on this line), printed
+    // here as "Scenario X : RM x.xx" / "Scenario Y : RM y.yy". Requiring
+    // "RM" right after the colon is what keeps this from matching a later,
+    // unrelated "Scenario X : -49.06% p.a." (Annualised Return) line
+    // elsewhere in this same section - a percentage, not a cash amount.
+    const scenarioXLine = lines.find((l) => /Scenario X\s*:\s*RM\s*[\d,]+(\.\d+)?/i.test(l));
+    if (scenarioXLine) {
+      const m = scenarioXLine.match(/RM\s*([\d,]+(\.\d+)?)/i);
+      nonGuaranteedCashValueScenarioX = m ? parseCurrency(m[1]) : null;
+    } else {
+      warnings.push({ field: 'contributions.nonGuaranteedCashValueScenarioX', message: 'Could not locate the "Scenario X : RM ..." non-guaranteed cash value figure.' });
+    }
+
+    const scenarioYLine = lines.find((l) => /Scenario Y\s*:\s*RM\s*[\d,]+(\.\d+)?/i.test(l));
+    if (scenarioYLine) {
+      const m = scenarioYLine.match(/RM\s*([\d,]+(\.\d+)?)/i);
+      nonGuaranteedCashValueScenarioY = m ? parseCurrency(m[1]) : null;
+    } else {
+      warnings.push({ field: 'contributions.nonGuaranteedCashValueScenarioY', message: 'Could not locate the "Scenario Y : RM ..." non-guaranteed cash value figure.' });
+    }
   }
 
   return {
@@ -152,6 +184,8 @@ function extractContributions(doc) {
     totalContributionOverTerm,
     totalDirectCommission,
     guaranteedDeathTPDBenefit,
+    nonGuaranteedCashValueScenarioX,
+    nonGuaranteedCashValueScenarioY,
     _warnings: warnings,
   };
 }

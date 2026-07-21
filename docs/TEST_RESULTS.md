@@ -4,11 +4,11 @@
 **Run with:** `node test/run-sample.js [path-to-pdf]` (defaults to the sample PDF used throughout Phase 1 development)
 **Sample document:** `Santun_Syafitri_Binti_Mulyadi_14072026182021.pdf` — a real 33-page PruBSN AnugerahMax + Medic TotalCare Product Illustration, quotation date 14/07/2026, client: female, non-smoker, age 26 next birthday, Class 2 occupation, Medic TotalCare Plan 200 / SmartSaver300.
 
-**Result (last run):** `37 passed, 0 failed`, exit code `0`. **0 errors.** 5 warnings, all reviewed and confirmed correct (see below) — none indicate a defect.
+**Result (last run):** `40 passed, 0 failed`, exit code `0`. **0 errors.** 5 warnings, all reviewed and confirmed correct (see below) — none indicate a defect.
 
 This is a single-document smoke test, not a unit-test suite with isolated fixtures per extractor. It exercises the full pipeline (`extractPagesFromPdf` → `parseQuotation` → all 8 extractors → `validateQuotation`) end to end and asserts specific values that were independently verified by hand against the source PDF during development. See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) item 1 for why more sample documents should be run before this parser is trusted for other clients.
 
-## Assertions (37/37 passed)
+## Assertions (40/40 passed)
 
 | Section | Assertions |
 |---|---|
@@ -16,7 +16,7 @@ This is a single-document smoke test, not a unit-test suite with isolated fixtur
 | Client | fullName, gender, smokerStatus, occupationClass, ageNextBirthday, dateOfBirth.iso |
 | Agent | agentNameOnDocument, agentCode |
 | Plan | basicPlanTerm, basicSumCovered, medicalPlanTier, coPaymentOption, coverageToAge |
-| Contributions | isaContribution, medicTotalCareContribution, protectionContribution, wakalahCertificateCharge, totalMonthlyContribution, totalAnnualContribution, guaranteedDeathTPDBenefit |
+| Contributions | isaContribution, medicTotalCareContribution, protectionContribution, wakalahCertificateCharge, totalMonthlyContribution, totalAnnualContribution, guaranteedDeathTPDBenefit, totalContributionOverTerm, nonGuaranteedCashValueScenarioX, nonGuaranteedCashValueScenarioY (added post-Phase-1, for the narrative quotation renderer migration - see CHANGELOG.md) |
 | Benefits | annualLimit, lifetimeLimit, benefitItems.length (18), medicalExclusions.length (3), fullExclusionsList.length (28) |
 | Options | columns.length (3), each column's annualContribution ([2112, 1860, 2952]), each column's coPaymentOption, coverageTerm |
 | Projection | projectionRows.length (5), row[0] full shape, both inflation-assumption percentages (7, 10) |

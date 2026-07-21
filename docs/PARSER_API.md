@@ -90,9 +90,11 @@ All monetary fields are `number \| null` (RM).
 | `wakalahCertificateCharge` | |
 | `totalMonthlyContribution` | = `isaContribution + medicTotalCareContribution + wakalahCertificateCharge` |
 | `totalAnnualContribution` | = `totalMonthlyContribution × 12` |
-| `totalContributionOverTerm` | Total over the full certificate term |
+| `totalContributionOverTerm` | Total over the full certificate term (e.g. `RM 2,112 x 44 Years = RM 92,928`) |
 | `totalDirectCommission` | |
 | `guaranteedDeathTPDBenefit` | |
+| `nonGuaranteedCashValueScenarioX` | ISA/IUA cash value at maturity under the PDF's own "Scenario X" hypothetical (2% p.a. investment return) - illustrative, not guaranteed |
+| `nonGuaranteedCashValueScenarioY` | Same, under "Scenario Y" (5% p.a.) |
 
 ### `data.benefits`
 

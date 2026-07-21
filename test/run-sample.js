@@ -90,6 +90,9 @@ check('contributions.wakalahCertificateCharge', data.contributions.wakalahCertif
 check('contributions.totalMonthlyContribution', data.contributions.totalMonthlyContribution, 176);
 check('contributions.totalAnnualContribution', data.contributions.totalAnnualContribution, 2112);
 check('contributions.guaranteedDeathTPDBenefit', data.contributions.guaranteedDeathTPDBenefit, 10000);
+check('contributions.totalContributionOverTerm', data.contributions.totalContributionOverTerm, 92928);
+check('contributions.nonGuaranteedCashValueScenarioX', data.contributions.nonGuaranteedCashValueScenarioX, 2193);
+check('contributions.nonGuaranteedCashValueScenarioY', data.contributions.nonGuaranteedCashValueScenarioY, 24570);
 
 // Benefits
 check('benefits.annualLimit', data.benefits.annualLimit, 'RM200,000');
