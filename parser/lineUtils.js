@@ -31,7 +31,15 @@ const PAGE_FOOTER_ANCHOR = /^Presented by\s*:/i;
 function buildDocument(pages) {
   const allLines = [];
   pages.forEach((pageText, pageIndex) => {
-    const lines = (pageText || '').split('\n');
+    // Some pdftotext output glues a page-break form-feed (\f) directly onto
+    // the start of the next line with no newline of its own (e.g.
+    // "...\fQuotation for Yusuf & Ayah\n"), which breaks every `^`-anchored
+    // regex in this file's callers - the line no longer visibly "starts"
+    // with the anchor text at all. Treating \f as its own line boundary
+    // (same as \n) fixes this without assuming anything about which
+    // extraction backend or product produced the text - found via the real
+    // Asas360 sample, but not specific to it.
+    const lines = (pageText || '').replace(/\f/g, '\n').split('\n');
     lines.forEach((text) => {
       allLines.push({ page: pageIndex + 1, text });
     });

@@ -1,17 +1,24 @@
 /**
  * parseQuotation.js
  *
- * The only "orchestrator" in this module. It does not itself locate or
- * clean any data - that's each extractXxx()'s job - it just:
+ * The only "orchestrator" in this module. As of the Version 1 Medical
+ * Card Engine architecture (see
+ * /Users/syakir/.claude/plans/snappy-strolling-cat.md), it:
  *   1. builds the page-number-agnostic document view once,
- *   2. runs every extractor (each independently, each defensively -
- *      one section failing does not stop the others),
- *   3. performs the one piece of cross-section work that legitimately
- *      doesn't belong inside a single extractor (deriving coverageToAge
- *      from client.ageNextBirthday + plan.basicPlanTerm when the PDF's
- *      own "Until age N" wording wasn't found - see extractPlan.js),
- *   4. runs the validation layer against the assembled data,
- *   5. returns { data, warnings, errors }.
+ *   2. classifies which supported product the document is (never by
+ *      filename - see classifyDocument.js),
+ *   3. dispatches to that product's own extractor (extractors/*.js),
+ *      each of which understands only its own PDF structure and layout,
+ *   4. runs that product's own validation (unchanged for AnugerahMax -
+ *      see validate.js's header comment for why regression risk here is
+ *      structurally near-zero),
+ *   5. normalizes the result into the product-agnostic `data.medical`
+ *      shape every renderer/comparison/review-page consumer should read
+ *      from (see normalize/toMedicalJson.js) and attaches the matching
+ *      Coverage Strategy explanation (see coverageStrategy.js),
+ *   6. returns { data, warnings, errors } - unchanged shape/contract for
+ *      every existing AnugerahMax caller; `data.medical` is a purely
+ *      additive new field, nothing existing is removed or renamed.
  *
  * This file must never contain PDF-parsing logic itself, and it must
  * never render HTML - see the file header of each extractor and
@@ -21,45 +28,16 @@
 'use strict';
 
 const { buildDocument } = require('./lineUtils');
-const { extractMetadata } = require('./extractMetadata');
-const { extractClient } = require('./extractClient');
-const { extractAgent } = require('./extractAgent');
-const { extractPlan } = require('./extractPlan');
-const { extractContributions } = require('./extractContributions');
-const { extractBenefits } = require('./extractBenefits');
-const { extractOptions } = require('./extractOptions');
-const { extractProjection } = require('./extractProjection');
+const { classifyDocument } = require('./classifyDocument');
+const { extractAnugerahMax } = require('./extractors/anugerahmax');
+const { extractAsas360 } = require('./extractors/asas360');
+const { fromAnugerahMax, fromAsas360 } = require('./normalize/toMedicalJson');
+const { getCoverageStrategy } = require('./coverageStrategy');
 const { validateQuotation } = require('./validate');
+const { validateMedical } = require('./validateMedical');
 
-/**
- * Runs one extractor defensively: a thrown exception becomes a single
- * hard error for that section (instead of aborting the whole parse), and
- * that section's data comes back as null so downstream code and the
- * eventual renderer clearly see "this section needs manual entry" rather
- * than silently rendering with missing/invented data.
- */
-function safeExtract(sectionName, fn, errors) {
-  try {
-    const result = fn();
-    return result;
-  } catch (err) {
-    errors.push({
-      field: sectionName,
-      message: `Extractor for "${sectionName}" threw an error: ${err.message}`,
-    });
-    return null;
-  }
-}
-
-/** Pulls a section's `_warnings` out into the shared warnings list, prefixed by section. */
-function collectSectionWarnings(sectionName, sectionData, warnings) {
-  if (!sectionData || !Array.isArray(sectionData._warnings)) return sectionData;
-  for (const w of sectionData._warnings) {
-    warnings.push(w.field ? w : { field: sectionName, message: w.message || String(w) });
-  }
-  const { _warnings, ...rest } = sectionData;
-  return rest;
-}
+const UNSUPPORTED_PRODUCT_MESSAGE =
+  'Could not identify this Product Illustration as a supported product (PruBSN AnugerahMax or PruBSN Asas360).';
 
 /**
  * @param {string[]} pages one string of extracted text per PDF page (any
@@ -76,41 +54,45 @@ function collectSectionWarnings(sectionName, sectionData, warnings) {
  */
 function parseQuotation(pages, options = {}) {
   const doc = buildDocument(pages);
-  const warnings = [];
-  const errors = [];
+  const classification = classifyDocument(doc);
 
-  const metadata = safeExtract('metadata', () => extractMetadata(doc, options), errors);
-  const client = safeExtract('client', () => extractClient(doc), errors);
-  const agent = safeExtract('agent', () => extractAgent(doc), errors);
-  const plan = safeExtract('plan', () => extractPlan(doc), errors);
-  const contributions = safeExtract('contributions', () => extractContributions(doc), errors);
-  const benefits = safeExtract('benefits', () => extractBenefits(doc), errors);
-  const optionsSection = safeExtract('options', () => extractOptions(doc), errors);
-  const projection = safeExtract('projection', () => extractProjection(doc), errors);
-
-  const data = {
-    metadata: collectSectionWarnings('metadata', metadata, warnings),
-    client: collectSectionWarnings('client', client, warnings),
-    agent: collectSectionWarnings('agent', agent, warnings),
-    plan: collectSectionWarnings('plan', plan, warnings),
-    contributions: collectSectionWarnings('contributions', contributions, warnings),
-    benefits: collectSectionWarnings('benefits', benefits, warnings),
-    options: collectSectionWarnings('options', optionsSection, warnings),
-    projection: collectSectionWarnings('projection', projection, warnings),
-  };
-
-  // --- The one legitimate cross-section derivation (see file header) ---
-  if (data.plan && data.plan.coverageToAge == null && data.client && data.client.ageNextBirthday != null && data.plan.basicPlanTerm != null) {
-    data.plan.coverageToAge = data.client.ageNextBirthday + data.plan.basicPlanTerm;
-    warnings.push({
-      field: 'plan.coverageToAge',
-      message: `Derived as ageNextBirthday (${data.client.ageNextBirthday}) + basicPlanTerm (${data.plan.basicPlanTerm}); not found explicitly in the PDF.`,
-    });
+  if (!classification.product) {
+    return {
+      data: null,
+      warnings: [],
+      errors: [{ field: 'metadata.product', message: UNSUPPORTED_PRODUCT_MESSAGE }],
+    };
   }
 
-  const validation = validateQuotation(data);
-  warnings.push(...validation.warnings);
-  errors.push(...validation.errors);
+  const isAsas360 = classification.product === 'asas360';
+  const { data, warnings, errors } = isAsas360
+    ? extractAsas360(doc, options)
+    : extractAnugerahMax(doc, options);
+
+  // --- Product-specific validation (unchanged for AnugerahMax) ---
+  // validateQuotation() only understands AnugerahMax's own data.plan/
+  // data.contributions/data.benefits field names - running it against
+  // Asas360's differently-shaped data would produce a wall of false
+  // "required field missing" errors for fields Asas360 never had in the
+  // first place. Asas360's own required-field checking lives entirely in
+  // validateMedical() below, keyed off data.medical.
+  if (!isAsas360) {
+    const validation = validateQuotation(data);
+    warnings.push(...validation.warnings);
+    errors.push(...validation.errors);
+  }
+
+  // --- Normalize into the product-agnostic Universal Medical JSON ---
+  const medicalWarnings = [];
+  data.medical = isAsas360 ? fromAsas360(data, medicalWarnings) : fromAnugerahMax(data, medicalWarnings);
+  warnings.push(...medicalWarnings);
+
+  const medicalValidation = validateMedical(data.medical);
+  warnings.push(...medicalValidation.warnings);
+  errors.push(...medicalValidation.errors);
+
+  const strategy = getCoverageStrategy(data.medical.coverageModel);
+  if (strategy) data.medical.coverageExplanation = strategy.explanation;
 
   return { data, warnings, errors };
 }
