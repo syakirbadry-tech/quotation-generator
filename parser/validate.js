@@ -75,7 +75,19 @@ function isEmpty(value) {
 
 function checkRequiredFields(data, errors) {
   for (const path of REQUIRED_FIELDS) {
-    if (isEmpty(getPath(data, path))) {
+    const empty = isEmpty(getPath(data, path));
+    // [DIAGNOSTIC 5] Rule-by-rule trace - every AnugerahMax required-field
+    // check this validator runs, PASS or FAIL. This validator only
+    // understands data.plan/data.contributions/data.benefits/data.options/
+    // data.projection (AnugerahMax's raw extractor shape) - if it is ever
+    // invoked against Asas360 data (which has data.medicalRider/
+    // data.basicPlan instead), every one of these paths reads as
+    // undefined and FAILs, which is exactly the "wall of AnugerahMax
+    // messages against an Asas360 upload" symptom this diagnostic exists
+    // to catch. See parseQuotation.js normalizeAndValidate()'s isAsas360
+    // gate - this validator must never run when isAsas360 is true.
+    console.log('[DIAGNOSTIC 5] Rule (AnugerahMax validateQuotation): %s -> %s', path, empty ? 'FAIL' : 'PASS');
+    if (empty) {
       errors.push({
         field: path,
         message: `Required field "${path}" is missing or empty. Needs manual entry before this quotation can be sent.`,

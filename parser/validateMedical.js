@@ -44,7 +44,11 @@ function validateMedical(medical) {
   const requiredFields = [...COMMON_REQUIRED_FIELDS, ...(MODEL_REQUIRED_FIELDS[medical.coverageModel] || [])];
   for (const field of requiredFields) {
     const value = getPath(medical, field);
-    if (value == null) {
+    const fail = value == null;
+    // [DIAGNOSTIC 5] Rule-by-rule trace for the product-agnostic medical
+    // validator - runs for BOTH products, keyed off medical.coverageModel.
+    console.log('[DIAGNOSTIC 5] Rule (validateMedical): medical.%s -> %s', field, fail ? 'FAIL' : 'PASS');
+    if (fail) {
       errors.push({ field: `medical.${field}`, message: `Required field "medical.${field}" is missing for coverage model "${medical.coverageModel}".` });
     }
   }

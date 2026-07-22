@@ -1889,7 +1889,9 @@
       }
       function checkRequiredFields(data, errors) {
         for (const path of REQUIRED_FIELDS) {
-          if (isEmpty(getPath2(data, path))) {
+          const empty = isEmpty(getPath2(data, path));
+          console.log("[DIAGNOSTIC 5] Rule (AnugerahMax validateQuotation): %s -> %s", path, empty ? "FAIL" : "PASS");
+          if (empty) {
             errors.push({
               field: path,
               message: `Required field "${path}" is missing or empty. Needs manual entry before this quotation can be sent.`
@@ -2066,7 +2068,9 @@
         const requiredFields = [...COMMON_REQUIRED_FIELDS, ...MODEL_REQUIRED_FIELDS[medical.coverageModel] || []];
         for (const field of requiredFields) {
           const value = getPath2(medical, field);
-          if (value == null) {
+          const fail = value == null;
+          console.log("[DIAGNOSTIC 5] Rule (validateMedical): medical.%s -> %s", field, fail ? "FAIL" : "PASS");
+          if (fail) {
             errors.push({ field: `medical.${field}`, message: `Required field "medical.${field}" is missing for coverage model "${medical.coverageModel}".` });
           }
         }
@@ -2097,6 +2101,16 @@
         if (!protection) {
           warnings.push({ field: "protection", message: "No normalized protection data was produced for this quotation." });
           return { warnings, errors };
+        }
+        const checks = [
+          ["basicPlanName", protection.basicPlanName],
+          ["basicSumCovered", protection.basicSumCovered],
+          ["deathBenefit", protection.deathBenefit],
+          ["tpdBenefit", protection.tpdBenefit]
+        ];
+        for (const [field, value] of checks) {
+          const fail = value == null;
+          console.log("[DIAGNOSTIC 5] Rule (validateProtection): protection.%s -> %s", field, fail ? "FAIL (warning)" : "PASS");
         }
         if (protection.basicPlanName == null) {
           warnings.push({ field: "protection.basicPlanName", message: "Could not determine the basic plan name." });
@@ -2135,7 +2149,7 @@
         const isAsas360 = Boolean(data && data.medicalRider);
         const warnings = [];
         const errors = [];
-        console.log("[DIAGNOSTIC 3] Validation profile: isAsas360=%s -> validateQuotation() %s, validateMedical() runs always, validateProtection() runs always", isAsas360, isAsas360 ? "SKIPPED" : "RAN");
+        console.log("[DIAGNOSTIC 3] Validation profile: isAsas360=" + isAsas360 + " -> validateQuotation() " + (isAsas360 ? "SKIPPED" : "RAN") + ", validateMedical() runs always, validateProtection() runs always");
         if (!isAsas360) {
           const validation = validateQuotation(data);
           warnings.push(...validation.warnings);
@@ -2172,6 +2186,7 @@
         const postExtraction = normalizeAndValidate2(data);
         warnings.push(...postExtraction.warnings);
         errors.push(...postExtraction.errors);
+        console.log("[DIAGNOSTIC 2] Complete normalized data object:", JSON.stringify(data, null, 2));
         console.log("[DIAGNOSTIC 2] Complete normalized data.medical:", JSON.stringify(data.medical, null, 2));
         console.log("[DIAGNOSTIC 2] Complete normalized data.protection:", JSON.stringify(data.protection, null, 2));
         console.log("[DIAGNOSTIC 2] Full data keys present:", Object.keys(data));
@@ -4720,6 +4735,7 @@ ${continueButtonHtml}
   }
   function fieldRowHtml(q, qIndex, field) {
     const value = getPath(q.data, field.path);
+    console.log("[DIAGNOSTIC 6a] Field resolve: label=%s path=%s resolvedValue=%s", field.label, field.path, JSON.stringify(value));
     const fieldWarnings = warningsForPath(q.warnings, field.path);
     const fieldErrors = errorsForPath(q.errors, field.path);
     const hasError = fieldErrors.length > 0;
@@ -4799,6 +4815,16 @@ ${continueButtonHtml}
     renderReviewTabs();
     el.reviewPanels.innerHTML = state.quotations.map((q, i) => reviewPanelHtml(q, i)).join("");
     updateGateState();
+    state.quotations.forEach((q, qIndex) => {
+      editableFieldsFor(q).forEach((field) => {
+        const expected = getPath(q.data, field.path);
+        const expectedStr = expected == null ? "" : String(expected);
+        const input = el.reviewPanels.querySelector(`[data-panel-index="${qIndex}"] input[data-path="${field.path}"]`);
+        const domValue = input ? input.value : "(input not found in DOM)";
+        const match = input && domValue === expectedStr;
+        console.log("[DIAGNOSTIC 6b] DOM readback: path=%s expected=%s domValue=%s match=%s", field.path, JSON.stringify(expectedStr), JSON.stringify(domValue), match);
+      });
+    });
   }
   el.reviewPanels.addEventListener("input", (e) => {
     const target = e.target;

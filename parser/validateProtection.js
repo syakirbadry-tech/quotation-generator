@@ -25,6 +25,17 @@ function validateProtection(protection) {
     return { warnings, errors };
   }
 
+  const checks = [
+    ['basicPlanName', protection.basicPlanName],
+    ['basicSumCovered', protection.basicSumCovered],
+    ['deathBenefit', protection.deathBenefit],
+    ['tpdBenefit', protection.tpdBenefit],
+  ];
+  for (const [field, value] of checks) {
+    const fail = value == null;
+    // [DIAGNOSTIC 5] Rule-by-rule trace for the protection validator - warning-only, both products.
+    console.log('[DIAGNOSTIC 5] Rule (validateProtection): protection.%s -> %s', field, fail ? 'FAIL (warning)' : 'PASS');
+  }
   if (protection.basicPlanName == null) {
     warnings.push({ field: 'protection.basicPlanName', message: 'Could not determine the basic plan name.' });
   }

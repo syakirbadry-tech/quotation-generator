@@ -69,7 +69,7 @@ function normalizeAndValidate(data) {
   // for this document. See parseQuotation.js's own header for why this
   // decision must never run AnugerahMax's validateQuotation() against
   // Asas360 data.
-  console.log('[DIAGNOSTIC 3] Validation profile: isAsas360=%s -> validateQuotation() %s, validateMedical() runs always, validateProtection() runs always', isAsas360, isAsas360 ? 'SKIPPED' : 'RAN');
+  console.log('[DIAGNOSTIC 3] Validation profile: isAsas360=' + isAsas360 + ' -> validateQuotation() ' + (isAsas360 ? 'SKIPPED' : 'RAN') + ', validateMedical() runs always, validateProtection() runs always');
 
   // validateQuotation() only understands AnugerahMax's own data.plan/
   // data.contributions/data.benefits field names - running it against
@@ -144,9 +144,11 @@ function parseQuotation(pages, options = {}) {
   warnings.push(...postExtraction.warnings);
   errors.push(...postExtraction.errors);
 
-  // [DIAGNOSTIC 2] Complete normalized JSON (data.medical + data.protection
-  // are the product-agnostic sections every renderer/review-page should
-  // read from - see normalize/toMedicalJson.js and normalize/toProtectionJson.js).
+  // [DIAGNOSTIC 2] Complete normalized JSON - the ENTIRE data object as it
+  // exists the instant parseQuotation() returns, not just data.medical/
+  // data.protection (those are logged separately below for readability,
+  // but the full object is what the review page/renderer actually consume).
+  console.log('[DIAGNOSTIC 2] Complete normalized data object:', JSON.stringify(data, null, 2));
   console.log('[DIAGNOSTIC 2] Complete normalized data.medical:', JSON.stringify(data.medical, null, 2));
   console.log('[DIAGNOSTIC 2] Complete normalized data.protection:', JSON.stringify(data.protection, null, 2));
   console.log('[DIAGNOSTIC 2] Full data keys present:', Object.keys(data));

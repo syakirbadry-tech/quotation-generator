@@ -438,6 +438,12 @@ function quotationLabel(q, index) {
 
 function fieldRowHtml(q, qIndex, field) {
   const value = getPath(q.data, field.path);
+  // [DIAGNOSTIC 6a] Resolved value for every field BEFORE it is painted into
+  // the DOM - the paired DOM-readback check (after render, see
+  // renderReviewStage()) compares each input's actual .value against this
+  // same resolved value to catch any divergence between "what the data
+  // says" and "what actually reaches the screen".
+  console.log('[DIAGNOSTIC 6a] Field resolve: label=%s path=%s resolvedValue=%s', field.label, field.path, JSON.stringify(value));
   const fieldWarnings = warningsForPath(q.warnings, field.path);
   const fieldErrors = errorsForPath(q.errors, field.path);
   const hasError = fieldErrors.length > 0;
@@ -532,6 +538,24 @@ function renderReviewStage() {
   renderReviewTabs();
   el.reviewPanels.innerHTML = state.quotations.map((q, i) => reviewPanelHtml(q, i)).join('');
   updateGateState();
+
+  // [DIAGNOSTIC 6b] DOM read-back - immediately after the innerHTML above is
+  // painted, read every field input's ACTUAL DOM value back and compare it
+  // against the value that was resolved from q.data for that same path
+  // (see [DIAGNOSTIC 6a] in fieldRowHtml). If these ever disagree, the gap
+  // is somewhere between "value computed" and "HTML committed to the DOM" -
+  // e.g. an escapeHtml/stringify bug, a stale re-render, or a duplicate
+  // input sharing the same data-path.
+  state.quotations.forEach((q, qIndex) => {
+    editableFieldsFor(q).forEach((field) => {
+      const expected = getPath(q.data, field.path);
+      const expectedStr = expected == null ? '' : String(expected);
+      const input = el.reviewPanels.querySelector(`[data-panel-index="${qIndex}"] input[data-path="${field.path}"]`);
+      const domValue = input ? input.value : '(input not found in DOM)';
+      const match = input && domValue === expectedStr;
+      console.log('[DIAGNOSTIC 6b] DOM readback: path=%s expected=%s domValue=%s match=%s', field.path, JSON.stringify(expectedStr), JSON.stringify(domValue), match);
+    });
+  });
 }
 
 // Event delegation: one listener on the panels container handles every
