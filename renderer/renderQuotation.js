@@ -51,7 +51,6 @@ const {
   formatDateLong,
   coPaymentAmount,
   compactRate,
-  bareTierNumber,
   primaryValue,
 } = require('./formatters');
 const { renderNarrativeQuotationHtml } = require('./renderNarrativeQuotation');
@@ -61,23 +60,6 @@ function extractDayTag(value) {
   if (!value) return null;
   const m = value.match(/\(([^)]*\bdays?\b[^)]*)\)/i);
   return m ? m[1] : null;
-}
-
-function formatLimitPhrase(limit) {
-  if (!limit) return null;
-  if (/no\s*(annual\s*)?limit/i.test(limit)) return 'no annual limit';
-  return `${limit} limit`;
-}
-
-function optionBadge(index, columns) {
-  if (index === 0) return 'Recommended';
-  const recommended = columns[0] && columns[0].annualContribution;
-  const current = columns[index].annualContribution;
-  if (recommended != null && current != null) {
-    if (current < recommended) return 'Lower cost';
-    if (current > recommended) return 'Higher cover';
-  }
-  return `Option ${index}`;
 }
 
 /**
@@ -139,37 +121,18 @@ function renderExclusions(exclusions, helpers) {
   return exclusions.map((e) => `<li>${escapeHtml(e)}.</li>`).join('\n');
 }
 
-function renderOptionCard(col, index, columns, helpers) {
-  const { missing, money } = helpers;
-  const badge = optionBadge(index, columns);
-  const pickClass = index === 0 ? ' pick' : '';
-  const name = col.productName ? escapeHtml(col.productName) : missing('product name unclear - reconstructed from a wrapped PDF cell', 'Plan details');
-  const price = col.annualContribution != null ? `${money(col.annualContribution)}<small>/yr</small>` : missing();
-  const descBits = [
-    col.roomAndBoard ? `${escapeHtml(col.roomAndBoard)} room` : null,
-    formatLimitPhrase(col.annualLimitOption) ? escapeHtml(formatLimitPhrase(col.annualLimitOption)) : null,
-  ].filter(Boolean);
-  const desc = descBits.length ? descBits.join(' · ') : missing();
-
-  return `
-      <div class="opt${pickClass}">
-        <div class="badge">${escapeHtml(badge)}</div>
-        <div class="nm">${name}</div>
-        <div class="pr">${price}</div>
-        <div class="d">${desc}</div>
-      </div>`;
-}
-
-function renderNote(projection, client) {
+/** Product-agnostic - uses medical.riderName ("Medic TotalCare" / "Health360") rather than a hardcoded product name. */
+function renderNote(projection, client, riderName) {
   const rows = (projection && projection.projectionRows) || [];
   const currentRow = rows.find((r) => client && r.age === client.ageNextBirthday) || rows[0] || null;
   const age = client ? client.ageNextBirthday : null;
   const amount = currentRow ? formatMoney(currentRow.currentContribution) : null;
+  const rider = riderName || 'contribution';
 
   if (age == null || amount == null) {
-    return `This is an illustration, not a contract of takaful, and is subject to underwriting approval by Prudential BSN Takaful Berhad. Medic TotalCare contribution is not guaranteed and may rise over time with medical inflation.`;
+    return `This is an illustration, not a contract of takaful, and is subject to underwriting approval by Prudential BSN Takaful Berhad. ${escapeHtml(rider)} contribution is not guaranteed and may rise over time with medical inflation.`;
   }
-  return `This is an illustration, not a contract of takaful, and is subject to underwriting approval by Prudential BSN Takaful Berhad. Medic TotalCare contribution is not guaranteed and may rise over time with medical inflation — for example, the annual contribution at age ${age} is around RM ${amount} and is projected to increase as the covered person ages.`;
+  return `This is an illustration, not a contract of takaful, and is subject to underwriting approval by Prudential BSN Takaful Berhad. ${escapeHtml(rider)} contribution is not guaranteed and may rise over time with medical inflation — for example, the annual contribution at age ${age} is around RM ${amount} and is projected to increase as the covered person ages.`;
 }
 
 /** Only rendered in agent mode. Lists every warning/error so the agent can act on them before sending anything. */
@@ -279,16 +242,6 @@ const SHARED_STYLE = `
   .contrib .row.total .r{font-size:19px;font-weight:700;color:var(--teal)}
   .contrib .row.total .r small{font-family:var(--sans);font-size:11px;color:var(--meta);font-weight:400}
 
-  .opts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-  @media(max-width:600px){.opts{grid-template-columns:1fr}}
-  .opt{border:1px solid var(--line);border-radius:12px;padding:14px}
-  .opt.pick{border-color:var(--teal);box-shadow:0 0 0 2px rgba(23,141,147,.12)}
-  .opt .badge{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--teal-dk);font-weight:700}
-  .opt .nm{font-weight:600;font-size:12.5px;margin:5px 0 8px}
-  .opt .pr{font-family:var(--serif);font-size:17px;color:var(--teal)}
-  .opt .pr small{font-family:var(--sans);font-size:11px;color:var(--meta)}
-  .opt .d{font-size:10.5px;color:var(--meta);margin-top:6px;line-height:1.5}
-
   .excl{font-size:12px;color:#555;line-height:1.7}
   .excl li{margin-bottom:3px}
 
@@ -343,10 +296,10 @@ const SHARED_STYLE = `
     .sheet{box-shadow:none;border-radius:0;max-width:100%}
     .medcard::after{content:none}
     .medcard, .medcard .brandrow .g, .fig::before,
-    .contrib .row.total, .opt.pick, table.ben td.v, .tag{
+    .contrib .row.total, table.ben td.v, .tag{
       -webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact}
     .medcard{break-inside:avoid;page-break-inside:avoid}
-    .fig, .opt, .contrib{break-inside:avoid;page-break-inside:avoid}
+    .fig, .contrib{break-inside:avoid;page-break-inside:avoid}
     h2.sec{break-after:avoid;page-break-after:avoid}
     .foot2{break-before:avoid;page-break-before:avoid}
   }
@@ -360,8 +313,16 @@ const SHARED_STYLE = `
  *   renderClientQuotationHtml
  * @returns {string} the .sheet card's inner content (caller wraps it in a full document)
  */
+/** Case-insensitive, product-agnostic substring match against benefitItems - used only for the medical-card mockup's compact "Hospital & Surgical" figure, since AnugerahMax ("In Hospital and Related Services") and Asas360 ("In-hospital & Related Services") spell this differently. */
+function findBenefitFuzzy(benefitItems, ...requiredWords) {
+  return (benefitItems || []).find((item) => {
+    const label = (item.label || '').toLowerCase();
+    return requiredWords.every((w) => label.includes(w));
+  }) || null;
+}
+
 function renderQuotationCard(data, mode, agentReview = {}) {
-  const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, benefits = {}, options = {}, projection = {} } = data || {};
+  const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, medical = {}, projection = {} } = data || {};
   const helpers = buildHelpers(mode);
   const { missing, money, textOr } = helpers;
   const agentConfig = getAgentConfig(agent.agentCode) || {};
@@ -426,7 +387,7 @@ function renderQuotationCard(data, mode, agentReview = {}) {
     }
   }
 
-  const planSubtitle = [metadata.productName, [plan.medicalRiderName, plan.medicalPlanTier ? `(${plan.medicalPlanTier})` : null].filter(Boolean).join(' ')]
+  const planSubtitle = [metadata.productName, [medical.riderName, medical.planTier ? `(Plan ${medical.planTier})` : null].filter(Boolean).join(' ')]
     .filter(Boolean)
     .join(' · ');
   const sourceNote =
@@ -438,22 +399,69 @@ function renderQuotationCard(data, mode, agentReview = {}) {
   // term for this figure. Always rendered as "RM 246.00" (fixed 2dp, never
   // "/mo") wherever it appears - see formatters.js's resolveMonthlyTotalPayable/
   // formatMoneyFixed2 for the extraction-first, annual-divided-by-12-fallback-only rule.
-  const monthlyTotalPayableValue = resolveMonthlyTotalPayable(contributions);
+  // Falls back to a product's own directly-printed top-level figure
+  // (Asas360's data.monthlyTotalAmountPayable, outside the AnugerahMax-
+  // shaped `contributions` object) when resolveMonthlyTotalPayable() has
+  // nothing - never derived/estimated for either product.
+  const monthlyTotalPayableValue = resolveMonthlyTotalPayable(contributions) ?? (data && data.monthlyTotalAmountPayable != null ? data.monthlyTotalAmountPayable : null);
   const monthlyTotalPayable = monthlyTotalPayableValue != null ? `RM ${formatMoneyFixed2(monthlyTotalPayableValue)}` : null;
 
-  const roomBoardItem = (benefits.benefitItems || []).find((i) => i.label === 'Hospital Daily Room and Board');
-  const roomBoardCompact = roomBoardItem ? compactRate(roomBoardItem.value) : null;
-  const roomBoardTag = roomBoardItem ? extractDayTag(roomBoardItem.value) : null;
+  // Sourced from medical.roomAndBoard's already-normalized {amount,
+  // maxDaysPerYear} rather than a benefit-item label match - AnugerahMax
+  // ("Hospital Daily Room and Board") and Asas360 ("Hospital Daily Room &
+  // Board") spell this differently, and this renderer must not hardcode
+  // either product's specific wording.
+  const roomAndBoard = medical.roomAndBoard || {};
+  const roomBoardCompact = roomAndBoard.amount != null ? compactRate(`RM${roomAndBoard.amount} per day`) : null;
+  const roomBoardTag = roomAndBoard.maxDaysPerYear != null ? `maximum ${roomAndBoard.maxDaysPerYear} days` : null;
   // The medical-card mockup has a fixed aspect ratio and clips overflow,
   // so it needs the terser "Medic TotalCare 200" form rather than the
   // fuller "Medic TotalCare Plan 200" used in the prose title/subtitle.
-  const cardPlanLabel = plan.medicalRiderName
-    ? [plan.medicalRiderName, bareTierNumber(plan.medicalPlanTier)].filter(Boolean).join(' ')
+  // medical.planTier is already the bare tier number for both products.
+  const cardPlanLabel = medical.riderName
+    ? [medical.riderName, medical.planTier].filter(Boolean).join(' ')
     : null;
-  const hospitalSurgicalItem = (benefits.benefitItems || []).find((i) => i.label === 'In Hospital and Related Services');
+  const hospitalSurgicalItem = findBenefitFuzzy(medical.benefitItems, 'hospital', 'related services');
   const hospitalSurgicalCompact = hospitalSurgicalItem ? primaryValue(hospitalSurgicalItem.value) : null;
 
-  const optionColumns = options.columns || [];
+  // Falls back to Asas360's own top-level totalAnnualContribution (outside
+  // the AnugerahMax-shaped `contributions` object) when present.
+  const annualContribution = contributions.totalAnnualContribution != null ? contributions.totalAnnualContribution : (data && data.totalAnnualContribution);
+
+  // Certificate term in years - AnugerahMax's own extracted plan.basicPlanTerm
+  // is used directly when present (unchanged); Asas360 has no equivalent
+  // extracted field in Version 1's medical-only scope, so it's derived from
+  // the same two product-agnostic facts every certificate has (coverageToAge,
+  // client's current age) - mirrors renderer/renderNarrativeQuotation.js's
+  // buildViewModel().
+  const coverageTermYears =
+    plan.basicPlanTerm != null
+      ? plan.basicPlanTerm
+      : medical.coverageToAge != null && client.ageNextBirthday != null
+      ? medical.coverageToAge - client.ageNextBirthday
+      : null;
+
+  // This 3-way Protection/Wakalah/ISA contribution breakdown is specific
+  // to AnugerahMax's own account structure - Asas360's real contribution
+  // structure (PUA/IUA investment-linked accounts) is out of Version 1's
+  // medical-only scope (see extractors/asas360.js's header comment), so
+  // there is nothing honest to show as a breakdown for that product. Falls
+  // back to a single-line total rather than three false "not found" rows.
+  const hasContributionBreakdown = plan.basicPlanName != null || contributions.isaContribution != null || contributions.medicTotalCareContribution != null || contributions.wakalahCertificateCharge != null;
+  const contributionBreakdownHtml = hasContributionBreakdown
+    ? `
+    <h2 class="sec">Your monthly contribution</h2>
+    <div class="contrib">
+      <div class="row"><span class="l">${textOr(plan.basicPlanName)} — Sum Covered ${plan.basicSumCovered != null ? money(plan.basicSumCovered) : missing()}</span><span class="r">${money(contributions.isaContribution)}</span></div>
+      <div class="row"><span class="l">${textOr(medical.riderName)} — ${medical.planTier ? textOr(`Plan ${medical.planTier}`) : missing()}, ${textOr(medical.coPayment)}</span><span class="r">${money(contributions.medicTotalCareContribution)}</span></div>
+      <div class="row"><span class="l">Wakalah Certificate Charge</span><span class="r">${money(contributions.wakalahCertificateCharge)}</span></div>
+      <div class="row total"><span class="l">Monthly Total Amount Payable</span><span class="r">${monthlyTotalPayable ? escapeHtml(monthlyTotalPayable) : missing()} ${annualContribution != null ? `<small>· ${money(annualContribution)}/yr</small>` : ''}</span></div>
+    </div>`
+    : `
+    <h2 class="sec">Your monthly contribution</h2>
+    <div class="contrib">
+      <div class="row total"><span class="l">Monthly Total Amount Payable</span><span class="r">${monthlyTotalPayable ? escapeHtml(monthlyTotalPayable) : missing()} ${annualContribution != null ? `<small>· ${money(annualContribution)}/yr</small>` : ''}</span></div>
+    </div>`;
 
   return `
 <div class="sheet">
@@ -472,7 +480,7 @@ function renderQuotationCard(data, mode, agentReview = {}) {
       <div class="foot">
         <div><span class="lab">Plan</span><br><b>${cardPlanLabel ? escapeHtml(cardPlanLabel) : missing()}</b></div>
         <div><span class="lab">Room &amp; Board</span><br><b>${roomBoardCompact ? escapeHtml(roomBoardCompact) : missing()}</b></div>
-        <div><span class="lab">Cover to</span><br><b>${plan.coverageToAge != null ? `Age ${plan.coverageToAge}` : missing()}</b></div>
+        <div><span class="lab">Cover to</span><br><b>${medical.coverageToAge != null ? `Age ${medical.coverageToAge}` : missing()}</b></div>
       </div>
     </div>
   </div>
@@ -495,38 +503,28 @@ function renderQuotationCard(data, mode, agentReview = {}) {
     </div>
 
     <div class="figs">
-      <div class="fig"><div class="lab">Monthly Total Amount Payable</div><div class="amt">${monthlyTotalPayable ? escapeHtml(monthlyTotalPayable) : missing()}</div><div class="sub">${contributions.totalAnnualContribution != null ? `${money(contributions.totalAnnualContribution)} / year` : ''}</div></div>
-      <div class="fig"><div class="lab">Annual Limit</div><div class="amt">${textOr(benefits.annualLimit)}</div><div class="sub">${textOr(benefits.lifetimeLimit)}</div></div>
+      <div class="fig"><div class="lab">Monthly Total Amount Payable</div><div class="amt">${monthlyTotalPayable ? escapeHtml(monthlyTotalPayable) : missing()}</div><div class="sub">${annualContribution != null ? `${money(annualContribution)} / year` : ''}</div></div>
+      <div class="fig"><div class="lab">${medical.coverageModel === 'LIFETIME_MEDICAL_FUND' ? 'Lifetime Medical Fund' : 'Annual Limit'}</div><div class="amt">${textOr(medical.annualLimit || medical.lifetimeLimit)}</div><div class="sub">${textOr(medical.lifetimeLimit)}</div></div>
       <div class="fig"><div class="lab">Room &amp; Board</div><div class="amt">${roomBoardCompact ? escapeHtml(roomBoardCompact) : missing()}</div><div class="sub">${roomBoardTag ? escapeHtml(roomBoardTag) : ''}</div></div>
-      <div class="fig"><div class="lab">Co-payment</div><div class="amt">${textOr(plan.coPaymentOption)}</div><div class="sub">${coPaymentAmount(plan.coPaymentOption) ? `RM ${coPaymentAmount(plan.coPaymentOption)} per disability` : ''}</div></div>
+      <div class="fig"><div class="lab">Co-payment</div><div class="amt">${textOr(medical.coPayment)}</div><div class="sub">${coPaymentAmount(medical.coPayment) ? `RM ${coPaymentAmount(medical.coPayment)} per disability` : ''}</div></div>
       <div class="fig"><div class="lab">Hospital &amp; Surgical</div><div class="amt">${hospitalSurgicalCompact ? escapeHtml(hospitalSurgicalCompact) : missing()}</div><div class="sub">cashless at panel</div></div>
-      <div class="fig"><div class="lab">Coverage Term</div><div class="amt">${plan.coverageToAge != null ? `to Age ${plan.coverageToAge}` : missing()}</div><div class="sub">${plan.basicPlanTerm != null ? `${plan.basicPlanTerm} years` : ''}</div></div>
+      <div class="fig"><div class="lab">Coverage Term</div><div class="amt">${medical.coverageToAge != null ? `to Age ${medical.coverageToAge}` : missing()}</div><div class="sub">${coverageTermYears != null ? `${coverageTermYears} years` : ''}</div></div>
     </div>
 
     <h2 class="sec">What your medical card covers</h2>
     <table class="ben">
-${renderBenefitsTable(benefits.benefitItems, helpers)}
+${renderBenefitsTable(medical.benefitItems, helpers)}
     </table>
 
-    <h2 class="sec">Your monthly contribution</h2>
-    <div class="contrib">
-      <div class="row"><span class="l">${textOr(plan.basicPlanName)} — Sum Covered ${plan.basicSumCovered != null ? money(plan.basicSumCovered) : missing()}</span><span class="r">${money(contributions.isaContribution)}</span></div>
-      <div class="row"><span class="l">${textOr(plan.medicalRiderName)} — ${textOr(plan.medicalPlanTier)}, ${textOr(plan.coPaymentOption)}</span><span class="r">${money(contributions.medicTotalCareContribution)}</span></div>
-      <div class="row"><span class="l">Wakalah Certificate Charge</span><span class="r">${money(contributions.wakalahCertificateCharge)}</span></div>
-      <div class="row total"><span class="l">Monthly Total Amount Payable</span><span class="r">${monthlyTotalPayable ? escapeHtml(monthlyTotalPayable) : missing()} ${contributions.totalAnnualContribution != null ? `<small>· ${money(contributions.totalAnnualContribution)}/yr</small>` : ''}</span></div>
-    </div>
-
-    <h2 class="sec">Other options to consider</h2>
-    <div class="opts">${optionColumns.length ? optionColumns.map((c, i) => renderOptionCard(c, i, optionColumns, helpers)).join('') : `\n      <div class="opt">${missing('options table not found')}</div>`}
-    </div>
+    ${contributionBreakdownHtml}
 
     <h2 class="sec">What is not covered</h2>
     <ul class="excl">
-${renderExclusions(benefits.medicalExclusions, helpers)}
+${renderExclusions(medical.medicalExclusions, helpers)}
     </ul>
 
     <div class="note">
-      <b>Please note.</b> ${renderNote(projection, client)}
+      <b>Please note.</b> ${renderNote(projection, client, medical.riderName)}
     </div>
 
     <div class="foot2">
