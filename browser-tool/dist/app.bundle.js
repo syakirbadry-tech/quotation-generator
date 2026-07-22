@@ -109,7 +109,7 @@
       function buildDocument(pages) {
         const allLines = [];
         pages.forEach((pageText, pageIndex) => {
-          const lines = (pageText || "").split("\n");
+          const lines = (pageText || "").replace(/\f/g, "\n").split("\n");
           lines.forEach((text) => {
             allLines.push({ page: pageIndex + 1, text });
           });
@@ -270,6 +270,43 @@
         findRepeatingHeader,
         getBenefitsTableBlock
       };
+    }
+  });
+
+  // parser/classifyDocument.js
+  var require_classifyDocument = __commonJS({
+    "parser/classifyDocument.js"(exports, module) {
+      "use strict";
+      var SCAN_PAGE_COUNT = 3;
+      var PRODUCT_SIGNATURES = [
+        {
+          product: "anugerahmax",
+          productPattern: /PruBSN\s+AnugerahMax/i,
+          riderPattern: /Medic\s+TotalCare/i
+        },
+        {
+          product: "asas360",
+          productPattern: /PruBSN\s+Asas360/i,
+          riderPattern: /Health360/i
+        }
+      ];
+      function classifyDocument(doc) {
+        const scanText = (doc.pages || []).slice(0, SCAN_PAGE_COUNT).join("\n");
+        for (const sig of PRODUCT_SIGNATURES) {
+          const hasProduct = sig.productPattern.test(scanText);
+          const hasRider = sig.riderPattern.test(scanText);
+          if (hasProduct && hasRider) {
+            return { product: sig.product, confidence: "high" };
+          }
+        }
+        for (const sig of PRODUCT_SIGNATURES) {
+          if (sig.productPattern.test(scanText) || sig.riderPattern.test(scanText)) {
+            return { product: null, confidence: "low" };
+          }
+        }
+        return { product: null, confidence: "none" };
+      }
+      module.exports = { classifyDocument };
     }
   });
 
@@ -1139,6 +1176,668 @@
     }
   });
 
+  // parser/extractors/anugerahmax.js
+  var require_anugerahmax = __commonJS({
+    "parser/extractors/anugerahmax.js"(exports, module) {
+      "use strict";
+      var { extractMetadata } = require_extractMetadata();
+      var { extractClient } = require_extractClient();
+      var { extractAgent } = require_extractAgent();
+      var { extractPlan } = require_extractPlan();
+      var { extractContributions } = require_extractContributions();
+      var { extractBenefits } = require_extractBenefits();
+      var { extractOptions } = require_extractOptions();
+      var { extractProjection } = require_extractProjection();
+      function safeExtract(sectionName, fn, errors) {
+        try {
+          return fn();
+        } catch (err) {
+          errors.push({
+            field: sectionName,
+            message: `Extractor for "${sectionName}" threw an error: ${err.message}`
+          });
+          return null;
+        }
+      }
+      function collectSectionWarnings(sectionName, sectionData, warnings) {
+        if (!sectionData || !Array.isArray(sectionData._warnings)) return sectionData;
+        for (const w of sectionData._warnings) {
+          warnings.push(w.field ? w : { field: sectionName, message: w.message || String(w) });
+        }
+        const { _warnings, ...rest } = sectionData;
+        return rest;
+      }
+      function extractAnugerahMax(doc, options) {
+        const warnings = [];
+        const errors = [];
+        const metadata = safeExtract("metadata", () => extractMetadata(doc, options), errors);
+        const client = safeExtract("client", () => extractClient(doc), errors);
+        const agent = safeExtract("agent", () => extractAgent(doc), errors);
+        const plan = safeExtract("plan", () => extractPlan(doc), errors);
+        const contributions = safeExtract("contributions", () => extractContributions(doc), errors);
+        const benefits = safeExtract("benefits", () => extractBenefits(doc), errors);
+        const optionsSection = safeExtract("options", () => extractOptions(doc), errors);
+        const projection = safeExtract("projection", () => extractProjection(doc), errors);
+        const data = {
+          metadata: collectSectionWarnings("metadata", metadata, warnings),
+          client: collectSectionWarnings("client", client, warnings),
+          agent: collectSectionWarnings("agent", agent, warnings),
+          plan: collectSectionWarnings("plan", plan, warnings),
+          contributions: collectSectionWarnings("contributions", contributions, warnings),
+          benefits: collectSectionWarnings("benefits", benefits, warnings),
+          options: collectSectionWarnings("options", optionsSection, warnings),
+          projection: collectSectionWarnings("projection", projection, warnings)
+        };
+        if (data.plan && data.plan.coverageToAge == null && data.client && data.client.ageNextBirthday != null && data.plan.basicPlanTerm != null) {
+          data.plan.coverageToAge = data.client.ageNextBirthday + data.plan.basicPlanTerm;
+          warnings.push({
+            field: "plan.coverageToAge",
+            message: `Derived as ageNextBirthday (${data.client.ageNextBirthday}) + basicPlanTerm (${data.plan.basicPlanTerm}); not found explicitly in the PDF.`
+          });
+        }
+        return { data, warnings, errors };
+      }
+      module.exports = { extractAnugerahMax };
+    }
+  });
+
+  // parser/extractors/asas360.js
+  var require_asas360 = __commonJS({
+    "parser/extractors/asas360.js"(exports, module) {
+      "use strict";
+      var {
+        findAnchorIndexInDoc,
+        getSectionLines,
+        getValueAfterColon,
+        parseCurrency,
+        parseIntSafe,
+        splitLetteredList,
+        splitTwoColumnByHeader,
+        splitIntoClauses
+      } = require_lineUtils();
+      var { extractMetadata } = require_extractMetadata();
+      var { extractAgent } = require_extractAgent();
+      function twoColumnValue(line, label) {
+        if (!line) return { left: null, right: null };
+        const idx = line.indexOf(label);
+        if (idx === -1) return { left: null, right: null };
+        const afterLabel = line.slice(idx + label.length);
+        const firstColon = afterLabel.indexOf(":");
+        if (firstColon === -1) return { left: null, right: null };
+        const rest = afterLabel.slice(firstColon + 1);
+        const secondColon = rest.indexOf(":");
+        if (secondColon === -1) return { left: rest.trim() || null, right: null };
+        return { left: rest.slice(0, secondColon).trim() || null, right: rest.slice(secondColon + 1).trim() || null };
+      }
+      function extractClientSection(doc, warnings) {
+        const section = getSectionLines(doc, /Person to be Covered/i, /Plan Type\s*:/i);
+        if (section.startIndex === -1) {
+          warnings.push({ field: "client", message: 'Could not locate the "Person to be Covered" details table.' });
+          return { primary: {}, parent: null };
+        }
+        const fieldFrom = (label) => {
+          const line = section.lines.find((l) => l.includes(label));
+          return twoColumnValue(line, label);
+        };
+        const name = fieldFrom("Name");
+        const sex = fieldFrom("Sex");
+        const smoker = fieldFrom("Smoker");
+        const occupation = fieldFrom("Occupation");
+        const age = fieldFrom("Age");
+        const dob = fieldFrom("Date of birth");
+        const businessProposalLine = section.lines.find((l) => l.includes("Business Proposal"));
+        const takafulPurposeLine = section.lines.find((l) => l.includes("Takaful Plan Purpose"));
+        const primary = {
+          fullName: name.left,
+          gender: sex.left,
+          smokerStatus: smoker.left ? /^no$/i.test(smoker.left) ? "Non-Smoker" : /^yes$/i.test(smoker.left) ? "Smoker" : smoker.left : null,
+          occupationClass: occupation.left,
+          ageNextBirthday: parseIntSafe(age.left),
+          dateOfBirth: dob.left || null,
+          businessProposal: businessProposalLine ? /^yes$/i.test(getValueAfterColon(businessProposalLine, "Business Proposal") || "") : null,
+          takafulPlanPurpose: takafulPurposeLine ? getValueAfterColon(takafulPurposeLine, "Takaful Plan Purpose") : null
+        };
+        [["fullName", name.left], ["gender", sex.left], ["ageNextBirthday", age.left]].forEach(([key, value]) => {
+          if (!value) warnings.push({ field: `client.${key}`, message: `Could not locate a value for client.${key} in the Person to be Covered column.` });
+        });
+        const hasParentColumn = Boolean(name.right);
+        const parent = hasParentColumn ? {
+          fullName: name.right,
+          gender: sex.right,
+          smokerStatus: smoker.right ? /^no$/i.test(smoker.right) ? "Non-Smoker" : /^yes$/i.test(smoker.right) ? "Smoker" : smoker.right : null,
+          occupationClass: occupation.right,
+          ageNextBirthday: parseIntSafe(age.right)
+        } : null;
+        return { primary, parent };
+      }
+      function extractHealth360RowFacts(doc, warnings) {
+        const rowIdx = findAnchorIndexInDoc(doc, /R&B:\s*RM/i);
+        if (rowIdx === -1) {
+          warnings.push({ field: "medicalRider", message: 'Could not locate the "R&B: RM..." row in the quotation benefits table.' });
+          return { roomAndBoardValue: null, smartValuePoint: null, coPaymentOption: null };
+        }
+        const windowLines = doc.allLines.slice(rowIdx, rowIdx + 3).map((l) => l.text);
+        const windowText = windowLines.join(" ");
+        const rbMatch = windowText.match(/R&B:\s*RM\s*([\d,]+)/i);
+        const svpMatch = windowText.match(/Smart Value Point:\s*RM\s*([\d,]+)/i);
+        const coPayMatch = windowText.match(/Co-payment:\s*([A-Za-z]+\s*RM?[\d,]*)/i);
+        if (!rbMatch) warnings.push({ field: "medicalRider.roomAndBoard", message: 'Could not locate the "R&B: RM..." figure near the Health360 row.' });
+        if (!svpMatch) warnings.push({ field: "medicalRider.smartValuePoint", message: 'Could not locate the "Smart Value Point: RM..." figure near the Health360 row.' });
+        if (!coPayMatch) warnings.push({ field: "medicalRider.coPaymentOption", message: 'Could not locate the "Co-payment: ..." option near the Health360 row.' });
+        return {
+          roomAndBoardValue: rbMatch ? `RM${rbMatch[1]} per day` : null,
+          smartValuePoint: svpMatch ? parseCurrency(svpMatch[1]) : null,
+          coPaymentOption: coPayMatch ? coPayMatch[1].trim() : null
+        };
+      }
+      function extractPlanTier(doc, warnings) {
+        const idx = findAnchorIndexInDoc(doc, /Health360\s+Plan\s+(\d+)/i);
+        if (idx === -1) {
+          warnings.push({ field: "medicalRider.planTier", message: 'Could not locate "Health360 Plan N" in the Product Options Table.' });
+          return null;
+        }
+        const m = doc.allLines[idx].text.match(/Health360\s+Plan\s+(\d+)/i);
+        return m ? m[1] : null;
+      }
+      function extractCoverageToAge(doc, warnings) {
+        const idx = findAnchorIndexInDoc(doc, /^Certificate Term\s*:/i);
+        if (idx === -1) {
+          warnings.push({ field: "medicalRider.coverageToAge", message: 'Could not locate "Certificate Term".' });
+          return null;
+        }
+        const m = doc.allLines[idx].text.match(/age\s+(\d+)\s+next birthday/i);
+        if (!m) {
+          warnings.push({ field: "medicalRider.coverageToAge", message: 'Could not parse an age out of the "Certificate Term" line.' });
+          return null;
+        }
+        return parseInt(m[1], 10);
+      }
+      function extractMonthlyAndAnnual(doc, warnings) {
+        const monthlyIdx = findAnchorIndexInDoc(doc, /^Monthly Total Amount Payable\s*:/i);
+        const annualIdx = findAnchorIndexInDoc(doc, /^Total Annual Contribution\s*:/i);
+        const monthly = monthlyIdx !== -1 ? parseCurrency((doc.allLines[monthlyIdx].text.match(/RM\s*([\d,]+(?:\.\d+)?)/) || [])[1]) : null;
+        const annual = annualIdx !== -1 ? parseCurrency((doc.allLines[annualIdx].text.match(/RM\s*([\d,]+(?:\.\d+)?)/) || [])[1]) : null;
+        if (monthly == null) warnings.push({ field: "monthlyTotalAmountPayable", message: 'Could not locate "Monthly Total Amount Payable".' });
+        if (annual == null) warnings.push({ field: "totalAnnualContribution", message: 'Could not locate "Total Annual Contribution".' });
+        return { monthly, annual };
+      }
+      var BENEFIT_LABEL_DICTIONARY = [
+        { section: "Room & Board Benefits", label: "Hospital Daily Room & Board" },
+        { section: "Hospital & Surgical Benefits", label: "Intensive Care Unit (ICU) / Cardiac Care Unit (CCU)" },
+        { section: "Hospital & Surgical Benefits", label: "In-hospital & Related Services" },
+        { section: "Hospital & Surgical Benefits", label: "Pre-hospitalisation Treatment" },
+        { section: "Hospital & Surgical Benefits", label: "Post-hospitalisation Treatment" },
+        { section: "Hospital & Surgical Benefits", label: "Major Organ Transplant" },
+        { section: "Outpatient Treatment Benefits", label: "Outpatient Cancer Treatment" },
+        { section: "Outpatient Treatment Benefits", label: "Outpatient Kidney Dialysis Treatment" },
+        { section: "Outpatient Treatment Benefits", label: "Second Medical Opinion" },
+        { section: "Outpatient Treatment Benefits", label: "Mental Care Treatment" },
+        { section: "Outpatient Treatment Benefits", label: "Home Nursing Care" },
+        { section: "Outpatient Treatment Benefits", label: "Intraocular Lens" },
+        { section: "Outpatient Treatment Benefits", label: "Day Surgery / Day Care Procedure" },
+        { section: "Outpatient Treatment Benefits", label: "Outpatient Dengue and Infectious Disease Treatment" },
+        { section: "Outpatient Treatment Benefits", label: "Outpatient Top Child Illnesses Treatment" },
+        { section: "Outpatient Treatment Benefits", label: "Outpatient Parents Allowance" },
+        { section: "Other Benefits", label: "Daily Cash Allowance for Malaysian Government Hospital" },
+        { section: "Other Benefits", label: "Emergency Outpatient Treatment for Accidental Injury" },
+        { section: "Other Benefits", label: "Worldwide Emergency Medical Assistance" },
+        { section: "Other Benefits", label: "Health Retirement" }
+      ];
+      var SECTION_HEADER_LINES = new Set(BENEFIT_LABEL_DICTIONARY.map((e) => e.section));
+      var HEALTH360_NOISE_LINE_PATTERNS = [
+        /^Presented by\s*:/i,
+        /^Date\s*:/i,
+        /^Version\s*:/i,
+        /^Page\s+\d+\s+of\s+\d+/i,
+        /^Quotation for\s+/i,
+        /^PruBSN\s+Asas360\s*$/i
+      ];
+      function isNoiseLine(line) {
+        return HEALTH360_NOISE_LINE_PATTERNS.some((re) => re.test(line));
+      }
+      function findLineIndexFrom(lines, label, fromIndex) {
+        for (let i = fromIndex; i < lines.length; i++) {
+          if (lines[i].includes(label)) return i;
+        }
+        return -1;
+      }
+      function valueForBenefitRow(blockLines, label) {
+        const valueParts = [];
+        const noteParts = [];
+        blockLines.forEach((raw) => {
+          let line = raw.trim();
+          if (!line || SECTION_HEADER_LINES.has(line)) return;
+          const idx = line.indexOf(label);
+          if (idx !== -1) {
+            line = line.slice(idx + label.length).replace(/^,?\s*including:?\s*/i, "").replace(/^[,:]\s*/, "").trim();
+            if (!line) return;
+          }
+          const isBullet = /^-\s*/.test(line);
+          const gapMatch = line.match(/^(.*?)\S\s{2,}(\S.*)$/);
+          let text = null;
+          if (gapMatch) {
+            text = gapMatch[2].trim();
+          } else if (!isBullet) {
+            text = line;
+          }
+          if (text == null) return;
+          if (/^\(/.test(text)) {
+            noteParts.push(text);
+          } else {
+            valueParts.push(text);
+          }
+        });
+        return {
+          value: valueParts.length ? valueParts.join(" ").replace(/\s+/g, " ").replace(/,\s*$/, "").trim() : null,
+          note: noteParts.length ? noteParts.join(" ").replace(/\s+/g, " ").trim() : null
+        };
+      }
+      function extractBenefitItems(doc, warnings) {
+        const section = getSectionLines(doc, /^Table of Benefits\s*$/i, /^i\s+Second Medical Opinion/i);
+        if (section.startIndex === -1) {
+          warnings.push({ field: "medicalRider.benefitItems", message: `Could not locate Health360's "Table of Benefits".` });
+          return [];
+        }
+        const lines = section.lines.filter((raw) => !isNoiseLine(raw.trim()));
+        const items = [];
+        let cursor = 0;
+        for (let i = 0; i < BENEFIT_LABEL_DICTIONARY.length; i++) {
+          const { section: sectionName, label } = BENEFIT_LABEL_DICTIONARY[i];
+          const idx = findLineIndexFrom(lines, label, cursor);
+          if (idx === -1) {
+            warnings.push({ field: `medicalRider.benefitItems.${label}`, message: `Could not locate the "${label}" row.` });
+            items.push({ section: sectionName, label, value: null, note: null });
+            continue;
+          }
+          const nextLabel = BENEFIT_LABEL_DICTIONARY[i + 1];
+          const nextIdx = nextLabel ? findLineIndexFrom(lines, nextLabel.label, idx + 1) : lines.length;
+          const boundEnd = nextIdx === -1 ? lines.length : nextIdx;
+          const blockLines = lines.slice(idx, boundEnd);
+          const { value, note } = valueForBenefitRow(blockLines, label);
+          items.push({ section: sectionName, label, value, note });
+          cursor = idx + 1;
+        }
+        const sectionsSeen = new Set(items.map((it) => it.section));
+        sectionsSeen.forEach((sectionName) => {
+          const rowsInSection = items.filter((it) => it.section === sectionName);
+          const bareAsCharged = rowsInSection.filter((it) => it.value === "As Charged");
+          if (bareAsCharged.length !== 1) return;
+          rowsInSection.forEach((it) => {
+            if (it.value == null) {
+              it.value = "As Charged";
+              it.inheritedValue = true;
+            }
+          });
+        });
+        const cancerItem = items.find((it) => it.label === "Outpatient Cancer Treatment");
+        const dialysisItem = items.find((it) => it.label === "Outpatient Kidney Dialysis Treatment");
+        if (cancerItem && dialysisItem && cancerItem.value && dialysisItem.value && cancerItem.value !== dialysisItem.value) {
+          const combined = `${cancerItem.value}, ${dialysisItem.value}`;
+          cancerItem.value = combined;
+          dialysisItem.value = combined;
+        }
+        items.forEach((it) => {
+          const finalValue = [it.value, it.note].filter(Boolean).join(" ") || null;
+          if (finalValue == null) {
+            warnings.push({
+              field: `medicalRider.benefitItems.${it.label}`,
+              message: `No explicit value found for "${it.label}" - this may be a merged table cell shared with an adjacent row; verify against the source PDF.`
+            });
+          } else if (it.inheritedValue) {
+            warnings.push({
+              field: `medicalRider.benefitItems.${it.label}`,
+              message: `"${it.label}" has no value printed on its own row - inherited "As Charged" from the single matching value shared across its "${it.section}" section (a merged table cell); verify against the source PDF.`
+            });
+          }
+          it.value = finalValue;
+          delete it.note;
+          delete it.inheritedValue;
+        });
+        return items;
+      }
+      function extractWaitingPeriods(doc, warnings) {
+        const section = getSectionLines(doc, /^Waiting Period:\s*$/i, /^Exclusions:\s*$/i);
+        if (section.startIndex === -1) {
+          warnings.push({ field: "medicalRider.waitingPeriods", message: 'Could not locate the "Waiting Period:" section.' });
+          return [];
+        }
+        const periods = [];
+        section.lines.forEach((raw) => {
+          const line = raw.trim();
+          const m = line.match(/(\d+)\s+days?\s+after\s+(?:the\s+)?(?:effective date of the rider|effective date of the certificate)?\s*(?:or\s+(?:the\s+)?date it is revived)?\s*(?:for|,?\s*for)?\s*(.+)/i);
+          if (m) {
+            const description = m[2].replace(/,?\s*and\s*$/i, "").replace(/[,.]$/, "").trim();
+            periods.push({ days: parseInt(m[1], 10), description });
+          }
+        });
+        if (!periods.length) {
+          warnings.push({ field: "medicalRider.waitingPeriods", message: "Waiting Period section found but no {days, description} rows could be parsed." });
+        }
+        return periods;
+      }
+      function extractMedicalExclusionsDigest(doc, warnings) {
+        const { fragments } = splitTwoColumnByHeader(
+          doc,
+          /What is covered\?.*What is not covered\?/i,
+          "What is not covered?",
+          /This is not a complete list/i
+        );
+        if (!fragments.length) {
+          warnings.push({ field: "medicalRider.medicalExclusions", message: 'Could not reconstruct the "What is not covered?" column.' });
+          return [];
+        }
+        const clauses = splitIntoClauses(fragments.join(" "));
+        if (!clauses.length) {
+          warnings.push({ field: "medicalRider.medicalExclusions", message: "Reconstructed text but could not split it into distinct items; returning as one block." });
+          return [fragments.join(" ")];
+        }
+        return clauses;
+      }
+      function extractExclusions(doc, warnings) {
+        const section = getSectionLines(doc, /^Exclusions:\s*$/i, /^Other Certificate Conditions/i);
+        if (section.startIndex === -1) {
+          warnings.push({ field: "medicalRider.fullExclusionsList", message: 'Could not locate the medical "Exclusions:" list.' });
+          return [];
+        }
+        const lines = section.lines.filter((raw) => !isNoiseLine(raw.trim()));
+        const items = splitLetteredList(lines);
+        const last = items[items.length - 1];
+        if (last) {
+          last.text = last.text.replace(/\s*This list is non-exhaustive\..*$/i, "").trim();
+        }
+        return items;
+      }
+      function deriveLifetimeLimitDisplay(smartValuePoint) {
+        return smartValuePoint != null ? "No Limit, subject to SVP" : null;
+      }
+      function extractBasicPlanFacts(doc, warnings) {
+        const idx = findAnchorIndexInDoc(doc, /PruBSN\s+Asas360\s*\(Basic\)/i);
+        if (idx === -1) {
+          warnings.push({ field: "protection.basicPlan", message: 'Could not locate the "PruBSN Asas360 (Basic)" row in the quotation table.' });
+          return { basicPlanName: null, basicPlanTerm: null, basicSumCovered: null };
+        }
+        const line = doc.allLines[idx].text;
+        const m = line.match(/\(Basic\)\s*(\d+)\s+([\d,]+)/i);
+        if (!m) {
+          warnings.push({ field: "protection.basicPlan", message: 'Located the "PruBSN Asas360 (Basic)" row but could not parse its term/sum covered figures.' });
+          return { basicPlanName: "PruBSN Asas360 (Basic)", basicPlanTerm: null, basicSumCovered: null };
+        }
+        return {
+          basicPlanName: "PruBSN Asas360 (Basic)",
+          basicPlanTerm: parseInt(m[1], 10),
+          basicSumCovered: parseCurrency(m[2])
+        };
+      }
+      function extractCashValueSchedule(doc, warnings) {
+        const section = getSectionLines(doc, /^Table 1:\s*PruBSN Asas360/i, /^Table 2:\s*Rider/i);
+        if (section.startIndex === -1) {
+          warnings.push({ field: "protection.cashValue.schedule", message: 'Could not locate "Table 1: PruBSN Asas360".' });
+          return [];
+        }
+        const rows = [];
+        section.lines.forEach((raw) => {
+          const line = raw.trim();
+          const m = line.match(
+            /^(\d+)\s+([\d,]+)\s+([\d,]+)\s+([\d.]+)\s+(\d+)\s+([\d,]+)\s+(\d+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d.]+)$/
+          );
+          if (!m) return;
+          rows.push({
+            year: parseInt(m[1], 10),
+            contributionPaid: parseCurrency(m[2]),
+            sumCovered: parseCurrency(m[10]),
+            cashValueScenarioX: parseCurrency(m[11]),
+            cashValueScenarioY: parseCurrency(m[12]),
+            deathBenefitScenarioX: parseCurrency(m[13]),
+            deathBenefitScenarioY: parseCurrency(m[14])
+          });
+        });
+        if (!rows.length) {
+          warnings.push({ field: "protection.cashValue.schedule", message: '"Table 1" was located but no year rows could be parsed - verify against the source PDF.' });
+        }
+        return rows;
+      }
+      function extractTabarruDeductionSchedule(doc, warnings) {
+        const section = getSectionLines(doc, /^Table 3:\s*Breakdown of Tabarru/i, /^Appendix:\s*Projection by Accounts/i);
+        if (section.startIndex === -1) {
+          warnings.push({ field: "medical.tabarruDeductionSchedule", message: 'Could not locate "Table 3: Breakdown of Tabarru` Deductions".' });
+          return [];
+        }
+        const rows = [];
+        section.lines.forEach((raw) => {
+          const line = raw.trim();
+          const m = line.match(/^(\d+)\s+(\d+)\s+(\d+)\s+([\d,]+)\s+(\d+)$/);
+          if (!m) return;
+          rows.push({
+            year: parseInt(m[1], 10),
+            basicTabarru: parseCurrency(m[2]),
+            vitalCarePlusTabarru: parseCurrency(m[3]),
+            health360Tabarru: parseCurrency(m[4]),
+            crisisProtectorTabarru: parseCurrency(m[5])
+          });
+        });
+        if (!rows.length) {
+          warnings.push({ field: "medical.tabarruDeductionSchedule", message: '"Table 3" was located but no year rows could be parsed - verify against the source PDF.' });
+        }
+        return rows;
+      }
+      function extractAsas360(doc, options) {
+        const warnings = [];
+        const errors = [];
+        const metadata = extractMetadata(doc, options);
+        const { _warnings: metaWarnings, ...metadataRest } = metadata;
+        warnings.push(...metaWarnings || []);
+        const agent = extractAgent(doc);
+        const { _warnings: agentWarnings, ...agentRest } = agent;
+        warnings.push(...agentWarnings || []);
+        const { primary: clientPrimary, parent } = extractClientSection(doc, warnings);
+        const { smartValuePoint, coPaymentOption } = extractHealth360RowFacts(doc, warnings);
+        const planTier = extractPlanTier(doc, warnings);
+        const coverageToAge = extractCoverageToAge(doc, warnings);
+        const { monthly, annual } = extractMonthlyAndAnnual(doc, warnings);
+        const medicalBenefitItems = extractBenefitItems(doc, warnings);
+        const waitingPeriods = extractWaitingPeriods(doc, warnings);
+        const fullExclusionsList = extractExclusions(doc, warnings);
+        const medicalExclusions = extractMedicalExclusionsDigest(doc, warnings);
+        const tabarruDeductionSchedule = extractTabarruDeductionSchedule(doc, warnings);
+        const { basicPlanName, basicPlanTerm, basicSumCovered } = extractBasicPlanFacts(doc, warnings);
+        const cashValueSchedule = extractCashValueSchedule(doc, warnings);
+        const data = {
+          metadata: metadataRest,
+          client: { ...clientPrimary, parent },
+          agent: agentRest,
+          medicalRider: {
+            riderName: "Health360",
+            planTier,
+            coverageToAge,
+            contribution: null,
+            // see toMedicalJson.fromAsas360()'s own warning - not printed as a standalone figure for this product
+            benefitItems: medicalBenefitItems,
+            medicalExclusions,
+            fullExclusionsList,
+            waitingPeriods,
+            smartValuePoint,
+            lifetimeLimit: deriveLifetimeLimitDisplay(smartValuePoint),
+            coPaymentOption,
+            tabarruDeductionSchedule
+          },
+          // Protection domain (see normalize/toProtectionJson.js) - the basic
+          // plan's own facts, kept separate from the Health360 medical rider
+          // above. Death/TPD benefit for Asas360 is genuinely formula-based
+          // (Basic Sum Covered plus/before the cash value of the certificate,
+          // per the Appendix: Death & TPD Benefit, p.19) rather than a single
+          // fixed figure the way AnugerahMax's is - represented honestly as
+          // {amount, description} rather than a fabricated combined number.
+          basicPlan: {
+            basicPlanName,
+            basicPlanTerm,
+            basicSumCovered,
+            deathBenefit: basicSumCovered != null ? { amount: basicSumCovered, description: "Basic Sum Covered plus the cash value of the certificate" } : null,
+            tpdBenefit: basicSumCovered != null ? { amount: basicSumCovered, description: "Basic Sum Covered, payable before the certificate anniversary of the Covered Person's age 70 next birthday" } : null,
+            cashValueSchedule
+          },
+          monthlyTotalAmountPayable: monthly,
+          totalAnnualContribution: annual
+        };
+        return { data, warnings, errors };
+      }
+      module.exports = { extractAsas360 };
+    }
+  });
+
+  // parser/normalize/toMedicalJson.js
+  var require_toMedicalJson = __commonJS({
+    "parser/normalize/toMedicalJson.js"(exports, module) {
+      "use strict";
+      function bareTierNumber(planTier) {
+        if (!planTier) return null;
+        return String(planTier).replace(/^Plan\s+/i, "");
+      }
+      function extractRmAmount(value) {
+        if (!value) return null;
+        const m = String(value).match(/RM\s*([\d,]+(?:\.\d+)?)/);
+        return m ? Number(m[1].replace(/,/g, "")) : null;
+      }
+      function extractMaxDays(value) {
+        if (!value) return null;
+        const m = String(value).match(/maximum\s+(\d+)\s+days/i);
+        return m ? Number(m[1]) : null;
+      }
+      function findBenefit(benefitItems, label) {
+        return (benefitItems || []).find((b) => b.label === label) || null;
+      }
+      function fromAnugerahMax(rawData, warnings = []) {
+        const { metadata = {}, plan = {}, contributions = {}, benefits = {} } = rawData || {};
+        const benefitItems = benefits.benefitItems || [];
+        const roomBoardItem = findBenefit(benefitItems, "Hospital Daily Room and Board");
+        return {
+          productName: metadata.productName || null,
+          riderName: plan.medicalRiderName || null,
+          planName: [plan.medicalRiderName, plan.medicalPlanTier].filter(Boolean).join(" ") || null,
+          planTier: bareTierNumber(plan.medicalPlanTier),
+          coverageModel: "ANNUAL_LIMIT",
+          annualLimit: benefits.annualLimit || null,
+          lifetimeFundAmount: null,
+          costSharingAfterExhaustion: null,
+          lifetimeLimit: benefits.lifetimeLimit || null,
+          roomAndBoard: roomBoardItem ? { amount: extractRmAmount(roomBoardItem.value), maxDaysPerYear: extractMaxDays(roomBoardItem.value) } : null,
+          coPayment: plan.coPaymentOption || null,
+          coverageToAge: plan.coverageToAge != null ? plan.coverageToAge : null,
+          contribution: contributions.medicTotalCareContribution != null ? contributions.medicTotalCareContribution : null,
+          benefitItems,
+          medicalExclusions: benefits.medicalExclusions || [],
+          fullExclusionsList: benefits.fullExclusionsList || [],
+          waitingPeriods: benefits.waitingPeriods || []
+        };
+      }
+      function fromAsas360(rawData, warnings = []) {
+        const { metadata = {}, medicalRider = {} } = rawData || {};
+        const benefitItems = medicalRider.benefitItems || [];
+        const roomBoardItem = findBenefit(benefitItems, "Hospital Daily Room & Board");
+        if (medicalRider.contribution == null) {
+          warnings.push({
+            field: "medical.contribution",
+            message: `PruBSN Asas360 quotations do not print a standalone monthly contribution figure for the Health360 rider - it is bundled into the combined "Protection Contribution + Allocator Contribution" line. Not derived/estimated - see Table 3's Tabarru' deduction schedule (medical.tabarruDeductionSchedule) for the real, printed per-year Health360-specific cost instead.`
+          });
+        }
+        return {
+          productName: metadata.productName || null,
+          riderName: medicalRider.riderName || null,
+          planName: [medicalRider.riderName, medicalRider.planTier ? `Plan ${medicalRider.planTier}` : null].filter(Boolean).join(" ") || null,
+          planTier: medicalRider.planTier || null,
+          coverageModel: "LIFETIME_MEDICAL_FUND",
+          annualLimit: null,
+          lifetimeFundAmount: medicalRider.smartValuePoint != null ? medicalRider.smartValuePoint : null,
+          costSharingAfterExhaustion: medicalRider.smartValuePoint != null ? { insurerPct: 80, clientPct: 20 } : null,
+          lifetimeLimit: medicalRider.lifetimeLimit || null,
+          roomAndBoard: roomBoardItem ? { amount: extractRmAmount(roomBoardItem.value), maxDaysPerYear: extractMaxDays(roomBoardItem.value) } : null,
+          coPayment: medicalRider.coPaymentOption || null,
+          coverageToAge: medicalRider.coverageToAge != null ? medicalRider.coverageToAge : null,
+          contribution: medicalRider.contribution != null ? medicalRider.contribution : null,
+          tabarruDeductionSchedule: medicalRider.tabarruDeductionSchedule || null,
+          benefitItems,
+          medicalExclusions: medicalRider.medicalExclusions || [],
+          fullExclusionsList: medicalRider.fullExclusionsList || [],
+          waitingPeriods: medicalRider.waitingPeriods || []
+        };
+      }
+      module.exports = { fromAnugerahMax, fromAsas360 };
+    }
+  });
+
+  // parser/normalize/toProtectionJson.js
+  var require_toProtectionJson = __commonJS({
+    "parser/normalize/toProtectionJson.js"(exports, module) {
+      "use strict";
+      function fromAnugerahMax(rawData) {
+        const { plan = {}, contributions = {} } = rawData || {};
+        const hasDeathTPD = contributions.guaranteedDeathTPDBenefit != null;
+        const deathTpd = hasDeathTPD ? { amount: contributions.guaranteedDeathTPDBenefit, description: "Guaranteed Death / Total Permanent Disability Benefit" } : null;
+        const hasCashValue = contributions.nonGuaranteedCashValueScenarioX != null || contributions.nonGuaranteedCashValueScenarioY != null;
+        return {
+          basicPlanName: plan.basicPlanName || null,
+          basicPlanTerm: plan.basicPlanTerm != null ? plan.basicPlanTerm : null,
+          basicSumCovered: plan.basicSumCovered != null ? plan.basicSumCovered : null,
+          deathBenefit: deathTpd,
+          tpdBenefit: deathTpd,
+          cashValue: hasCashValue ? {
+            scenarioX: contributions.nonGuaranteedCashValueScenarioX != null ? contributions.nonGuaranteedCashValueScenarioX : null,
+            scenarioY: contributions.nonGuaranteedCashValueScenarioY != null ? contributions.nonGuaranteedCashValueScenarioY : null,
+            // AnugerahMax's PDF states a single non-guaranteed cash value
+            // figure per scenario, not a year-by-year schedule - never
+            // fabricated here.
+            schedule: null
+          } : null
+        };
+      }
+      function fromAsas360(rawData) {
+        const { basicPlan = {} } = rawData || {};
+        const hasSchedule = Array.isArray(basicPlan.cashValueSchedule) && basicPlan.cashValueSchedule.length > 0;
+        return {
+          basicPlanName: basicPlan.basicPlanName || null,
+          basicPlanTerm: basicPlan.basicPlanTerm != null ? basicPlan.basicPlanTerm : null,
+          basicSumCovered: basicPlan.basicSumCovered != null ? basicPlan.basicSumCovered : null,
+          deathBenefit: basicPlan.deathBenefit || null,
+          tpdBenefit: basicPlan.tpdBenefit || null,
+          cashValue: hasSchedule ? {
+            // Asas360's investment-linked structure never prints a single
+            // "the" cash value - only a year-by-year schedule (Table 1) -
+            // so scenarioX/Y stay null here rather than picking one
+            // arbitrary year's figure and presenting it as definitive.
+            scenarioX: null,
+            scenarioY: null,
+            schedule: basicPlan.cashValueSchedule
+          } : null
+        };
+      }
+      module.exports = { fromAnugerahMax, fromAsas360 };
+    }
+  });
+
+  // parser/coverageStrategy.js
+  var require_coverageStrategy = __commonJS({
+    "parser/coverageStrategy.js"(exports, module) {
+      "use strict";
+      var STRATEGIES = {
+        ANNUAL_LIMIT: {
+          coverageModel: "ANNUAL_LIMIT",
+          explanation: "This medical card provides an annual medical limit that refreshes every policy year.",
+          showsCriticalIllnessDoubling: true,
+          showsLifetimeFundChart: false
+        },
+        LIFETIME_MEDICAL_FUND: {
+          coverageModel: "LIFETIME_MEDICAL_FUND",
+          explanation: "This medical card provides a lifetime medical fund. After the allocated medical fund has been exhausted, eligible claims continue under an 80% (PruBSN) / 20% (client) cost-sharing arrangement, subject to the policy terms.",
+          showsCriticalIllnessDoubling: false,
+          showsLifetimeFundChart: true
+        }
+      };
+      function getCoverageStrategy(coverageModel) {
+        return STRATEGIES[coverageModel] || null;
+      }
+      module.exports = { getCoverageStrategy, STRATEGIES };
+    }
+  });
+
   // parser/validate.js
   var require_validate = __commonJS({
     "parser/validate.js"(exports, module) {
@@ -1326,7 +2025,7 @@
           });
         }
       }
-      function validateQuotation2(data) {
+      function validateQuotation(data) {
         const warnings = [];
         const errors = [];
         checkRequiredFields(data, errors);
@@ -1341,7 +2040,79 @@
         checkValidUntilAfterQuotationDate(data, errors);
         return { warnings, errors };
       }
-      module.exports = { validateQuotation: validateQuotation2, KNOWN_PLAN_TIER_ANNUAL_LIMITS, REQUIRED_FIELDS };
+      module.exports = { validateQuotation, KNOWN_PLAN_TIER_ANNUAL_LIMITS, REQUIRED_FIELDS };
+    }
+  });
+
+  // parser/validateMedical.js
+  var require_validateMedical = __commonJS({
+    "parser/validateMedical.js"(exports, module) {
+      "use strict";
+      var COMMON_REQUIRED_FIELDS = ["productName", "riderName", "planName", "coverageModel", "roomAndBoard", "coPayment", "coverageToAge"];
+      var MODEL_REQUIRED_FIELDS = {
+        ANNUAL_LIMIT: ["annualLimit"],
+        LIFETIME_MEDICAL_FUND: ["lifetimeFundAmount", "costSharingAfterExhaustion"]
+      };
+      function getPath2(obj, path) {
+        return path.split(".").reduce((acc, key) => acc == null ? void 0 : acc[key], obj);
+      }
+      function validateMedical(medical) {
+        const warnings = [];
+        const errors = [];
+        if (!medical) {
+          errors.push({ field: "medical", message: "No normalized medical data was produced for this quotation." });
+          return { warnings, errors };
+        }
+        const requiredFields = [...COMMON_REQUIRED_FIELDS, ...MODEL_REQUIRED_FIELDS[medical.coverageModel] || []];
+        for (const field of requiredFields) {
+          const value = getPath2(medical, field);
+          if (value == null) {
+            errors.push({ field: `medical.${field}`, message: `Required field "medical.${field}" is missing for coverage model "${medical.coverageModel}".` });
+          }
+        }
+        if (!medical.coverageModel) {
+          errors.push({ field: "medical.coverageModel", message: "Coverage model could not be determined - this quotation cannot be rendered." });
+        } else if (!MODEL_REQUIRED_FIELDS[medical.coverageModel]) {
+          errors.push({ field: "medical.coverageModel", message: `Unrecognised coverage model "${medical.coverageModel}".` });
+        }
+        if (!medical.benefitItems || !medical.benefitItems.length) {
+          warnings.push({ field: "medical.benefitItems", message: "No benefit items were extracted for this medical rider." });
+        }
+        if (!medical.medicalExclusions || !medical.medicalExclusions.length) {
+          warnings.push({ field: "medical.medicalExclusions", message: "No medical exclusions were extracted for this medical rider." });
+        }
+        return { warnings, errors };
+      }
+      module.exports = { validateMedical };
+    }
+  });
+
+  // parser/validateProtection.js
+  var require_validateProtection = __commonJS({
+    "parser/validateProtection.js"(exports, module) {
+      "use strict";
+      function validateProtection(protection) {
+        const warnings = [];
+        const errors = [];
+        if (!protection) {
+          warnings.push({ field: "protection", message: "No normalized protection data was produced for this quotation." });
+          return { warnings, errors };
+        }
+        if (protection.basicPlanName == null) {
+          warnings.push({ field: "protection.basicPlanName", message: "Could not determine the basic plan name." });
+        }
+        if (protection.basicSumCovered == null) {
+          warnings.push({ field: "protection.basicSumCovered", message: "Could not determine the basic sum covered." });
+        }
+        if (protection.deathBenefit == null) {
+          warnings.push({ field: "protection.deathBenefit", message: "Could not determine the Death Benefit." });
+        }
+        if (protection.tpdBenefit == null) {
+          warnings.push({ field: "protection.tpdBenefit", message: "Could not determine the TPD Benefit." });
+        }
+        return { warnings, errors };
+      }
+      module.exports = { validateProtection };
     }
   });
 
@@ -1350,70 +2121,57 @@
     "parser/parseQuotation.js"(exports, module) {
       "use strict";
       var { buildDocument } = require_lineUtils();
-      var { extractMetadata } = require_extractMetadata();
-      var { extractClient } = require_extractClient();
-      var { extractAgent } = require_extractAgent();
-      var { extractPlan } = require_extractPlan();
-      var { extractContributions } = require_extractContributions();
-      var { extractBenefits } = require_extractBenefits();
-      var { extractOptions } = require_extractOptions();
-      var { extractProjection } = require_extractProjection();
-      var { validateQuotation: validateQuotation2 } = require_validate();
-      function safeExtract(sectionName, fn, errors) {
-        try {
-          const result = fn();
-          return result;
-        } catch (err) {
-          errors.push({
-            field: sectionName,
-            message: `Extractor for "${sectionName}" threw an error: ${err.message}`
-          });
-          return null;
+      var { classifyDocument } = require_classifyDocument();
+      var { extractAnugerahMax } = require_anugerahmax();
+      var { extractAsas360 } = require_asas360();
+      var { fromAnugerahMax, fromAsas360 } = require_toMedicalJson();
+      var { fromAnugerahMax: protectionFromAnugerahMax, fromAsas360: protectionFromAsas360 } = require_toProtectionJson();
+      var { getCoverageStrategy } = require_coverageStrategy();
+      var { validateQuotation } = require_validate();
+      var { validateMedical } = require_validateMedical();
+      var { validateProtection } = require_validateProtection();
+      var UNSUPPORTED_PRODUCT_MESSAGE = "Could not identify this Product Illustration as a supported product (PruBSN AnugerahMax or PruBSN Asas360).";
+      function normalizeAndValidate2(data) {
+        const isAsas360 = Boolean(data && data.medicalRider);
+        const warnings = [];
+        const errors = [];
+        if (!isAsas360) {
+          const validation = validateQuotation(data);
+          warnings.push(...validation.warnings);
+          errors.push(...validation.errors);
         }
-      }
-      function collectSectionWarnings(sectionName, sectionData, warnings) {
-        if (!sectionData || !Array.isArray(sectionData._warnings)) return sectionData;
-        for (const w of sectionData._warnings) {
-          warnings.push(w.field ? w : { field: sectionName, message: w.message || String(w) });
-        }
-        const { _warnings, ...rest } = sectionData;
-        return rest;
+        const medicalWarnings = [];
+        data.medical = isAsas360 ? fromAsas360(data, medicalWarnings) : fromAnugerahMax(data, medicalWarnings);
+        warnings.push(...medicalWarnings);
+        const medicalValidation = validateMedical(data.medical);
+        warnings.push(...medicalValidation.warnings);
+        errors.push(...medicalValidation.errors);
+        const strategy = getCoverageStrategy(data.medical.coverageModel);
+        if (strategy) data.medical.coverageExplanation = strategy.explanation;
+        data.protection = isAsas360 ? protectionFromAsas360(data) : protectionFromAnugerahMax(data);
+        const protectionValidation = validateProtection(data.protection);
+        warnings.push(...protectionValidation.warnings);
+        errors.push(...protectionValidation.errors);
+        return { warnings, errors };
       }
       function parseQuotation2(pages, options = {}) {
         const doc = buildDocument(pages);
-        const warnings = [];
-        const errors = [];
-        const metadata = safeExtract("metadata", () => extractMetadata(doc, options), errors);
-        const client = safeExtract("client", () => extractClient(doc), errors);
-        const agent = safeExtract("agent", () => extractAgent(doc), errors);
-        const plan = safeExtract("plan", () => extractPlan(doc), errors);
-        const contributions = safeExtract("contributions", () => extractContributions(doc), errors);
-        const benefits = safeExtract("benefits", () => extractBenefits(doc), errors);
-        const optionsSection = safeExtract("options", () => extractOptions(doc), errors);
-        const projection = safeExtract("projection", () => extractProjection(doc), errors);
-        const data = {
-          metadata: collectSectionWarnings("metadata", metadata, warnings),
-          client: collectSectionWarnings("client", client, warnings),
-          agent: collectSectionWarnings("agent", agent, warnings),
-          plan: collectSectionWarnings("plan", plan, warnings),
-          contributions: collectSectionWarnings("contributions", contributions, warnings),
-          benefits: collectSectionWarnings("benefits", benefits, warnings),
-          options: collectSectionWarnings("options", optionsSection, warnings),
-          projection: collectSectionWarnings("projection", projection, warnings)
-        };
-        if (data.plan && data.plan.coverageToAge == null && data.client && data.client.ageNextBirthday != null && data.plan.basicPlanTerm != null) {
-          data.plan.coverageToAge = data.client.ageNextBirthday + data.plan.basicPlanTerm;
-          warnings.push({
-            field: "plan.coverageToAge",
-            message: `Derived as ageNextBirthday (${data.client.ageNextBirthday}) + basicPlanTerm (${data.plan.basicPlanTerm}); not found explicitly in the PDF.`
-          });
+        const classification = classifyDocument(doc);
+        if (!classification.product) {
+          return {
+            data: null,
+            warnings: [],
+            errors: [{ field: "metadata.product", message: UNSUPPORTED_PRODUCT_MESSAGE }]
+          };
         }
-        const validation = validateQuotation2(data);
-        warnings.push(...validation.warnings);
-        errors.push(...validation.errors);
+        const isAsas360 = classification.product === "asas360";
+        const { data, warnings, errors } = isAsas360 ? extractAsas360(doc, options) : extractAnugerahMax(doc, options);
+        const postExtraction = normalizeAndValidate2(data);
+        warnings.push(...postExtraction.warnings);
+        errors.push(...postExtraction.errors);
         return { data, warnings, errors };
       }
-      module.exports = { parseQuotation: parseQuotation2 };
+      module.exports = { parseQuotation: parseQuotation2, normalizeAndValidate: normalizeAndValidate2 };
     }
   });
 
@@ -1446,9 +2204,9 @@
   var require_parser = __commonJS({
     "parser/index.js"(exports, module) {
       "use strict";
-      var { parseQuotation: parseQuotation2 } = require_parseQuotation();
+      var { parseQuotation: parseQuotation2, normalizeAndValidate: normalizeAndValidate2 } = require_parseQuotation();
       var { AGENTS, getAgentConfig } = require_agents();
-      module.exports = { parseQuotation: parseQuotation2, AGENTS, getAgentConfig };
+      module.exports = { parseQuotation: parseQuotation2, normalizeAndValidate: normalizeAndValidate2, AGENTS, getAgentConfig };
     }
   });
 
@@ -1670,6 +2428,13 @@
         const formatted = formatMoney(n);
         return formatted == null ? null : `RM ${formatted}`;
       }
+      function moneyRMNoSpace(n) {
+        const formatted = formatMoney(n);
+        return formatted == null ? null : `RM${formatted}`;
+      }
+      function maxDaysNote(days) {
+        return days != null ? `(maximum ${days} days per year)` : null;
+      }
       function firstName(fullName) {
         if (!fullName) return null;
         const parts = String(fullName).trim().split(/\s+/);
@@ -1682,11 +2447,6 @@
         if (!value) return null;
         const m = String(value).match(/RM\s*([\d,]+(?:\.\d+)?)/);
         return m ? m[0].replace(/\s+/g, " ") : null;
-      }
-      function extractDayNote(value) {
-        if (!value) return null;
-        const m = String(value).match(/\(([^)]*\bdays?\b[^)]*)\)/i);
-        return m ? m[1] : null;
       }
       var KNOWN_CRITICAL_ILLNESS_TERMS = ["Cancer", "Heart Attack", "Kidney Failure", "Stroke"];
       function criticalIllnessBoost(benefitItems) {
@@ -1703,6 +2463,16 @@
         "PruBSN AnugerahMax": {
           extensionToAge100: true,
           pidmProtected: true
+        },
+        // Verified directly from the real Asas360 sample: p.1's cover page
+        // carries the same PIDM/TIPS protection notice AnugerahMax's does, and
+        // p.30's "Appendix: Other Certificate Benefits and Options" describes
+        // the same Extension of Certificate Term feature (coverage continues to
+        // age 100 next birthday, cash value permitting) - not assumed from
+        // AnugerahMax, independently confirmed in Asas360's own document.
+        "PruBSN Asas360": {
+          extensionToAge100: true,
+          pidmProtected: true
         }
       };
       function imageWithFallback(url, altText, layoutClass = "pq-kenburns") {
@@ -1712,20 +2482,22 @@
       </div>`;
       }
       function buildViewModel(data, agentReview) {
-        const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, benefits = {}, projection = {} } = data || {};
+        var _a;
+        const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, medical = {}, protection = {}, projection = {} } = data || {};
         const agentConfig = getAgentConfig(agent.agentCode) || {};
-        const benefitItems = benefits.benefitItems || [];
-        const monthlyValue = resolveMonthlyTotalPayable(contributions);
+        const benefitItems = medical.benefitItems || [];
+        const monthlyValue = (_a = resolveMonthlyTotalPayable(contributions)) != null ? _a : data && data.monthlyTotalAmountPayable != null ? data.monthlyTotalAmountPayable : data && data.totalAnnualContribution != null ? Math.round(data.totalAnnualContribution / 12 * 100) / 100 : null;
         const monthlyFormatted = monthlyValue != null ? `RM ${formatMoneyFixed2(monthlyValue)}` : null;
         const monthlyCompact = monthlyValue != null ? moneyRM(monthlyValue) : null;
-        const roomBoardItem = findBenefit(benefitItems, "Hospital Daily Room and Board");
-        const roomBoardAmount = roomBoardItem ? extractRmAmount(roomBoardItem.value) : null;
-        const roomBoardDayNote = roomBoardItem ? extractDayNote(roomBoardItem.value) : null;
+        const roomAndBoard = medical.roomAndBoard || {};
+        const roomBoardAmount = moneyRMNoSpace(roomAndBoard.amount);
+        const roomBoardDayNote = maxDaysNote(roomAndBoard.maxDaysPerYear);
         const boost = criticalIllnessBoost(benefitItems);
         const purposeRaw = client.takafulPlanPurpose;
         const purpose = purposeRaw ? /non-business/i.test(purposeRaw) ? "Personal" : /business/i.test(purposeRaw) ? "Business" : purposeRaw : null;
         const productFacts = PRODUCT_FACTS[metadata.productName] || {};
         const currentRow = (projection.projectionRows || []).find((r) => r.age === client.ageNextBirthday) || null;
+        const coverageTermYears = protection.basicPlanTerm != null ? protection.basicPlanTerm : medical.coverageToAge != null && client.ageNextBirthday != null ? medical.coverageToAge - client.ageNextBirthday : null;
         return {
           clientName: client.fullName || null,
           clientFirstName: firstName(client.fullName),
@@ -1736,11 +2508,12 @@
           purpose,
           paymentMode: plan.paymentMode,
           productName: metadata.productName,
-          medicalRiderName: plan.medicalRiderName,
-          medicalPlanTier: plan.medicalPlanTier,
-          coPaymentOption: plan.coPaymentOption,
-          basicPlanTerm: plan.basicPlanTerm,
-          coverageToAge: plan.coverageToAge,
+          medicalRiderName: medical.riderName,
+          medicalPlanTier: medical.planTier,
+          planName: medical.planName,
+          coPaymentOption: medical.coPayment,
+          basicPlanTerm: coverageTermYears,
+          coverageToAge: medical.coverageToAge,
           coverageStartAge: client.ageNextBirthday != null ? client.ageNextBirthday + 1 : null,
           agentName: agentConfig.name || agent.agentNameOnDocument || null,
           agentCode: agent.agentCode || null,
@@ -1748,18 +2521,37 @@
           agencyLogo: agentConfig.logo || null,
           monthlyFormatted,
           monthlyCompact,
-          totalAnnualContribution: contributions.totalAnnualContribution,
+          totalAnnualContribution: contributions.totalAnnualContribution != null ? contributions.totalAnnualContribution : data && data.totalAnnualContribution,
           totalContributionOverTerm: contributions.totalContributionOverTerm,
-          guaranteedDeathTPDBenefit: contributions.guaranteedDeathTPDBenefit,
+          // Sourced from data.protection (see normalize/toProtectionJson.js),
+          // populated for both products - Asas360's is formula-based (Basic Sum
+          // Covered plus/before the cash value of the certificate), never a
+          // fabricated single combined number, so the description is carried
+          // alongside the guaranteed floor amount rather than replacing it.
+          guaranteedDeathTPDBenefit: protection.deathBenefit ? protection.deathBenefit.amount : null,
+          deathBenefitDescription: protection.deathBenefit ? protection.deathBenefit.description : null,
           isaContribution: contributions.isaContribution,
           protectionContribution: contributions.protectionContribution,
           wakalahCertificateCharge: contributions.wakalahCertificateCharge,
-          cashValueX: contributions.nonGuaranteedCashValueScenarioX,
-          cashValueY: contributions.nonGuaranteedCashValueScenarioY,
-          annualLimit: benefits.annualLimit,
-          lifetimeLimit: benefits.lifetimeLimit,
+          // Only ever populated when the product prints a single flat cash
+          // value figure (AnugerahMax) - Asas360's investment-linked structure
+          // only ever prints a year-by-year schedule (protection.cashValue.schedule),
+          // never a single "the" cash value, so these stay null for that product
+          // rather than picking one arbitrary year and presenting it as definitive.
+          cashValueX: protection.cashValue ? protection.cashValue.scenarioX : null,
+          cashValueY: protection.cashValue ? protection.cashValue.scenarioY : null,
+          coverageModel: medical.coverageModel,
+          coverageExplanation: medical.coverageExplanation,
+          annualLimit: medical.annualLimit,
+          lifetimeLimit: medical.lifetimeLimit,
+          lifetimeFundAmount: medical.lifetimeFundAmount,
+          costSharingAfterExhaustion: medical.costSharingAfterExhaustion,
+          // A single, coverage-model-agnostic headline figure for sections that
+          // just need "the number that describes how much cover you have" -
+          // never both at once, since exactly one is non-null per coverage model.
+          coverageHeadline: medical.annualLimit || medical.lifetimeLimit || null,
           benefitItems,
-          waitingPeriods: (benefits.waitingPeriods || []).slice().sort((a, b) => a.days - b.days),
+          waitingPeriods: (medical.waitingPeriods || []).slice().sort((a, b) => a.days - b.days),
           roomBoardAmount,
           roomBoardDayNote,
           boost,
@@ -2263,29 +3055,36 @@
   </section>`;
       }
       function renderPlanExplainer(vm) {
-        const tierLabel = [vm.medicalRiderName, vm.medicalPlanTier].filter(Boolean).join(" ");
         let headline;
         let body;
-        if (vm.boost) {
-          const conditionText = vm.boost.conditions.length ? vm.boost.conditions.join(", ") : "a covered critical illness";
-          headline = `${textOr(tierLabel, "Your plan")} gives you ${textOr(vm.annualLimit, "your annual limit")} a year, with a permanent boost of ${escapeHtml2(vm.boost.amount)} if it turns serious.`;
-          body = `For ${vm.monthlyFormatted ? escapeHtml2(vm.monthlyFormatted) : "your monthly contribution"}, your ${textOr(vm.annualLimit, "annual limit")} automatically increases by ${escapeHtml2(vm.boost.amount)} the moment you're diagnosed with ${escapeHtml2(conditionText)} \u2014 permanently, every year after.`;
+        if (vm.coverageModel === "LIFETIME_MEDICAL_FUND") {
+          const fundAmount = vm.lifetimeFundAmount != null ? moneyRM(vm.lifetimeFundAmount) : null;
+          const sharing = vm.costSharingAfterExhaustion;
+          headline = `${textOr(vm.planName, "Your plan")} gives you ${textOr(fundAmount, "a lifetime medical fund")} to draw on, for as long as you need it.`;
+          body = `For ${vm.monthlyFormatted ? escapeHtml2(vm.monthlyFormatted) : "your monthly contribution"}, your medical card covers eligible hospitalisation and treatment against your ${textOr(fundAmount, "lifetime medical fund")}${sharing ? ` \u2014 and even after it's fully used, PruBSN continues paying ${escapeHtml2(String(sharing.insurerPct))}% of every further eligible claim, so you're never left facing the full bill alone.` : "."}`;
         } else {
-          headline = `${textOr(tierLabel, "Your plan")} gives you ${textOr(vm.annualLimit, "protection")} a year to lean on.`;
+          headline = `${textOr(vm.planName, "Your plan")} gives you ${textOr(vm.annualLimit, "protection")} a year to lean on.`;
           body = `For ${vm.monthlyFormatted ? escapeHtml2(vm.monthlyFormatted) : "your monthly contribution"}, your medical card covers eligible hospitalisation and treatment up to your ${textOr(vm.annualLimit, "annual limit")}.`;
+          if (vm.boost) {
+            const conditionText = vm.boost.conditions.length ? vm.boost.conditions.join(", ") : "a covered critical illness";
+            headline = `${textOr(vm.planName, "Your plan")} gives you ${textOr(vm.annualLimit, "your annual limit")} a year, with a permanent boost of ${escapeHtml2(vm.boost.amount)} if it turns serious.`;
+            body = `For ${vm.monthlyFormatted ? escapeHtml2(vm.monthlyFormatted) : "your monthly contribution"}, your ${textOr(vm.annualLimit, "annual limit")} automatically increases by ${escapeHtml2(vm.boost.amount)} the moment you're diagnosed with ${escapeHtml2(conditionText)} \u2014 permanently, every year after.`;
+          }
         }
         return `
   <section style="padding-bottom:44px">
-    <div class="pq-eyebrow pq-reveal">Your Plan \u2014 ${textOr(tierLabel)}</div>
+    <div class="pq-eyebrow pq-reveal">Your Plan \u2014 ${textOr(vm.planName)}</div>
     <div class="pq-headline pq-reveal d1" style="font-size:28px">${headline}</div>
+    ${vm.coverageExplanation ? `<div class="pq-lede pq-reveal d2" style="font-style:italic">${escapeHtml2(vm.coverageExplanation)}</div>` : ""}
     <div class="pq-lede pq-reveal d2">${body}</div>
-    <div class="pq-inline-photo-wrap pq-reveal d3">${imageWithFallback(AssetManager.getPlanImage(vm.medicalPlanTier), tierLabel || "Plan", "pq-inline-photo")}</div>
+    <div class="pq-inline-photo-wrap pq-reveal d3">${imageWithFallback(AssetManager.getPlanImage(vm.medicalPlanTier), vm.planName || "Plan", "pq-inline-photo")}</div>
   </section>`;
       }
       function donutSegStyle(fraction, offsetSoFar, circ) {
         return `stroke-dashoffset:${(circ * (1 - fraction)).toFixed(1)};transform:rotate(${(offsetSoFar * 360).toFixed(1)}deg);transform-origin:100px 100px;`;
       }
       function renderContributionBreakdown(vm) {
+        if (vm.protectionContribution == null && vm.wakalahCertificateCharge == null && vm.isaContribution == null) return "";
         const protection = vm.protectionContribution || 0;
         const wakalah = vm.wakalahCertificateCharge || 0;
         const isa = vm.isaContribution || 0;
@@ -2324,12 +3123,12 @@
       }
       function renderKenBurnsAdmission(vm) {
         return `
-  <section class="pq-kb-section" data-narrate="${escapeHtml2(`The moment you're admitted, your ${vm.annualLimit || "annual limit"} starts working for you.`)}">
+  <section class="pq-kb-section" data-narrate="${escapeHtml2(`The moment you're admitted, your ${vm.coverageHeadline || "annual limit"} starts working for you.`)}">
     <div class="pq-kb-media">${imageWithFallback(AssetManager.getHospitalImage(), "Hospital entrance")}</div>
     <div class="pq-kb-overlay"></div>
     <div class="pq-kb-content">
       <div class="pq-eyebrow pq-zoom">Step 1 \u2014 You're admitted</div>
-      <div class="pq-headline pq-zoom">The moment you're admitted, your <span style="color:#4FD1D9">${textOr(vm.annualLimit, "annual limit")}</span> starts working for you.</div>
+      <div class="pq-headline pq-zoom">The moment you're admitted, your <span style="color:#4FD1D9">${textOr(vm.coverageHeadline, "annual limit")}</span> starts working for you.</div>
     </div>
   </section>`;
       }
@@ -2386,6 +3185,24 @@
     </div>
   </section>`;
       }
+      function renderLifetimeFundSection(vm) {
+        if (vm.coverageModel !== "LIFETIME_MEDICAL_FUND") return "";
+        const fundAmount = vm.lifetimeFundAmount != null ? moneyRM(vm.lifetimeFundAmount) : null;
+        const sharing = vm.costSharingAfterExhaustion;
+        return `
+  <section class="pq-kb-section" data-narrate="${escapeHtml2(`Your ${fundAmount || "lifetime medical fund"} isn't a yearly limit - it's yours for as long as your certificate is in force.`)}">
+    <div class="pq-kb-media">${imageWithFallback(AssetManager.getFinancialImage(), "Lifetime medical fund")}</div>
+    <div class="pq-kb-overlay"></div>
+    <div class="pq-kb-content">
+      <div class="pq-eyebrow pq-zoom">Step 4 \u2014 No yearly reset, no annual limit</div>
+      <div class="pq-headline pq-zoom">Your fund carries over, year after year.</div>
+      <div class="pq-kb-figure">${textOr(fundAmount, "Lifetime fund")}</div>
+      <div class="pq-kb-note">
+        ${sharing ? `Unlike a plan that resets every policy year, this fund only runs down as you claim. If your eligible claims ever exceed it, PruBSN continues paying ${escapeHtml2(String(sharing.insurerPct))}% of every further eligible cost \u2014 you're responsible for the remaining ${escapeHtml2(String(sharing.clientPct))}%, subject to your certificate's terms.` : `Unlike a plan that resets every policy year, this fund only runs down as you actually claim against it.`}
+      </div>
+    </div>
+  </section>`;
+      }
       function renderEverythingElse(vm) {
         const items = vm.benefitItems || [];
         if (!items.length) return "";
@@ -2421,6 +3238,7 @@
     <div class="pq-guarantee-hero pq-reveal d2">
       <div class="pq-eyebrow">Death / TPD Benefit</div>
       <div class="pq-figure">${vm.guaranteedDeathTPDBenefit != null ? escapeHtml2(moneyRM(vm.guaranteedDeathTPDBenefit)) : naSpan()}</div>
+      ${vm.deathBenefitDescription ? `<div class="pq-note" style="margin-top:6px">${escapeHtml2(vm.deathBenefitDescription)}</div>` : ""}
       <div class="pq-note">Paid if ${textOr(vm.clientFirstName, "the covered person")} passes away or suffers Total Permanent Disability, before age ${vm.coverageToAge != null ? escapeHtml2(String(vm.coverageToAge)) : naSpan()} next birthday.</div>
     </div>
     <div class="pq-fact-list">
@@ -2477,14 +3295,14 @@
           { k: "Contribution Paid", v: vm.totalContributionOverTerm != null ? moneyRM(vm.totalContributionOverTerm) : null, s: vm.basicPlanTerm != null ? `${vm.basicPlanTerm} years total` : "" },
           { k: "Guaranteed Benefit", v: vm.guaranteedDeathTPDBenefit != null ? moneyRM(vm.guaranteedDeathTPDBenefit) : null, s: "Death / TPD" },
           { k: "Cash Value (Y)", v: vm.cashValueY != null ? moneyRM(vm.cashValueY) : null, s: "At maturity", accent: true },
-          { k: "Medical Coverage", v: vm.annualLimit, s: "Annual limit" }
+          { k: "Medical Coverage", v: vm.coverageHeadline, s: vm.coverageModel === "LIFETIME_MEDICAL_FUND" ? "Lifetime medical fund" : "Annual limit" }
         ];
         if (cards.every((c) => c.v == null)) return "";
         return `
   <section style="border-top:1px solid var(--line)">
     <div class="pq-eyebrow pq-reveal">E. The Full Picture</div>
     <div class="pq-headline pq-reveal d1">${vm.basicPlanTerm != null ? `${vm.basicPlanTerm} years, at a glance` : "At a glance"}</div>
-    <div class="pq-inline-photo-wrap pq-reveal d1">${imageWithFallback(AssetManager.getCoverageImage(vm.annualLimit), "Medical coverage", "pq-inline-photo")}</div>
+    <div class="pq-inline-photo-wrap pq-reveal d1">${imageWithFallback(AssetManager.getCoverageImage(vm.coverageHeadline), "Medical coverage", "pq-inline-photo")}</div>
     <div class="pq-summary4">
       ${cards.map((c, i) => `
       <div class="pq-summary4-card ${c.accent ? "pq-accent" : ""} pq-reveal d${Math.min(i + 1, 4)}">
@@ -2564,6 +3382,7 @@
           renderKenBurnsSurgery(vm),
           renderKenBurnsRoom(vm),
           renderKenBurnsCriticalIllness(vm),
+          renderLifetimeFundSection(vm),
           renderEverythingElse(vm),
           renderGuaranteedProtection(vm),
           renderWaitingPeriods(vm),
@@ -2602,7 +3421,6 @@
         formatDateLong,
         coPaymentAmount,
         compactRate,
-        bareTierNumber,
         primaryValue: primaryValue2
       } = require_formatters();
       var { renderNarrativeQuotationHtml } = require_renderNarrativeQuotation();
@@ -2610,21 +3428,6 @@
         if (!value) return null;
         const m = value.match(/\(([^)]*\bdays?\b[^)]*)\)/i);
         return m ? m[1] : null;
-      }
-      function formatLimitPhrase(limit) {
-        if (!limit) return null;
-        if (/no\s*(annual\s*)?limit/i.test(limit)) return "no annual limit";
-        return `${limit} limit`;
-      }
-      function optionBadge(index, columns) {
-        if (index === 0) return "Recommended";
-        const recommended = columns[0] && columns[0].annualContribution;
-        const current = columns[index].annualContribution;
-        if (recommended != null && current != null) {
-          if (current < recommended) return "Lower cost";
-          if (current > recommended) return "Higher cover";
-        }
-        return `Option ${index}`;
       }
       function buildHelpers(mode) {
         function missing(agentMessage, clientText) {
@@ -2662,34 +3465,16 @@
         }
         return exclusions.map((e) => `<li>${escapeHtml2(e)}.</li>`).join("\n");
       }
-      function renderOptionCard(col, index, columns, helpers) {
-        const { missing, money } = helpers;
-        const badge = optionBadge(index, columns);
-        const pickClass = index === 0 ? " pick" : "";
-        const name = col.productName ? escapeHtml2(col.productName) : missing("product name unclear - reconstructed from a wrapped PDF cell", "Plan details");
-        const price = col.annualContribution != null ? `${money(col.annualContribution)}<small>/yr</small>` : missing();
-        const descBits = [
-          col.roomAndBoard ? `${escapeHtml2(col.roomAndBoard)} room` : null,
-          formatLimitPhrase(col.annualLimitOption) ? escapeHtml2(formatLimitPhrase(col.annualLimitOption)) : null
-        ].filter(Boolean);
-        const desc = descBits.length ? descBits.join(" \xB7 ") : missing();
-        return `
-      <div class="opt${pickClass}">
-        <div class="badge">${escapeHtml2(badge)}</div>
-        <div class="nm">${name}</div>
-        <div class="pr">${price}</div>
-        <div class="d">${desc}</div>
-      </div>`;
-      }
-      function renderNote(projection, client) {
+      function renderNote(projection, client, riderName) {
         const rows = projection && projection.projectionRows || [];
         const currentRow = rows.find((r) => client && r.age === client.ageNextBirthday) || rows[0] || null;
         const age = client ? client.ageNextBirthday : null;
         const amount = currentRow ? formatMoney(currentRow.currentContribution) : null;
+        const rider = riderName || "contribution";
         if (age == null || amount == null) {
-          return `This is an illustration, not a contract of takaful, and is subject to underwriting approval by Prudential BSN Takaful Berhad. Medic TotalCare contribution is not guaranteed and may rise over time with medical inflation.`;
+          return `This is an illustration, not a contract of takaful, and is subject to underwriting approval by Prudential BSN Takaful Berhad. ${escapeHtml2(rider)} contribution is not guaranteed and may rise over time with medical inflation.`;
         }
-        return `This is an illustration, not a contract of takaful, and is subject to underwriting approval by Prudential BSN Takaful Berhad. Medic TotalCare contribution is not guaranteed and may rise over time with medical inflation \u2014 for example, the annual contribution at age ${age} is around RM ${amount} and is projected to increase as the covered person ages.`;
+        return `This is an illustration, not a contract of takaful, and is subject to underwriting approval by Prudential BSN Takaful Berhad. ${escapeHtml2(rider)} contribution is not guaranteed and may rise over time with medical inflation \u2014 for example, the annual contribution at age ${age} is around RM ${amount} and is projected to increase as the covered person ages.`;
       }
       function renderReviewBanner(warnings, errors) {
         const errorItems = (errors || []).map((e) => `<li><b>${escapeHtml2(e.field)}</b> \u2014 ${escapeHtml2(e.message)}</li>`).join("");
@@ -2788,16 +3573,6 @@
   .contrib .row.total .r{font-size:19px;font-weight:700;color:var(--teal)}
   .contrib .row.total .r small{font-family:var(--sans);font-size:11px;color:var(--meta);font-weight:400}
 
-  .opts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-  @media(max-width:600px){.opts{grid-template-columns:1fr}}
-  .opt{border:1px solid var(--line);border-radius:12px;padding:14px}
-  .opt.pick{border-color:var(--teal);box-shadow:0 0 0 2px rgba(23,141,147,.12)}
-  .opt .badge{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--teal-dk);font-weight:700}
-  .opt .nm{font-weight:600;font-size:12.5px;margin:5px 0 8px}
-  .opt .pr{font-family:var(--serif);font-size:17px;color:var(--teal)}
-  .opt .pr small{font-family:var(--sans);font-size:11px;color:var(--meta)}
-  .opt .d{font-size:10.5px;color:var(--meta);margin-top:6px;line-height:1.5}
-
   .excl{font-size:12px;color:#555;line-height:1.7}
   .excl li{margin-bottom:3px}
 
@@ -2852,16 +3627,23 @@
     .sheet{box-shadow:none;border-radius:0;max-width:100%}
     .medcard::after{content:none}
     .medcard, .medcard .brandrow .g, .fig::before,
-    .contrib .row.total, .opt.pick, table.ben td.v, .tag{
+    .contrib .row.total, table.ben td.v, .tag{
       -webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact}
     .medcard{break-inside:avoid;page-break-inside:avoid}
-    .fig, .opt, .contrib{break-inside:avoid;page-break-inside:avoid}
+    .fig, .contrib{break-inside:avoid;page-break-inside:avoid}
     h2.sec{break-after:avoid;page-break-after:avoid}
     .foot2{break-before:avoid;page-break-before:avoid}
   }
 `;
+      function findBenefitFuzzy(benefitItems, ...requiredWords) {
+        return (benefitItems || []).find((item) => {
+          const label = (item.label || "").toLowerCase();
+          return requiredWords.every((w) => label.includes(w));
+        }) || null;
+      }
       function renderQuotationCard(data, mode, agentReview = {}) {
-        const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, benefits = {}, options = {}, projection = {} } = data || {};
+        var _a;
+        const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, medical = {}, protection = {}, projection = {} } = data || {};
         const helpers = buildHelpers(mode);
         const { missing, money, textOr } = helpers;
         const agentConfig = getAgentConfig(agent.agentCode) || {};
@@ -2899,17 +3681,31 @@
             headerLines.push(`<b>Valid until</b> ${escapeHtml2(formatDateLong(agentReview.validUntilIso))}`);
           }
         }
-        const planSubtitle = [metadata.productName, [plan.medicalRiderName, plan.medicalPlanTier ? `(${plan.medicalPlanTier})` : null].filter(Boolean).join(" ")].filter(Boolean).join(" \xB7 ");
+        const planSubtitle = [metadata.productName, [medical.riderName, medical.planTier ? `(Plan ${medical.planTier})` : null].filter(Boolean).join(" ")].filter(Boolean).join(" \xB7 ");
         const sourceNote = mode === "client" && quotationDateFormatted ? `<div class="src-note">Interactive quotation prepared from the PruBSN Product Illustration dated ${escapeHtml2(quotationDateFormatted)}.</div>` : "";
-        const monthlyTotalPayableValue = resolveMonthlyTotalPayable(contributions);
+        const monthlyTotalPayableValue = (_a = resolveMonthlyTotalPayable(contributions)) != null ? _a : data && data.monthlyTotalAmountPayable != null ? data.monthlyTotalAmountPayable : null;
         const monthlyTotalPayable = monthlyTotalPayableValue != null ? `RM ${formatMoneyFixed2(monthlyTotalPayableValue)}` : null;
-        const roomBoardItem = (benefits.benefitItems || []).find((i) => i.label === "Hospital Daily Room and Board");
-        const roomBoardCompact = roomBoardItem ? compactRate(roomBoardItem.value) : null;
-        const roomBoardTag = roomBoardItem ? extractDayTag(roomBoardItem.value) : null;
-        const cardPlanLabel = plan.medicalRiderName ? [plan.medicalRiderName, bareTierNumber(plan.medicalPlanTier)].filter(Boolean).join(" ") : null;
-        const hospitalSurgicalItem = (benefits.benefitItems || []).find((i) => i.label === "In Hospital and Related Services");
+        const roomAndBoard = medical.roomAndBoard || {};
+        const roomBoardCompact = roomAndBoard.amount != null ? compactRate(`RM${roomAndBoard.amount} per day`) : null;
+        const roomBoardTag = roomAndBoard.maxDaysPerYear != null ? `maximum ${roomAndBoard.maxDaysPerYear} days` : null;
+        const cardPlanLabel = medical.riderName ? [medical.riderName, medical.planTier].filter(Boolean).join(" ") : null;
+        const hospitalSurgicalItem = findBenefitFuzzy(medical.benefitItems, "hospital", "related services");
         const hospitalSurgicalCompact = hospitalSurgicalItem ? primaryValue2(hospitalSurgicalItem.value) : null;
-        const optionColumns = options.columns || [];
+        const annualContribution = contributions.totalAnnualContribution != null ? contributions.totalAnnualContribution : data && data.totalAnnualContribution;
+        const coverageTermYears = plan.basicPlanTerm != null ? plan.basicPlanTerm : medical.coverageToAge != null && client.ageNextBirthday != null ? medical.coverageToAge - client.ageNextBirthday : null;
+        const hasContributionBreakdown = plan.basicPlanName != null || contributions.isaContribution != null || contributions.medicTotalCareContribution != null || contributions.wakalahCertificateCharge != null;
+        const contributionBreakdownHtml = hasContributionBreakdown ? `
+    <h2 class="sec">Your monthly contribution</h2>
+    <div class="contrib">
+      <div class="row"><span class="l">${textOr(plan.basicPlanName)} \u2014 Sum Covered ${plan.basicSumCovered != null ? money(plan.basicSumCovered) : missing()}</span><span class="r">${money(contributions.isaContribution)}</span></div>
+      <div class="row"><span class="l">${textOr(medical.riderName)} \u2014 ${medical.planTier ? textOr(`Plan ${medical.planTier}`) : missing()}, ${textOr(medical.coPayment)}</span><span class="r">${money(contributions.medicTotalCareContribution)}</span></div>
+      <div class="row"><span class="l">Wakalah Certificate Charge</span><span class="r">${money(contributions.wakalahCertificateCharge)}</span></div>
+      <div class="row total"><span class="l">Monthly Total Amount Payable</span><span class="r">${monthlyTotalPayable ? escapeHtml2(monthlyTotalPayable) : missing()} ${annualContribution != null ? `<small>\xB7 ${money(annualContribution)}/yr</small>` : ""}</span></div>
+    </div>` : `
+    <h2 class="sec">Your monthly contribution</h2>
+    <div class="contrib">
+      <div class="row total"><span class="l">Monthly Total Amount Payable</span><span class="r">${monthlyTotalPayable ? escapeHtml2(monthlyTotalPayable) : missing()} ${annualContribution != null ? `<small>\xB7 ${money(annualContribution)}/yr</small>` : ""}</span></div>
+    </div>`;
         return `
 <div class="sheet">
 
@@ -2927,7 +3723,7 @@
       <div class="foot">
         <div><span class="lab">Plan</span><br><b>${cardPlanLabel ? escapeHtml2(cardPlanLabel) : missing()}</b></div>
         <div><span class="lab">Room &amp; Board</span><br><b>${roomBoardCompact ? escapeHtml2(roomBoardCompact) : missing()}</b></div>
-        <div><span class="lab">Cover to</span><br><b>${plan.coverageToAge != null ? `Age ${plan.coverageToAge}` : missing()}</b></div>
+        <div><span class="lab">Cover to</span><br><b>${medical.coverageToAge != null ? `Age ${medical.coverageToAge}` : missing()}</b></div>
       </div>
     </div>
   </div>
@@ -2950,39 +3746,37 @@
     </div>
 
     <div class="figs">
-      <div class="fig"><div class="lab">Monthly Total Amount Payable</div><div class="amt">${monthlyTotalPayable ? escapeHtml2(monthlyTotalPayable) : missing()}</div><div class="sub">${contributions.totalAnnualContribution != null ? `${money(contributions.totalAnnualContribution)} / year` : ""}</div></div>
-      <div class="fig"><div class="lab">Annual Limit</div><div class="amt">${textOr(benefits.annualLimit)}</div><div class="sub">${textOr(benefits.lifetimeLimit)}</div></div>
+      <div class="fig"><div class="lab">Monthly Total Amount Payable</div><div class="amt">${monthlyTotalPayable ? escapeHtml2(monthlyTotalPayable) : missing()}</div><div class="sub">${annualContribution != null ? `${money(annualContribution)} / year` : ""}</div></div>
+      <div class="fig"><div class="lab">${medical.coverageModel === "LIFETIME_MEDICAL_FUND" ? "Lifetime Medical Fund" : "Annual Limit"}</div><div class="amt">${textOr(medical.annualLimit || medical.lifetimeLimit)}</div><div class="sub">${textOr(medical.lifetimeLimit)}</div></div>
       <div class="fig"><div class="lab">Room &amp; Board</div><div class="amt">${roomBoardCompact ? escapeHtml2(roomBoardCompact) : missing()}</div><div class="sub">${roomBoardTag ? escapeHtml2(roomBoardTag) : ""}</div></div>
-      <div class="fig"><div class="lab">Co-payment</div><div class="amt">${textOr(plan.coPaymentOption)}</div><div class="sub">${coPaymentAmount(plan.coPaymentOption) ? `RM ${coPaymentAmount(plan.coPaymentOption)} per disability` : ""}</div></div>
+      <div class="fig"><div class="lab">Co-payment</div><div class="amt">${textOr(medical.coPayment)}</div><div class="sub">${coPaymentAmount(medical.coPayment) ? `RM ${coPaymentAmount(medical.coPayment)} per disability` : ""}</div></div>
       <div class="fig"><div class="lab">Hospital &amp; Surgical</div><div class="amt">${hospitalSurgicalCompact ? escapeHtml2(hospitalSurgicalCompact) : missing()}</div><div class="sub">cashless at panel</div></div>
-      <div class="fig"><div class="lab">Coverage Term</div><div class="amt">${plan.coverageToAge != null ? `to Age ${plan.coverageToAge}` : missing()}</div><div class="sub">${plan.basicPlanTerm != null ? `${plan.basicPlanTerm} years` : ""}</div></div>
+      <div class="fig"><div class="lab">Coverage Term</div><div class="amt">${medical.coverageToAge != null ? `to Age ${medical.coverageToAge}` : missing()}</div><div class="sub">${coverageTermYears != null ? `${coverageTermYears} years` : ""}</div></div>
+    </div>
+
+    <h2 class="sec">Protection Summary</h2>
+    <div class="prep">
+      <div class="item name"><div class="k">Basic Plan</div><div class="v">${textOr(protection.basicPlanName)}</div></div>
+      <div class="item"><div class="k">Basic Sum Covered</div><div class="v">${protection.basicSumCovered != null ? money(protection.basicSumCovered) : missing()}</div></div>
+      <div class="item"><div class="k">Death Benefit</div><div class="v">${protection.deathBenefit ? money(protection.deathBenefit.amount) : missing()}</div></div>
+      <div class="item"><div class="k">TPD Benefit</div><div class="v">${protection.tpdBenefit ? money(protection.tpdBenefit.amount) : missing()}</div></div>
+      ${protection.deathBenefit && protection.deathBenefit.description ? `<div class="item name"><div class="k">Death / TPD basis</div><div class="v" style="font-size:12px;font-weight:400">${escapeHtml2(protection.deathBenefit.description)}</div></div>` : ""}
     </div>
 
     <h2 class="sec">What your medical card covers</h2>
     <table class="ben">
-${renderBenefitsTable(benefits.benefitItems, helpers)}
+${renderBenefitsTable(medical.benefitItems, helpers)}
     </table>
 
-    <h2 class="sec">Your monthly contribution</h2>
-    <div class="contrib">
-      <div class="row"><span class="l">${textOr(plan.basicPlanName)} \u2014 Sum Covered ${plan.basicSumCovered != null ? money(plan.basicSumCovered) : missing()}</span><span class="r">${money(contributions.isaContribution)}</span></div>
-      <div class="row"><span class="l">${textOr(plan.medicalRiderName)} \u2014 ${textOr(plan.medicalPlanTier)}, ${textOr(plan.coPaymentOption)}</span><span class="r">${money(contributions.medicTotalCareContribution)}</span></div>
-      <div class="row"><span class="l">Wakalah Certificate Charge</span><span class="r">${money(contributions.wakalahCertificateCharge)}</span></div>
-      <div class="row total"><span class="l">Monthly Total Amount Payable</span><span class="r">${monthlyTotalPayable ? escapeHtml2(monthlyTotalPayable) : missing()} ${contributions.totalAnnualContribution != null ? `<small>\xB7 ${money(contributions.totalAnnualContribution)}/yr</small>` : ""}</span></div>
-    </div>
-
-    <h2 class="sec">Other options to consider</h2>
-    <div class="opts">${optionColumns.length ? optionColumns.map((c, i) => renderOptionCard(c, i, optionColumns, helpers)).join("") : `
-      <div class="opt">${missing("options table not found")}</div>`}
-    </div>
+    ${contributionBreakdownHtml}
 
     <h2 class="sec">What is not covered</h2>
     <ul class="excl">
-${renderExclusions(benefits.medicalExclusions, helpers)}
+${renderExclusions(medical.medicalExclusions, helpers)}
     </ul>
 
     <div class="note">
-      <b>Please note.</b> ${renderNote(projection, client)}
+      <b>Please note.</b> ${renderNote(projection, client, medical.riderName)}
     </div>
 
     <div class="foot2">
@@ -3054,6 +3848,7 @@ ${list}
         primaryValue: primaryValue2
       } = require_formatters();
       var { renderBlockedHtml, SHARED_STYLE } = require_renderQuotation();
+      var { getCoverageStrategy } = require_coverageStrategy();
       var COMPARISON_STYLE = `
   .cmp-wrap{width:100%;max-width:${"1000px"};background:var(--card);border-radius:16px;
     box-shadow:0 22px 60px -26px rgba(23,141,147,.4);overflow:hidden;margin-top:18px}
@@ -3074,6 +3869,22 @@ ${list}
   h3.cmp-sec{font-family:var(--serif);color:var(--teal);font-size:14px;margin:26px 0 8px}
   .cmp-note{margin-top:20px;background:#fff8ec;border:1px solid #f3d8a0;border-radius:10px;
     padding:11px 14px;font-size:11px;color:#7a5a12;line-height:1.6}
+
+  .cmp-toggle-wrap{margin-bottom:22px;padding:14px 16px;background:#f7fbfb;border:1px solid var(--line);border-radius:10px}
+  .cmp-toggle-label{font-family:var(--serif);font-size:13px;font-weight:600;color:var(--teal-dk)}
+  .cmp-toggle-options{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px}
+  .cmp-toggle-option{display:flex;align-items:center;gap:6px;font-size:12px;color:#444;cursor:pointer}
+  .cmp-toggle-option input{cursor:pointer}
+  td.cmp-col-recommended{background:rgba(23,141,147,.1)!important;box-shadow:inset 0 0 0 1px rgba(23,141,147,.35)}
+
+  .cmp-education{margin-top:8px}
+  .cmp-education-intro{font-size:12px;color:var(--meta);margin:4px 0 14px;line-height:1.6}
+  .cmp-education-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .cmp-education-card{background:#fafafa;border:1px solid #f0eaec;border-radius:10px;padding:16px}
+  .cmp-education-title{font-family:var(--serif);color:var(--ink);font-size:14px;font-weight:600;margin-bottom:10px}
+  .cmp-education-row{margin-top:10px}
+  .cmp-education-row b{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--teal-dk)}
+  .cmp-education-row p{font-size:12px;color:#444;line-height:1.55;margin:3px 0 0}
 `;
       function textOr(value, clientText) {
         return value ? escapeHtml2(value) : `<span class="na">${escapeHtml2(clientText || "Refer to certificate")}</span>`;
@@ -3094,24 +3905,24 @@ ${list}
         return winners.length === 1 ? winners[0].i : null;
       }
       function planLabel(data) {
-        const plan = data && data.plan || {};
-        return [plan.medicalRiderName, plan.medicalPlanTier].filter(Boolean).join(" ") || null;
+        const medical = data && data.medical || {};
+        return medical.planName || null;
       }
       function planSubtitle(data) {
         const metadata = data && data.metadata || {};
-        const plan = data && data.plan || {};
-        return [metadata.productName, plan.coPaymentOption].filter(Boolean).join(" \xB7 ") || null;
+        const medical = data && data.medical || {};
+        return [metadata.productName, medical.coPayment].filter(Boolean).join(" \xB7 ") || null;
       }
       function roomBoardValue(data) {
-        const items = data && data.benefits && data.benefits.benefitItems || [];
-        const item = items.find((i) => i.label === "Hospital Daily Room and Board");
-        return item ? compactRate(item.value) : null;
+        const roomAndBoard = data && data.medical && data.medical.roomAndBoard || {};
+        if (roomAndBoard.amount == null) return null;
+        return compactRate(`RM${roomAndBoard.amount} per day`);
       }
       function unionBenefitLabels(allData) {
         const seen = /* @__PURE__ */ new Set();
         const labels = [];
         for (const data of allData) {
-          const items = data && data.benefits && data.benefits.benefitItems || [];
+          const items = data && data.medical && data.medical.benefitItems || [];
           for (const item of items) {
             if (!seen.has(item.label)) {
               seen.add(item.label);
@@ -3122,53 +3933,133 @@ ${list}
         return labels;
       }
       function benefitValueFor(data, label) {
-        const items = data && data.benefits && data.benefits.benefitItems || [];
+        const items = data && data.medical && data.medical.benefitItems || [];
         const item = items.find((i) => i.label === label);
         return item ? primaryValue2(item.value) : null;
       }
       function allEqual(values) {
         return values.every((v) => v === values[0]);
       }
-      function renderKeyFiguresTable(allData) {
-        const monthly = allData.map((d) => resolveMonthlyTotalPayable(d.contributions || {}));
-        const annual = allData.map((d) => (d.contributions || {}).totalAnnualContribution);
+      function monthlyFor(d) {
+        const fromContributions = resolveMonthlyTotalPayable(d && d.contributions || {});
+        if (fromContributions != null) return fromContributions;
+        return d && d.monthlyTotalAmountPayable != null ? d.monthlyTotalAmountPayable : null;
+      }
+      function annualFor(d) {
+        const fromContributions = d && d.contributions && d.contributions.totalAnnualContribution || null;
+        if (fromContributions != null) return fromContributions;
+        return d && d.totalAnnualContribution != null ? d.totalAnnualContribution : null;
+      }
+      function renderKeyFiguresTable(allData, headerCells) {
+        const monthly = allData.map(monthlyFor);
+        const annual = allData.map(annualFor);
         const bestMonthly = indexOfLowest(monthly);
         const bestAnnual = indexOfLowest(annual);
-        const headerCells = allData.map((d, i) => `<th>${escapeHtml2(`Option ${i + 1}`)}</th>`).join("");
-        const planRow = `<tr><th>Plan</th>${allData.map((d) => `<td><div class="cmp-plan-name">${textOr(planLabel(d))}</div><div class="cmp-plan-sub">${escapeHtml2(planSubtitle(d) || "")}</div></td>`).join("")}</tr>`;
-        const monthlyRow = `<tr><th>Monthly Total Amount Payable</th>${allData.map((d, i) => `<td${i === bestMonthly ? ' class="cmp-best"' : ""}>${moneyFixed2(monthly[i])}</td>`).join("")}</tr>`;
-        const annualRow = `<tr><th>Annual Contribution</th>${allData.map((d, i) => `<td${i === bestAnnual ? ' class="cmp-best"' : ""}>${money(annual[i])}</td>`).join("")}</tr>`;
-        const roomBoardRow = `<tr><th>Room &amp; Board</th>${allData.map((d) => `<td>${textOr(roomBoardValue(d))}</td>`).join("")}</tr>`;
-        const annualLimitRow = `<tr><th>Annual Limit</th>${allData.map((d) => `<td>${textOr((d.benefits || {}).annualLimit)}</td>`).join("")}</tr>`;
-        const lifetimeLimitRow = `<tr><th>Lifetime Limit</th>${allData.map((d) => `<td>${textOr((d.benefits || {}).lifetimeLimit)}</td>`).join("")}</tr>`;
-        const coPayRow = `<tr><th>Co-payment</th>${allData.map((d) => {
-          const opt = (d.plan || {}).coPaymentOption;
-          const amt = coPaymentAmount(opt);
-          return `<td>${textOr(opt)}${amt ? `<div class="cmp-plan-sub">RM ${escapeHtml2(amt)} per disability</div>` : ""}</td>`;
+        const col = (i) => ` data-col="${i}"`;
+        const planRow = `<tr><th>Plan</th>${allData.map((d, i) => `<td${col(i)}><div class="cmp-plan-name">${textOr(planLabel(d))}</div><div class="cmp-plan-sub">${escapeHtml2(planSubtitle(d) || "")}</div></td>`).join("")}</tr>`;
+        const monthlyRow = `<tr><th>Monthly Total Amount Payable</th>${allData.map((d, i) => `<td${col(i)}${i === bestMonthly ? ' class="cmp-best"' : ""}>${moneyFixed2(monthly[i])}</td>`).join("")}</tr>`;
+        const annualRow = `<tr><th>Annual Contribution</th>${allData.map((d, i) => `<td${col(i)}${i === bestAnnual ? ' class="cmp-best"' : ""}>${money(annual[i])}</td>`).join("")}</tr>`;
+        const roomBoardRow = `<tr><th>Room &amp; Board</th>${allData.map((d, i) => `<td${col(i)}>${textOr(roomBoardValue(d))}</td>`).join("")}</tr>`;
+        const coverageModelRow = `<tr><th>Coverage Model</th>${allData.map((d, i) => {
+          const model = (d.medical || {}).coverageModel;
+          return `<td${col(i)}>${textOr(model === "LIFETIME_MEDICAL_FUND" ? "Lifetime Medical Fund" : model === "ANNUAL_LIMIT" ? "Annual Limit" : null)}</td>`;
         }).join("")}</tr>`;
-        const coverageRow = `<tr><th>Coverage Term</th>${allData.map((d) => `<td>${(d.plan || {}).coverageToAge != null ? `to Age ${(d.plan || {}).coverageToAge}` : `<span class="na">Refer to certificate</span>`}</td>`).join("")}</tr>`;
+        const annualLimitRow = `<tr><th>Annual Limit</th>${allData.map((d, i) => `<td${col(i)}>${textOr((d.medical || {}).annualLimit)}</td>`).join("")}</tr>`;
+        const lifetimeLimitRow = `<tr><th>Lifetime Medical Fund</th>${allData.map((d, i) => {
+          const medical = d.medical || {};
+          const amount = medical.lifetimeFundAmount != null ? money(medical.lifetimeFundAmount) : null;
+          return `<td${col(i)}>${textOr(medical.lifetimeLimit)}${amount ? `<div class="cmp-plan-sub">${amount}</div>` : ""}</td>`;
+        }).join("")}</tr>`;
+        const coPayRow = `<tr><th>Co-payment</th>${allData.map((d, i) => {
+          const opt = (d.medical || {}).coPayment;
+          const amt = coPaymentAmount(opt);
+          return `<td${col(i)}>${textOr(opt)}${amt ? `<div class="cmp-plan-sub">RM ${escapeHtml2(amt)} per disability</div>` : ""}</td>`;
+        }).join("")}</tr>`;
+        const coverageRow = `<tr><th>Coverage Term</th>${allData.map((d, i) => `<td${col(i)}>${(d.medical || {}).coverageToAge != null ? `to Age ${(d.medical || {}).coverageToAge}` : `<span class="na">Refer to certificate</span>`}</td>`).join("")}</tr>`;
         return `
     <table class="cmp">
       <thead><tr><th></th>${headerCells}</tr></thead>
-      <tbody>${planRow}${monthlyRow}${annualRow}${roomBoardRow}${annualLimitRow}${lifetimeLimitRow}${coPayRow}${coverageRow}</tbody>
+      <tbody>${planRow}${monthlyRow}${annualRow}${roomBoardRow}${coverageModelRow}${annualLimitRow}${lifetimeLimitRow}${coPayRow}${coverageRow}</tbody>
     </table>`;
       }
-      function renderBenefitsTable(allData) {
+      function renderBenefitsTable(allData, headerCells) {
         const labels = unionBenefitLabels(allData);
         if (!labels.length) return "";
-        const headerCells = allData.map((d, i) => `<th>${escapeHtml2(`Option ${i + 1}`)}</th>`).join("");
         const rows = labels.map((label) => {
           const values = allData.map((d) => benefitValueFor(d, label));
           const differs = !allEqual(values);
-          return `<tr><th>${escapeHtml2(label)}</th>${values.map((v) => `<td${differs && v ? ' class="cmp-best"' : ""}>${textOr(v)}</td>`).join("")}</tr>`;
+          return `<tr><th>${escapeHtml2(label)}</th>${values.map((v, i) => `<td data-col="${i}"${differs && v ? ' class="cmp-best"' : ""}>${textOr(v)}</td>`).join("")}</tr>`;
         }).join("");
         return `
     <h3 class="cmp-sec">Benefit-by-benefit comparison</h3>
     <table class="cmp"><thead><tr><th></th>${headerCells}</tr></thead><tbody>${rows}</tbody></table>`;
       }
+      function renderPlanToggle(allData) {
+        const options = allData.map(
+          (d, i) => `
+      <label class="cmp-toggle-option">
+        <input type="radio" name="cmp-recommend" value="${i}"${i === 0 ? " checked" : ""}>
+        <span>${textOr(planLabel(d), `Option ${i + 1}`)}</span>
+      </label>`
+        ).join("");
+        return `
+  <div class="cmp-toggle-wrap">
+    <div class="cmp-toggle-label">Choose Your Recommended Plan</div>
+    <div class="cmp-toggle-options">${options}</div>
+  </div>`;
+      }
+      var COMPARISON_RUNTIME = `
+(function () {
+  var radios = document.querySelectorAll('input[name="cmp-recommend"]');
+  if (!radios.length) return;
+  function apply(selected) {
+    document.querySelectorAll('td[data-col]').forEach(function (td) {
+      td.classList.toggle('cmp-col-recommended', td.getAttribute('data-col') === selected);
+    });
+  }
+  radios.forEach(function (r) {
+    r.addEventListener('change', function () { if (r.checked) apply(r.value); });
+  });
+  var checked = document.querySelector('input[name="cmp-recommend"]:checked');
+  if (checked) apply(checked.value);
+})();
+`;
+      function renderCrossProductEducation(allData) {
+        const models = allData.map((d) => (d.medical || {}).coverageModel).filter(Boolean);
+        const distinctModels = [...new Set(models)];
+        if (distinctModels.length < 2) return "";
+        const cards = allData.map((d, i) => {
+          const medical = d.medical || {};
+          const strategy = getCoverageStrategy(medical.coverageModel);
+          const isLifetime = medical.coverageModel === "LIFETIME_MEDICAL_FUND";
+          const sharing = medical.costSharingAfterExhaustion;
+          const label = planLabel(d) || `Option ${i + 1}`;
+          const howClaimsArePaid = isLifetime ? `Claims are paid from your ${medical.lifetimeLimit || "lifetime medical fund"} until it's used up${sharing ? `, then an ${sharing.insurerPct}% (PruBSN) / ${sharing.clientPct}% (you) cost-sharing arrangement applies` : ""}.` : `Claims are paid up to your ${medical.annualLimit || "annual limit"}, which refreshes in full every policy year.`;
+          const advantages = isLifetime ? "Unused cover carries forward - nothing resets or is lost at the end of a policy year." : "A completely fresh limit every year, with no risk of a lifetime pool running out.";
+          const disadvantages = isLifetime ? "The fund is finite - very large or repeated claims over time draw it down, after which you share part of the cost." : "The limit doesn't carry forward - it simply resets each year, so unused cover isn't banked for later.";
+          const suitableFor = isLifetime ? "Clients who want one lasting pool of cover and are comfortable with shared costs once it is used up." : "Clients who want a predictable, fully-refreshed limit every single year.";
+          return `
+      <div class="cmp-education-card">
+        <div class="cmp-education-title">${escapeHtml2(label)}</div>
+        <div class="cmp-education-row"><b>Coverage structure</b><p>${textOr(strategy && strategy.explanation)}</p></div>
+        <div class="cmp-education-row"><b>How claims are paid</b><p>${escapeHtml2(howClaimsArePaid)}</p></div>
+        <div class="cmp-education-row"><b>Advantages</b><p>${escapeHtml2(advantages)}</p></div>
+        <div class="cmp-education-row"><b>Disadvantages</b><p>${escapeHtml2(disadvantages)}</p></div>
+        <div class="cmp-education-row"><b>Suitable client profile</b><p>${escapeHtml2(suitableFor)}</p></div>
+      </div>`;
+        });
+        return `
+  <div class="cmp-education">
+    <h3 class="cmp-sec">Understanding the difference</h3>
+    <p class="cmp-education-intro">These options use two different ways of paying claims, not just different numbers. Here's what that means for you:</p>
+    <div class="cmp-education-grid">${cards.join("")}</div>
+    <div class="cmp-note"><b>Important considerations.</b> Neither coverage structure is universally better - the right choice depends on your own risk tolerance, budget, and how you weigh predictability against a lasting pool of cover. Please discuss with your agent before deciding.</div>
+  </div>`;
+      }
       function comparisonCard(allData) {
         const clientName = allData[0] && allData[0].client && allData[0].client.fullName || null;
         const agentConfig = getAgentConfig(allData[0] && allData[0].agent && allData[0].agent.agentCode) || {};
+        const headerCells = allData.map((d, i) => `<th>${escapeHtml2(`Option ${i + 1}`)}</th>`).join("");
         return `
 <div class="cmp-wrap">
   <div class="cmp-head">
@@ -3176,8 +4067,10 @@ ${list}
     <p>${clientName ? `Prepared for ${escapeHtml2(clientName)}` : "Prepared for you"}${agentConfig.name ? ` by ${escapeHtml2(agentConfig.name)}` : ""}</p>
   </div>
   <div class="cmp-body">
-    ${renderKeyFiguresTable(allData)}
-    ${renderBenefitsTable(allData)}
+    ${renderPlanToggle(allData)}
+    ${renderKeyFiguresTable(allData, headerCells)}
+    ${renderBenefitsTable(allData, headerCells)}
+    ${renderCrossProductEducation(allData)}
     <div class="cmp-note"><b>Please note.</b> Figures above are illustrations, not a contract of takaful, and are subject to underwriting approval by Prudential BSN Takaful Berhad. The highlighted option in each row is the lower contribution amount only - it does not account for coverage differences shown in the benefits table below it.</div>
   </div>
 </div>`;
@@ -3190,6 +4083,7 @@ ${list}
 <style>${SHARED_STYLE}${COMPARISON_STYLE}</style>
 <body style="display:flex;flex-direction:column;align-items:center">
 ${bodyHtml}
+<script>${COMPARISON_RUNTIME}<\/script>
 </body>`;
       }
       function renderComparisonHtml2(parseResults, agentReviews) {
@@ -3220,27 +4114,35 @@ ${bodyHtml}
       "use strict";
       var { getAgentConfig } = require_agents();
       var { formatMoneyFixed2, resolveMonthlyTotalPayable, formatDateLong } = require_formatters();
-      function buildRidersList(plan) {
-        if (!plan || !plan.medicalRiderName) return [];
-        const tierPart = plan.medicalPlanTier ? ` - ${plan.medicalPlanTier}` : "";
-        const coPayPart = plan.coPaymentOption ? ` (${plan.coPaymentOption})` : "";
-        return [`${plan.medicalRiderName}${tierPart}${coPayPart}`];
+      function buildRidersList(medical) {
+        if (!medical || !medical.riderName) return [];
+        const tierPart = medical.planTier ? ` - Plan ${medical.planTier}` : "";
+        const coPayPart = medical.coPayment ? ` (${medical.coPayment})` : "";
+        return [`${medical.riderName}${tierPart}${coPayPart}`];
       }
-      function formatMonthlyTotalPayable(contributions) {
-        const value = resolveMonthlyTotalPayable(contributions);
+      function formatMonthlyTotalPayable(contributions, fallbackMonthly) {
+        var _a;
+        const value = (_a = resolveMonthlyTotalPayable(contributions)) != null ? _a : fallbackMonthly != null ? fallbackMonthly : null;
         const formatted = formatMoneyFixed2(value);
         return formatted != null ? `RM ${formatted}` : null;
       }
       function planSummaryFor(d) {
-        const plan = d && d.plan || {};
         const contributions = d && d.contributions || {};
-        const benefits = d && d.benefits || {};
-        const roomBoardItem = (benefits.benefitItems || []).find((i) => i.label === "Hospital Daily Room and Board");
+        const medical = d && d.medical || {};
         return {
-          planName: [plan.medicalRiderName, plan.medicalPlanTier].filter(Boolean).join(" ") || plan.basicPlanName || null,
-          monthlyContribution: formatMonthlyTotalPayable(contributions),
-          roomAndBoard: roomBoardItem ? roomBoardItem.value : null,
-          annualLimit: benefits.annualLimit || null
+          planName: medical.planName || null,
+          monthlyContribution: formatMonthlyTotalPayable(contributions, d && d.monthlyTotalAmountPayable),
+          roomAndBoard: medical.roomAndBoard && medical.roomAndBoard.amount != null ? `RM${medical.roomAndBoard.amount} per day` : null,
+          // Exactly one of these is non-null per coverage model - never both, never neither invented.
+          annualLimit: medical.annualLimit || medical.lifetimeLimit || null,
+          // Phase 5: additive fields for Airtable's "Coverage Model" (single
+          // select: "Annual Limit" / "Lifetime Medical Fund") and "Lifetime Fund
+          // Amount" (currency) columns - see backend/src/airtable.js.
+          // coverageModelLabel intentionally spells out the select option text
+          // rather than the internal ANNUAL_LIMIT/LIFETIME_MEDICAL_FUND enum
+          // value, since this flows straight into that Airtable field.
+          coverageModelLabel: medical.coverageModel === "LIFETIME_MEDICAL_FUND" ? "Lifetime Medical Fund" : medical.coverageModel === "ANNUAL_LIMIT" ? "Annual Limit" : null,
+          lifetimeFundAmount: medical.lifetimeFundAmount != null ? medical.lifetimeFundAmount : null
         };
       }
       function buildPrefillData2(dataOrArray, agentReview) {
@@ -3249,6 +4151,7 @@ ${bodyHtml}
         const review = agentReview || {};
         const plan = d.plan || {};
         const contributions = d.contributions || {};
+        const medical = d.medical || {};
         const metadata = d.metadata || {};
         const client = d.client || {};
         const quotationNumber = review.quotationNumber || metadata.quotationNumber && metadata.quotationNumber.value || null;
@@ -3263,9 +4166,14 @@ ${bodyHtml}
             // docs/AIRTABLE_FIELD_MAPPING.md) can store it in a real date field
             // instead of re-parsing a human-formatted date.
             validUntilIso: validUntilIso || null,
-            planName: plan.basicPlanName || null,
-            monthlyContribution: formatMonthlyTotalPayable(contributions),
-            riders: buildRidersList(plan)
+            // "Base Plan" - AnugerahMax's own basic-plan component name when
+            // present (unchanged from before); Asas360 has no equivalent
+            // basic-plan concept in Version 1's medical-only scope (see
+            // extractors/asas360.js), so the overall product name is shown
+            // instead - still accurate, never invented.
+            planName: plan.basicPlanName || metadata.productName || null,
+            monthlyContribution: formatMonthlyTotalPayable(contributions, d.monthlyTotalAmountPayable),
+            riders: buildRidersList(medical)
           },
           // Real generated quotation(s), in comparison order - drives the Plan
           // Selection step's card picker. Length 1 when the agent generated a
@@ -3497,8 +4405,7 @@ ${continueButtonHtml}
 
   // browser-tool/app.js
   var { extractPagesFromPdf } = require_pdfTextSource_browser();
-  var { parseQuotation } = require_parser();
-  var { validateQuotation } = require_validate();
+  var { parseQuotation, normalizeAndValidate } = require_parser();
   var { renderAgentReviewHtml, renderClientQuotationHtml } = require_renderQuotation();
   var { renderComparisonHtml } = require_renderComparison();
   var { primaryValue } = require_formatters();
@@ -3552,17 +4459,7 @@ ${continueButtonHtml}
     { section: "Contributions", path: "contributions.totalAnnualContribution", label: "Total annual contribution (RM)", type: "number" },
     { section: "Contributions", path: "contributions.guaranteedDeathTPDBenefit", label: "Guaranteed death/TPD benefit (RM)", type: "number" },
     { section: "Benefits", path: "benefits.annualLimit", label: "Annual limit" },
-    { section: "Benefits", path: "benefits.lifetimeLimit", label: "Lifetime limit" },
-    { section: "Options", path: "options.coverageTerm", label: "Options table coverage term" }
-  ];
-  var OPTION_COLUMN_FIELDS = [
-    ["productName", "Product name"],
-    ["annualContribution", "Annual contribution (RM)"],
-    ["coPaymentOption", "Co-payment option"],
-    ["roomAndBoard", "Room & board"],
-    ["annualLimitOption", "Annual limit"],
-    ["lifetimeLimitOption", "Lifetime limit"],
-    ["facilityType", "Facility type"]
+    { section: "Benefits", path: "benefits.lifetimeLimit", label: "Lifetime limit" }
   ];
   function getPath(obj, path) {
     return path.split(".").reduce((acc, key) => acc == null ? void 0 : acc[key], obj);
@@ -3807,9 +4704,9 @@ ${continueButtonHtml}
     </label>`;
   }
   function benefitItemsTableHtml(q, qIndex) {
-    const items = q.data.benefits && q.data.benefits.benefitItems || [];
+    const items = q.data.medical && q.data.medical.benefitItems || [];
     const rows = items.map((item, i) => {
-      const warn = (q.warnings || []).find((w) => w.field === `benefits.benefitItems.${item.label}`);
+      const warn = (q.warnings || []).find((w) => w.field === `benefits.benefitItems.${item.label}` || w.field === `medicalRider.benefitItems.${item.label}`);
       const note = item.prefilledFromKnownMergedCell ? "Pre-filled: this row shares a merged cell with an adjacent benefit in the source PDF. Value verified against the source document - please confirm before sending." : warn && warn.message;
       return `
       <tr class="${item.value == null ? "row-flagged" : ""}">
@@ -3819,16 +4716,6 @@ ${continueButtonHtml}
       ${note ? `<tr class="note-row"><td colspan="2" class="field-note field-note-warn">${escapeHtml(note)}</td></tr>` : ""}`;
     }).join("");
     return `<div class="table-scroll"><table><thead><tr><th>Benefit</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  }
-  function optionsTableHtml(q, qIndex) {
-    const columns = q.data.options && q.data.options.columns || [];
-    const head = `<tr><th></th>${columns.map((c) => `<th>${escapeHtml(c.optionLabel || "")}</th>`).join("")}</tr>`;
-    const rows = OPTION_COLUMN_FIELDS.map(([key, label]) => `
-    <tr>
-      <th>${escapeHtml(label)}</th>
-      ${columns.map((c, i) => `<td><input type="text" data-q-index="${qIndex}" data-option-index="${i}" data-option-key="${key}" value="${escapeHtml(c[key] == null ? "" : String(c[key]))}" class="field-input"></td>`).join("")}
-    </tr>`).join("");
-    return `<div class="table-scroll"><table><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
   }
   function reviewPanelHtml(q, qIndex) {
     const { errors, warnings } = q;
@@ -3853,8 +4740,6 @@ ${continueButtonHtml}
       ${formHtml}
       <h2 class="section-title">Benefits table</h2>
       ${benefitItemsTableHtml(q, qIndex)}
-      <h2 class="section-title">Product options</h2>
-      ${optionsTableHtml(q, qIndex)}
     </div>`;
   }
   function renderReviewTabs() {
@@ -3893,19 +4778,15 @@ ${continueButtonHtml}
       setPath(q.data, path, value);
     } else if (target.dataset.benefitIndex != null && target.dataset.benefitIndex !== "") {
       const idx = Number(target.dataset.benefitIndex);
-      q.data.benefits.benefitItems[idx].value = target.value || null;
-      q.data.benefits.benefitItems[idx].prefilledFromKnownMergedCell = false;
-    } else if (target.dataset.optionIndex != null && target.dataset.optionIndex !== "") {
-      const idx = Number(target.dataset.optionIndex);
-      const key = target.dataset.optionKey;
-      const raw = target.value;
-      q.data.options.columns[idx][key] = key === "annualContribution" ? raw === "" ? null : Number(raw) : raw || null;
+      q.data.medical.benefitItems[idx].value = target.value || null;
+      q.data.medical.benefitItems[idx].prefilledFromKnownMergedCell = false;
     }
+    normalizeAndValidate(q.data);
     updateGateState();
   });
   function revalidateAll() {
     for (const q of state.quotations) {
-      const { warnings, errors } = validateQuotation(q.data);
+      const { warnings, errors } = normalizeAndValidate(q.data);
       q.warnings = warnings;
       q.errors = errors;
     }
