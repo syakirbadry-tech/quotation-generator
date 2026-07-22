@@ -88,6 +88,22 @@ check('medical.coPayment', data.medical.coPayment, 'Deductible RM500');
 check('medical.coverageToAge', data.medical.coverageToAge, 60);
 check('medical.contribution', data.medical.contribution, null); // never derived - see the matching warning below
 check('medical.benefitItems.length', data.medical.benefitItems.length, 20);
+// Merged-cell inheritance (see extractors/asas360.js): rows with no value
+// printed on their own row inherit "Hospital & Surgical Benefits"'s single
+// bare "As Charged" value, confirmed against the Appendix's own prose for
+// each - never fabricated, verified real values.
+check(
+  'medical.benefitItems: merged-cell "As Charged" rows',
+  ['Intensive Care Unit (ICU) / Cardiac Care Unit (CCU)', 'Pre-hospitalisation Treatment', 'Post-hospitalisation Treatment', 'Major Organ Transplant'].map(
+    (label) => data.medical.benefitItems.find((b) => b.label === label).value
+  ),
+  [
+    'As Charged (maximum 150 days per year)',
+    'As Charged (within 120 days immediately before Hospitalisation)',
+    'As Charged (within 120 days immediately after Hospitalisation)',
+    'As Charged (once per lifetime)',
+  ]
+);
 check('medical.fullExclusionsList.length', data.medical.fullExclusionsList.length, 33);
 check('medical.waitingPeriods', data.medical.waitingPeriods, [
   { days: 120, description: 'Specified Illnesses' },
@@ -112,8 +128,19 @@ check(
 check(
   'warnings',
   warnings.map((w) => w.field).sort(),
-  ['medical.contribution', 'medical.medicalExclusions']
+  [
+    'medical.contribution',
+    'medicalRider.benefitItems.Intensive Care Unit (ICU) / Cardiac Care Unit (CCU)',
+    'medicalRider.benefitItems.Major Organ Transplant',
+    'medicalRider.benefitItems.Post-hospitalisation Treatment',
+    'medicalRider.benefitItems.Pre-hospitalisation Treatment',
+  ]
 );
+// The "What is covered? / What is not covered?" short digest DOES exist
+// for Health360 (Step 2 of its own PDS) - reuses the same generic
+// two-column reconstruction AnugerahMax's extractBenefits.js already
+// uses; this was previously (incorrectly) assumed not to exist.
+check('medical.medicalExclusions.length', data.medical.medicalExclusions.length, 3);
 check('errors.length', errors.length, 0);
 
 console.log(`\n${pass} passed, ${fail} failed.`);

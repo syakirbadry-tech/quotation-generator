@@ -40,6 +40,8 @@ const {
   parseCurrency,
   parseIntSafe,
   splitLetteredList,
+  splitTwoColumnByHeader,
+  splitIntoClauses,
 } = require('../lineUtils');
 const { extractMetadata } = require('../extractMetadata');
 const { extractAgent } = require('../extractAgent');
@@ -246,15 +248,21 @@ function findLineIndexFrom(lines, label, fromIndex) {
  * it (Health360's table right-aligns the value in its own column, often on
  * a separate physical line, sometimes wrapped across several) - so this
  * walks every line in the block, in reading order, and keeps whatever
- * looks like value-bearing text: a plain right-aligned line, or the
- * trailing text after a large column gap on a sub-bullet/continuation
+ * looks like value- or note-bearing text: a plain right-aligned line, or
+ * the trailing text after a large column gap on a sub-bullet/continuation
  * line. Bare sub-bullets with no trailing value (e.g. "- Haemodialysis")
- * are dropped - they're descriptive, not the benefit amount. Never
- * fabricates a value for a row with none of this (a merged table cell
- * shared with an adjacent row) - returns null, and the caller warns.
+ * are dropped - they're descriptive, not the benefit amount.
+ *
+ * Returns `{ value, note }` separately (not pre-joined) so
+ * extractBenefitItems() can tell a genuine printed value ("As Charged",
+ * "RM200 per day", "Yes") apart from a bare parenthetical annotation
+ * ("(maximum 150 days per year)") - the distinction matters for the
+ * merged-cell inheritance below, which must only ever carry forward a
+ * real value, never fabricate one from a day-limit note alone.
  */
 function valueForBenefitRow(blockLines, label) {
-  const parts = [];
+  const valueParts = [];
+  const noteParts = [];
   blockLines.forEach((raw) => {
     let line = raw.trim();
     if (!line || SECTION_HEADER_LINES.has(line)) return;
@@ -271,14 +279,23 @@ function valueForBenefitRow(blockLines, label) {
 
     const isBullet = /^-\s*/.test(line);
     const gapMatch = line.match(/^(.*?)\S\s{2,}(\S.*)$/);
+    let text = null;
     if (gapMatch) {
-      parts.push(gapMatch[2].trim());
+      text = gapMatch[2].trim();
     } else if (!isBullet) {
-      parts.push(line);
+      text = line;
     }
-    // a bare sub-bullet with no trailing column gap carries no value - skip it
+    if (text == null) return; // a bare sub-bullet with no trailing column gap carries no value - skip it
+    if (/^\(/.test(text)) {
+      noteParts.push(text);
+    } else {
+      valueParts.push(text);
+    }
   });
-  return parts.length ? parts.join(' ').replace(/\s+/g, ' ').replace(/,\s*$/, '').trim() : null;
+  return {
+    value: valueParts.length ? valueParts.join(' ').replace(/\s+/g, ' ').replace(/,\s*$/, '').trim() : null,
+    note: noteParts.length ? noteParts.join(' ').replace(/\s+/g, ' ').trim() : null,
+  };
 }
 
 /**
@@ -289,6 +306,23 @@ function valueForBenefitRow(blockLines, label) {
  * prose-description pass that reuses the same a)-s) letter markers as
  * section headers for explanatory paragraphs (would otherwise double-count
  * every item under whatever section was last seen).
+ *
+ * Merged-cell inheritance: a handful of rows (e.g. Intensive Care Unit,
+ * Pre-/Post-hospitalisation Treatment, Major Organ Transplant) print no
+ * value of their own anywhere in the source text - only a day/lifetime-
+ * count parenthetical. Cross-checked against the Appendix's own prose
+ * description of each of these benefits (same PDF, further down): none of
+ * them state a distinct monetary cap of their own, every one just
+ * references "the maximum ... stated in the Table of Benefits above" -
+ * consistent with a single vertically-merged "As Charged" cell spanning
+ * the whole "Hospital & Surgical Benefits" section, visually centered on
+ * "In-hospital & Related Services" in the flattened text (hence it only
+ * appears once). To stay on the safe side of "never invent data", this is
+ * applied ONLY when a section has EXACTLY ONE row with the bare value "As
+ * Charged" (no trailing qualifier) and the rest have none at all - a
+ * section with an ambiguous or compound value (e.g. "combined up to
+ * RM1,500,000") never triggers this, and a value is never inherited
+ * across a section boundary.
  */
 function extractBenefitItems(doc, warnings) {
   const section = getSectionLines(doc, /^Table of Benefits\s*$/i, /^i\s+Second Medical Opinion/i);
@@ -305,25 +339,50 @@ function extractBenefitItems(doc, warnings) {
     const idx = findLineIndexFrom(lines, label, cursor);
     if (idx === -1) {
       warnings.push({ field: `medicalRider.benefitItems.${label}`, message: `Could not locate the "${label}" row.` });
-      items.push({ section: sectionName, label, value: null });
+      items.push({ section: sectionName, label, value: null, note: null });
       continue;
     }
     const nextLabel = BENEFIT_LABEL_DICTIONARY[i + 1];
     const nextIdx = nextLabel ? findLineIndexFrom(lines, nextLabel.label, idx + 1) : lines.length;
     const boundEnd = nextIdx === -1 ? lines.length : nextIdx;
     const blockLines = lines.slice(idx, boundEnd);
-    const value = valueForBenefitRow(blockLines, label);
+    const { value, note } = valueForBenefitRow(blockLines, label);
 
-    if (value == null) {
-      warnings.push({
-        field: `medicalRider.benefitItems.${label}`,
-        message: `No explicit value found for "${label}" - this may be a merged table cell shared with an adjacent row; verify against the source PDF.`,
-      });
-    }
-
-    items.push({ section: sectionName, label, value });
+    items.push({ section: sectionName, label, value, note });
     cursor = idx + 1;
   }
+
+  // --- Merged-cell inheritance pass (see file comment above) ---
+  const sectionsSeen = new Set(items.map((it) => it.section));
+  sectionsSeen.forEach((sectionName) => {
+    const rowsInSection = items.filter((it) => it.section === sectionName);
+    const bareAsCharged = rowsInSection.filter((it) => it.value === 'As Charged');
+    if (bareAsCharged.length !== 1) return; // ambiguous (0 or >1 candidates) - never guess
+    rowsInSection.forEach((it) => {
+      if (it.value == null) {
+        it.value = 'As Charged';
+        it.inheritedValue = true;
+      }
+    });
+  });
+
+  items.forEach((it) => {
+    const finalValue = [it.value, it.note].filter(Boolean).join(' ') || null;
+    if (finalValue == null) {
+      warnings.push({
+        field: `medicalRider.benefitItems.${it.label}`,
+        message: `No explicit value found for "${it.label}" - this may be a merged table cell shared with an adjacent row; verify against the source PDF.`,
+      });
+    } else if (it.inheritedValue) {
+      warnings.push({
+        field: `medicalRider.benefitItems.${it.label}`,
+        message: `"${it.label}" has no value printed on its own row - inherited "As Charged" from the single matching value shared across its "${it.section}" section (a merged table cell); verify against the source PDF.`,
+      });
+    }
+    it.value = finalValue;
+    delete it.note;
+    delete it.inheritedValue;
+  });
 
   return items;
 }
@@ -346,6 +405,34 @@ function extractWaitingPeriods(doc, warnings) {
     warnings.push({ field: 'medicalRider.waitingPeriods', message: 'Waiting Period section found but no {days, description} rows could be parsed.' });
   }
   return periods;
+}
+
+/**
+ * Health360's Product Disclosure Sheet DOES print a short client-facing
+ * "What is covered? / What is not covered?" two-column digest ("Step 2 -
+ * Does it meet your needs?"), in the exact same layout AnugerahMax's Medic
+ * TotalCare PDS uses - reuses the same generic lineUtils.js helper
+ * (splitTwoColumnByHeader) extractBenefits.js already relies on for that
+ * product, rather than the earlier, incorrect assumption that this
+ * product simply doesn't have one.
+ */
+function extractMedicalExclusionsDigest(doc, warnings) {
+  const { fragments } = splitTwoColumnByHeader(
+    doc,
+    /What is covered\?.*What is not covered\?/i,
+    'What is not covered?',
+    /This is not a complete list/i
+  );
+  if (!fragments.length) {
+    warnings.push({ field: 'medicalRider.medicalExclusions', message: 'Could not reconstruct the "What is not covered?" column.' });
+    return [];
+  }
+  const clauses = splitIntoClauses(fragments.join(' '));
+  if (!clauses.length) {
+    warnings.push({ field: 'medicalRider.medicalExclusions', message: 'Reconstructed text but could not split it into distinct items; returning as one block.' });
+    return [fragments.join(' ')];
+  }
+  return clauses;
 }
 
 function extractExclusions(doc, warnings) {
@@ -382,6 +469,7 @@ function extractAsas360(doc, options) {
   const medicalBenefitItems = extractBenefitItems(doc, warnings);
   const waitingPeriods = extractWaitingPeriods(doc, warnings);
   const fullExclusionsList = extractExclusions(doc, warnings);
+  const medicalExclusions = extractMedicalExclusionsDigest(doc, warnings);
 
   const data = {
     metadata: metadataRest,
@@ -393,7 +481,7 @@ function extractAsas360(doc, options) {
       coverageToAge,
       contribution: null, // see toMedicalJson.fromAsas360()'s own warning - not printed as a standalone figure for this product
       benefitItems: medicalBenefitItems,
-      medicalExclusions: [], // Health360's PDS doesn't print a short client-facing "what's not covered" digest the way Medic TotalCare does - only the full lettered list
+      medicalExclusions,
       fullExclusionsList,
       waitingPeriods,
       smartValuePoint,
