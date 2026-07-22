@@ -40,6 +40,56 @@ const UNSUPPORTED_PRODUCT_MESSAGE =
   'Could not identify this Product Illustration as a supported product (PruBSN AnugerahMax or PruBSN Asas360).';
 
 /**
+ * Runs product-specific validation, normalizes into data.medical, and
+ * validates that normalized shape - the whole back half of
+ * parseQuotation() below, shared so this exact same product-aware
+ * decision (never running AnugerahMax's own validateQuotation() against
+ * Asas360 data) lives in exactly one place. Also used by callers that
+ * need to RE-run this after an agent hand-edits an extracted field (e.g.
+ * browser-tool/app.js's revalidate flow) - data.medical is DERIVED from
+ * data.plan/data.benefits (AnugerahMax) or data.medicalRider (Asas360),
+ * so an edit to the raw extracted field must regenerate data.medical too,
+ * or the renderer (which reads only data.medical) would keep showing the
+ * pre-edit value.
+ *
+ * @param {object} data an extractor's output - already has either
+ *   data.plan/data.contributions/data.benefits (AnugerahMax) or
+ *   data.medicalRider (Asas360) - mutated in place: data.medical is
+ *   (re)assigned.
+ * @returns {{ warnings: object[], errors: object[] }}
+ */
+function normalizeAndValidate(data) {
+  const isAsas360 = Boolean(data && data.medicalRider);
+  const warnings = [];
+  const errors = [];
+
+  // validateQuotation() only understands AnugerahMax's own data.plan/
+  // data.contributions/data.benefits field names - running it against
+  // Asas360's differently-shaped data would produce a wall of false
+  // "required field missing" errors for fields Asas360 never had in the
+  // first place. Asas360's own required-field checking lives entirely in
+  // validateMedical() below, keyed off data.medical.
+  if (!isAsas360) {
+    const validation = validateQuotation(data);
+    warnings.push(...validation.warnings);
+    errors.push(...validation.errors);
+  }
+
+  const medicalWarnings = [];
+  data.medical = isAsas360 ? fromAsas360(data, medicalWarnings) : fromAnugerahMax(data, medicalWarnings);
+  warnings.push(...medicalWarnings);
+
+  const medicalValidation = validateMedical(data.medical);
+  warnings.push(...medicalValidation.warnings);
+  errors.push(...medicalValidation.errors);
+
+  const strategy = getCoverageStrategy(data.medical.coverageModel);
+  if (strategy) data.medical.coverageExplanation = strategy.explanation;
+
+  return { warnings, errors };
+}
+
+/**
  * @param {string[]} pages one string of extracted text per PDF page (any
  *   text-extraction backend can supply this - see pdfTextSource.node.js
  *   for the dev/test one; a browser build supplies an equivalent using
@@ -69,32 +119,11 @@ function parseQuotation(pages, options = {}) {
     ? extractAsas360(doc, options)
     : extractAnugerahMax(doc, options);
 
-  // --- Product-specific validation (unchanged for AnugerahMax) ---
-  // validateQuotation() only understands AnugerahMax's own data.plan/
-  // data.contributions/data.benefits field names - running it against
-  // Asas360's differently-shaped data would produce a wall of false
-  // "required field missing" errors for fields Asas360 never had in the
-  // first place. Asas360's own required-field checking lives entirely in
-  // validateMedical() below, keyed off data.medical.
-  if (!isAsas360) {
-    const validation = validateQuotation(data);
-    warnings.push(...validation.warnings);
-    errors.push(...validation.errors);
-  }
-
-  // --- Normalize into the product-agnostic Universal Medical JSON ---
-  const medicalWarnings = [];
-  data.medical = isAsas360 ? fromAsas360(data, medicalWarnings) : fromAnugerahMax(data, medicalWarnings);
-  warnings.push(...medicalWarnings);
-
-  const medicalValidation = validateMedical(data.medical);
-  warnings.push(...medicalValidation.warnings);
-  errors.push(...medicalValidation.errors);
-
-  const strategy = getCoverageStrategy(data.medical.coverageModel);
-  if (strategy) data.medical.coverageExplanation = strategy.explanation;
+  const postExtraction = normalizeAndValidate(data);
+  warnings.push(...postExtraction.warnings);
+  errors.push(...postExtraction.errors);
 
   return { data, warnings, errors };
 }
 
-module.exports = { parseQuotation };
+module.exports = { parseQuotation, normalizeAndValidate };

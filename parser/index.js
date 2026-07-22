@@ -8,7 +8,7 @@
 
 'use strict';
 
-const { parseQuotation } = require('./parseQuotation');
+const { parseQuotation, normalizeAndValidate } = require('./parseQuotation');
 const { AGENTS, getAgentConfig } = require('./agents');
 
-module.exports = { parseQuotation, AGENTS, getAgentConfig };
+module.exports = { parseQuotation, normalizeAndValidate, AGENTS, getAgentConfig };

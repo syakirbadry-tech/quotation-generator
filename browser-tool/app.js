@@ -22,8 +22,7 @@
 'use strict';
 
 const { extractPagesFromPdf } = require('./pdfTextSource.browser.js');
-const { parseQuotation } = require('../parser/index.js');
-const { validateQuotation } = require('../parser/validate.js');
+const { parseQuotation, normalizeAndValidate } = require('../parser/index.js');
 const { renderAgentReviewHtml, renderClientQuotationHtml } = require('../renderer/renderQuotation.js');
 const { renderComparisonHtml } = require('../renderer/renderComparison.js');
 const { primaryValue } = require('../renderer/formatters.js');
@@ -120,17 +119,6 @@ const EDITABLE_FIELDS = [
   { section: 'Contributions', path: 'contributions.guaranteedDeathTPDBenefit', label: 'Guaranteed death/TPD benefit (RM)', type: 'number' },
   { section: 'Benefits', path: 'benefits.annualLimit', label: 'Annual limit' },
   { section: 'Benefits', path: 'benefits.lifetimeLimit', label: 'Lifetime limit' },
-  { section: 'Options', path: 'options.coverageTerm', label: 'Options table coverage term' },
-];
-
-const OPTION_COLUMN_FIELDS = [
-  ['productName', 'Product name'],
-  ['annualContribution', 'Annual contribution (RM)'],
-  ['coPaymentOption', 'Co-payment option'],
-  ['roomAndBoard', 'Room & board'],
-  ['annualLimitOption', 'Annual limit'],
-  ['lifetimeLimitOption', 'Lifetime limit'],
-  ['facilityType', 'Facility type'],
 ];
 
 // --- Path helpers --------------------------------------------------------
@@ -423,9 +411,12 @@ function fieldRowHtml(q, qIndex, field) {
 }
 
 function benefitItemsTableHtml(q, qIndex) {
-  const items = (q.data.benefits && q.data.benefits.benefitItems) || [];
+  // Sourced from data.medical (product-agnostic - populated for both
+  // AnugerahMax and Asas360), not data.benefits directly - which only
+  // ever exists for AnugerahMax and left this table empty for Asas360.
+  const items = (q.data.medical && q.data.medical.benefitItems) || [];
   const rows = items.map((item, i) => {
-    const warn = (q.warnings || []).find((w) => w.field === `benefits.benefitItems.${item.label}`);
+    const warn = (q.warnings || []).find((w) => w.field === `benefits.benefitItems.${item.label}` || w.field === `medicalRider.benefitItems.${item.label}`);
     const note = item.prefilledFromKnownMergedCell
       ? 'Pre-filled: this row shares a merged cell with an adjacent benefit in the source PDF. Value verified against the source document - please confirm before sending.'
       : warn && warn.message;
@@ -437,17 +428,6 @@ function benefitItemsTableHtml(q, qIndex) {
       ${note ? `<tr class="note-row"><td colspan="2" class="field-note field-note-warn">${escapeHtml(note)}</td></tr>` : ''}`;
   }).join('');
   return `<div class="table-scroll"><table><thead><tr><th>Benefit</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-}
-
-function optionsTableHtml(q, qIndex) {
-  const columns = (q.data.options && q.data.options.columns) || [];
-  const head = `<tr><th></th>${columns.map((c) => `<th>${escapeHtml(c.optionLabel || '')}</th>`).join('')}</tr>`;
-  const rows = OPTION_COLUMN_FIELDS.map(([key, label]) => `
-    <tr>
-      <th>${escapeHtml(label)}</th>
-      ${columns.map((c, i) => `<td><input type="text" data-q-index="${qIndex}" data-option-index="${i}" data-option-key="${key}" value="${escapeHtml(c[key] == null ? '' : String(c[key]))}" class="field-input"></td>`).join('')}
-    </tr>`).join('');
-  return `<div class="table-scroll"><table><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function reviewPanelHtml(q, qIndex) {
@@ -475,8 +455,6 @@ function reviewPanelHtml(q, qIndex) {
       ${formHtml}
       <h2 class="section-title">Benefits table</h2>
       ${benefitItemsTableHtml(q, qIndex)}
-      <h2 class="section-title">Product options</h2>
-      ${optionsTableHtml(q, qIndex)}
     </div>`;
 }
 
@@ -522,20 +500,29 @@ el.reviewPanels.addEventListener('input', (e) => {
     setPath(q.data, path, value);
   } else if (target.dataset.benefitIndex != null && target.dataset.benefitIndex !== '') {
     const idx = Number(target.dataset.benefitIndex);
-    q.data.benefits.benefitItems[idx].value = target.value || null;
-    q.data.benefits.benefitItems[idx].prefilledFromKnownMergedCell = false;
-  } else if (target.dataset.optionIndex != null && target.dataset.optionIndex !== '') {
-    const idx = Number(target.dataset.optionIndex);
-    const key = target.dataset.optionKey;
-    const raw = target.value;
-    q.data.options.columns[idx][key] = key === 'annualContribution' ? (raw === '' ? null : Number(raw)) : raw || null;
+    q.data.medical.benefitItems[idx].value = target.value || null;
+    q.data.medical.benefitItems[idx].prefilledFromKnownMergedCell = false;
   }
+  // data.medical is DERIVED from the raw extracted fields just edited
+  // above (data.plan/data.benefits for AnugerahMax, data.medicalRider for
+  // Asas360) - re-derive it now so the client document (generated
+  // straight from q.data, with no re-parse) reflects this edit, not the
+  // pre-edit value. Deliberately does not overwrite q.warnings/q.errors
+  // here - those only refresh on an explicit "Revalidate" click, same as
+  // before this fix.
+  normalizeAndValidate(q.data);
   updateGateState();
 });
 
 function revalidateAll() {
   for (const q of state.quotations) {
-    const { warnings, errors } = validateQuotation(q.data);
+    // Re-derives data.medical from whatever the agent just hand-edited in
+    // data.plan/data.benefits (AnugerahMax) or data.medicalRider
+    // (Asas360) - the renderer reads only data.medical, so skipping this
+    // would leave it showing stale, pre-edit values - and runs the same
+    // product-aware validation parseQuotation() itself uses (never
+    // AnugerahMax's own validateQuotation() against Asas360 data).
+    const { warnings, errors } = normalizeAndValidate(q.data);
     q.warnings = warnings;
     q.errors = errors;
   }
