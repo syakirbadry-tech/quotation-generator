@@ -2135,6 +2135,7 @@
         const isAsas360 = Boolean(data && data.medicalRider);
         const warnings = [];
         const errors = [];
+        console.log("[DIAGNOSTIC 3] Validation profile: isAsas360=%s -> validateQuotation() %s, validateMedical() runs always, validateProtection() runs always", isAsas360, isAsas360 ? "SKIPPED" : "RAN");
         if (!isAsas360) {
           const validation = validateQuotation(data);
           warnings.push(...validation.warnings);
@@ -2157,6 +2158,7 @@
       function parseQuotation2(pages, options = {}) {
         const doc = buildDocument(pages);
         const classification = classifyDocument(doc);
+        console.log("[DIAGNOSTIC 1] classifyDocument() result:", JSON.stringify(classification), "| sourceFileName:", options.sourceFileName);
         if (!classification.product) {
           return {
             data: null,
@@ -2165,10 +2167,16 @@
           };
         }
         const isAsas360 = classification.product === "asas360";
+        console.log("[DIAGNOSTIC] Extractor dispatch: %s", isAsas360 ? "extractAsas360() (parser/extractors/asas360.js)" : "extractAnugerahMax() (parser/extractors/anugerahmax.js)");
         const { data, warnings, errors } = isAsas360 ? extractAsas360(doc, options) : extractAnugerahMax(doc, options);
         const postExtraction = normalizeAndValidate2(data);
         warnings.push(...postExtraction.warnings);
         errors.push(...postExtraction.errors);
+        console.log("[DIAGNOSTIC 2] Complete normalized data.medical:", JSON.stringify(data.medical, null, 2));
+        console.log("[DIAGNOSTIC 2] Complete normalized data.protection:", JSON.stringify(data.protection, null, 2));
+        console.log("[DIAGNOSTIC 2] Full data keys present:", Object.keys(data));
+        console.log("[DIAGNOSTIC 2] warnings:", JSON.stringify(warnings));
+        console.log("[DIAGNOSTIC 2] errors:", JSON.stringify(errors));
         return { data, warnings, errors };
       }
       module.exports = { parseQuotation: parseQuotation2, normalizeAndValidate: normalizeAndValidate2 };
@@ -4431,7 +4439,7 @@ ${continueButtonHtml}
       }
     }
   }
-  var EDITABLE_FIELDS = [
+  var COMMON_EDITABLE_FIELDS = [
     { section: "Metadata", path: "metadata.productName", label: "Product name" },
     { section: "Metadata", path: "metadata.quotationDate.raw", label: "Quotation date (as printed, DD/MM/YYYY)" },
     { section: "Client", path: "client.fullName", label: "Full name" },
@@ -4441,7 +4449,10 @@ ${continueButtonHtml}
     { section: "Client", path: "client.ageNextBirthday", label: "Age next birthday", type: "number" },
     { section: "Client", path: "client.dateOfBirth.raw", label: "Date of birth (DD/MM/YYYY)" },
     { section: "Agent", path: "agent.agentCode", label: "Agent code (drives agency/branch/contact lookup)" },
-    { section: "Agent", path: "agent.agentNameOnDocument", label: "Agent name (as printed on PDF)" },
+    { section: "Agent", path: "agent.agentNameOnDocument", label: "Agent name (as printed on PDF)" }
+  ];
+  var ANUGERAHMAX_EDITABLE_FIELDS = [
+    ...COMMON_EDITABLE_FIELDS,
     { section: "Plan", path: "plan.typeOfProduct", label: "Type of product" },
     { section: "Plan", path: "plan.basicPlanName", label: "Basic plan name" },
     { section: "Plan", path: "plan.basicPlanTerm", label: "Basic plan term (years)", type: "number" },
@@ -4461,6 +4472,27 @@ ${continueButtonHtml}
     { section: "Benefits", path: "benefits.annualLimit", label: "Annual limit" },
     { section: "Benefits", path: "benefits.lifetimeLimit", label: "Lifetime limit" }
   ];
+  var ASAS360_EDITABLE_FIELDS = [
+    ...COMMON_EDITABLE_FIELDS,
+    { section: "Plan", path: "basicPlan.basicPlanName", label: "Basic plan name" },
+    { section: "Plan", path: "basicPlan.basicPlanTerm", label: "Basic plan term (years)", type: "number" },
+    { section: "Plan", path: "basicPlan.basicSumCovered", label: "Basic sum covered (RM)", type: "number" },
+    { section: "Plan", path: "medicalRider.riderName", label: "Medical rider name" },
+    { section: "Plan", path: "medicalRider.planTier", label: "Medical plan tier" },
+    { section: "Plan", path: "medicalRider.coPaymentOption", label: "Co-payment option" },
+    { section: "Plan", path: "medicalRider.coverageToAge", label: "Coverage to age", type: "number" },
+    { section: "Contributions", path: "monthlyTotalAmountPayable", label: "Monthly Total Amount Payable (RM)", type: "number" },
+    { section: "Contributions", path: "totalAnnualContribution", label: "Total Annual Contribution (RM)", type: "number" },
+    { section: "Benefits", path: "medicalRider.smartValuePoint", label: "Smart Value Point (RM)", type: "number" },
+    { section: "Benefits", path: "medicalRider.lifetimeLimit", label: "Lifetime limit" },
+    { section: "Benefits", path: "basicPlan.deathBenefit.amount", label: "Death Benefit (RM)", type: "number" },
+    { section: "Benefits", path: "basicPlan.tpdBenefit.amount", label: "TPD Benefit (RM)", type: "number" }
+  ];
+  function editableFieldsFor(q) {
+    const isAsas360 = Boolean(q && q.data && q.data.medicalRider);
+    console.log("[DIAGNOSTIC 4] Review schema selected for %s: %s", q && q.fileName || "(unknown)", isAsas360 ? "ASAS360_EDITABLE_FIELDS" : "ANUGERAHMAX_EDITABLE_FIELDS");
+    return isAsas360 ? ASAS360_EDITABLE_FIELDS : ANUGERAHMAX_EDITABLE_FIELDS;
+  }
   function getPath(obj, path) {
     return path.split(".").reduce((acc, key) => acc == null ? void 0 : acc[key], obj);
   }
@@ -4594,6 +4626,7 @@ ${continueButtonHtml}
       const buffer = await file.arrayBuffer();
       const pages = await extractPagesFromPdf(new Uint8Array(buffer));
       const result = parseQuotation(pages, { sourceFileName: file.name, validityDays: 14 });
+      console.log("[DIAGNOSTIC app.js] parseOneFile(%s): metadata.productName=%s, has data.medical=%s, has data.protection=%s", file.name, result.data && result.data.metadata && result.data.metadata.productName, Boolean(result.data && result.data.medical), Boolean(result.data && result.data.protection));
       applyKnownMergedBenefitValues(result.data);
       entry.status = "ready";
       entry.data = result.data;
@@ -4728,9 +4761,10 @@ ${continueButtonHtml}
     if (warnings.length) {
       banners.push(`<div class="banner banner-warn"><b>${warnings.length} warning(s).</b> Review the flagged fields below - none of this is shown to the client, but you should verify it against the source PDF.</div>`);
     }
-    const sections = [...new Set(EDITABLE_FIELDS.map((f) => f.section))];
+    const editableFields = editableFieldsFor(q);
+    const sections = [...new Set(editableFields.map((f) => f.section))];
     const formHtml = sections.map((section) => {
-      const fields = EDITABLE_FIELDS.filter((f) => f.section === section);
+      const fields = editableFields.filter((f) => f.section === section);
       return `<fieldset><legend>${escapeHtml(section)}</legend><div class="fields-grid">${fields.map((f) => fieldRowHtml(q, qIndex, f)).join("")}</div></fieldset>`;
     }).join("");
     return `
@@ -4761,6 +4795,7 @@ ${continueButtonHtml}
     });
   }
   function renderReviewStage() {
+    console.log("[DIAGNOSTIC 5] Review stage renderer: reviewPanelHtml() in browser-tool/app.js (renderAgentReviewHtml from renderer/renderQuotation.js is imported but never called)");
     renderReviewTabs();
     el.reviewPanels.innerHTML = state.quotations.map((q, i) => reviewPanelHtml(q, i)).join("");
     updateGateState();
@@ -4772,7 +4807,7 @@ ${continueButtonHtml}
     const q = state.quotations[qIndex];
     if (target.dataset.path) {
       const path = target.dataset.path;
-      const field = EDITABLE_FIELDS.find((f) => f.path === path);
+      const field = editableFieldsFor(q).find((f) => f.path === path);
       const raw = target.value;
       const value = field && field.type === "number" ? raw === "" ? null : Number(raw) : raw === "" ? null : raw;
       setPath(q.data, path, value);

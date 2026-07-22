@@ -86,11 +86,27 @@ function applyKnownMergedBenefitValues(data) {
 // --- Editable field registry -------------------------------------------
 // One entry per scalar field an agent can hand-correct. `path` is a
 // dot-path into a quotation's `data`; `label` is what's shown in the
-// review form. Deliberately covers every Required field from the
-// approved extraction model (see docs/PARSER_API.md) plus a few useful
-// non-required ones - array fields (benefitItems, options.columns) get
-// their own table renderers below instead of appearing here.
-const EDITABLE_FIELDS = [
+// review form. Array fields (benefitItems) get their own table renderer
+// below instead of appearing here.
+//
+// Product-aware (see editableFieldsFor() below): Metadata/Client/Agent
+// paths are identical for both products (extractMetadata.js/
+// extractAgent.js are shared, unchanged extractors), but Plan/
+// Contributions/Benefits are NOT - AnugerahMax's raw extractor output
+// has data.plan/data.contributions/data.benefits; Asas360's has
+// data.medicalRider/data.basicPlan instead (see extractors/asas360.js).
+// Edits must target these RAW, pre-normalization fields, not
+// data.medical/data.protection directly - normalizeAndValidate() is
+// re-run after every edit and recomputes data.medical/data.protection
+// FROM these raw fields, so an edit to the normalized shape alone would
+// be silently discarded on the next re-render.
+//
+// This exact bug (a single static AnugerahMax-only field list shown
+// unconditionally for every product) was found via a real, uploaded
+// Asas360 PDF: 18 of 28 review-form fields rendered as silently blank
+// inputs, mislabelled "Basic plan name" / "Medic TotalCare contribution"
+// / "Annual limit" etc. for a quotation that has none of those concepts.
+const COMMON_EDITABLE_FIELDS = [
   { section: 'Metadata', path: 'metadata.productName', label: 'Product name' },
   { section: 'Metadata', path: 'metadata.quotationDate.raw', label: 'Quotation date (as printed, DD/MM/YYYY)' },
   { section: 'Client', path: 'client.fullName', label: 'Full name' },
@@ -101,6 +117,10 @@ const EDITABLE_FIELDS = [
   { section: 'Client', path: 'client.dateOfBirth.raw', label: 'Date of birth (DD/MM/YYYY)' },
   { section: 'Agent', path: 'agent.agentCode', label: 'Agent code (drives agency/branch/contact lookup)' },
   { section: 'Agent', path: 'agent.agentNameOnDocument', label: 'Agent name (as printed on PDF)' },
+];
+
+const ANUGERAHMAX_EDITABLE_FIELDS = [
+  ...COMMON_EDITABLE_FIELDS,
   { section: 'Plan', path: 'plan.typeOfProduct', label: 'Type of product' },
   { section: 'Plan', path: 'plan.basicPlanName', label: 'Basic plan name' },
   { section: 'Plan', path: 'plan.basicPlanTerm', label: 'Basic plan term (years)', type: 'number' },
@@ -120,6 +140,30 @@ const EDITABLE_FIELDS = [
   { section: 'Benefits', path: 'benefits.annualLimit', label: 'Annual limit' },
   { section: 'Benefits', path: 'benefits.lifetimeLimit', label: 'Lifetime limit' },
 ];
+
+const ASAS360_EDITABLE_FIELDS = [
+  ...COMMON_EDITABLE_FIELDS,
+  { section: 'Plan', path: 'basicPlan.basicPlanName', label: 'Basic plan name' },
+  { section: 'Plan', path: 'basicPlan.basicPlanTerm', label: 'Basic plan term (years)', type: 'number' },
+  { section: 'Plan', path: 'basicPlan.basicSumCovered', label: 'Basic sum covered (RM)', type: 'number' },
+  { section: 'Plan', path: 'medicalRider.riderName', label: 'Medical rider name' },
+  { section: 'Plan', path: 'medicalRider.planTier', label: 'Medical plan tier' },
+  { section: 'Plan', path: 'medicalRider.coPaymentOption', label: 'Co-payment option' },
+  { section: 'Plan', path: 'medicalRider.coverageToAge', label: 'Coverage to age', type: 'number' },
+  { section: 'Contributions', path: 'monthlyTotalAmountPayable', label: 'Monthly Total Amount Payable (RM)', type: 'number' },
+  { section: 'Contributions', path: 'totalAnnualContribution', label: 'Total Annual Contribution (RM)', type: 'number' },
+  { section: 'Benefits', path: 'medicalRider.smartValuePoint', label: 'Smart Value Point (RM)', type: 'number' },
+  { section: 'Benefits', path: 'medicalRider.lifetimeLimit', label: 'Lifetime limit' },
+  { section: 'Benefits', path: 'basicPlan.deathBenefit.amount', label: 'Death Benefit (RM)', type: 'number' },
+  { section: 'Benefits', path: 'basicPlan.tpdBenefit.amount', label: 'TPD Benefit (RM)', type: 'number' },
+];
+
+/** Which registry applies to this specific quotation - keyed the same way normalizeAndValidate() itself decides product, never metadata.productName string-matching. */
+function editableFieldsFor(q) {
+  const isAsas360 = Boolean(q && q.data && q.data.medicalRider);
+  console.log('[DIAGNOSTIC 4] Review schema selected for %s: %s', (q && q.fileName) || '(unknown)', isAsas360 ? 'ASAS360_EDITABLE_FIELDS' : 'ANUGERAHMAX_EDITABLE_FIELDS');
+  return isAsas360 ? ASAS360_EDITABLE_FIELDS : ANUGERAHMAX_EDITABLE_FIELDS;
+}
 
 // --- Path helpers --------------------------------------------------------
 
@@ -286,6 +330,7 @@ async function parseOneFile(entry, file) {
     const buffer = await file.arrayBuffer();
     const pages = await extractPagesFromPdf(new Uint8Array(buffer));
     const result = parseQuotation(pages, { sourceFileName: file.name, validityDays: 14 });
+    console.log('[DIAGNOSTIC app.js] parseOneFile(%s): metadata.productName=%s, has data.medical=%s, has data.protection=%s', file.name, result.data && result.data.metadata && result.data.metadata.productName, Boolean(result.data && result.data.medical), Boolean(result.data && result.data.protection));
     applyKnownMergedBenefitValues(result.data);
     entry.status = 'ready';
     entry.data = result.data;
@@ -442,9 +487,10 @@ function reviewPanelHtml(q, qIndex) {
     banners.push(`<div class="banner banner-warn"><b>${warnings.length} warning(s).</b> Review the flagged fields below - none of this is shown to the client, but you should verify it against the source PDF.</div>`);
   }
 
-  const sections = [...new Set(EDITABLE_FIELDS.map((f) => f.section))];
+  const editableFields = editableFieldsFor(q);
+  const sections = [...new Set(editableFields.map((f) => f.section))];
   const formHtml = sections.map((section) => {
-    const fields = EDITABLE_FIELDS.filter((f) => f.section === section);
+    const fields = editableFields.filter((f) => f.section === section);
     return `<fieldset><legend>${escapeHtml(section)}</legend><div class="fields-grid">${fields.map((f) => fieldRowHtml(q, qIndex, f)).join('')}</div></fieldset>`;
   }).join('');
 
@@ -478,6 +524,11 @@ function renderReviewTabs() {
 }
 
 function renderReviewStage() {
+  // [DIAGNOSTIC 5] Renderer selected for the Review stage - reviewPanelHtml()
+  // (this file's own in-page editable form), NOT renderAgentReviewHtml()
+  // (renderer/renderQuotation.js) - that function is imported above but
+  // has no call site anywhere in this file. Confirmed via full-file grep.
+  console.log('[DIAGNOSTIC 5] Review stage renderer: reviewPanelHtml() in browser-tool/app.js (renderAgentReviewHtml from renderer/renderQuotation.js is imported but never called)');
   renderReviewTabs();
   el.reviewPanels.innerHTML = state.quotations.map((q, i) => reviewPanelHtml(q, i)).join('');
   updateGateState();
@@ -494,7 +545,7 @@ el.reviewPanels.addEventListener('input', (e) => {
 
   if (target.dataset.path) {
     const path = target.dataset.path;
-    const field = EDITABLE_FIELDS.find((f) => f.path === path);
+    const field = editableFieldsFor(q).find((f) => f.path === path);
     const raw = target.value;
     const value = field && field.type === 'number' ? (raw === '' ? null : Number(raw)) : raw === '' ? null : raw;
     setPath(q.data, path, value);

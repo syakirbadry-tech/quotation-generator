@@ -65,6 +65,12 @@ function normalizeAndValidate(data) {
   const warnings = [];
   const errors = [];
 
+  // [DIAGNOSTIC 3] Validation profile selected - which validator(s) ran
+  // for this document. See parseQuotation.js's own header for why this
+  // decision must never run AnugerahMax's validateQuotation() against
+  // Asas360 data.
+  console.log('[DIAGNOSTIC 3] Validation profile: isAsas360=%s -> validateQuotation() %s, validateMedical() runs always, validateProtection() runs always', isAsas360, isAsas360 ? 'SKIPPED' : 'RAN');
+
   // validateQuotation() only understands AnugerahMax's own data.plan/
   // data.contributions/data.benefits field names - running it against
   // Asas360's differently-shaped data would produce a wall of false
@@ -117,6 +123,9 @@ function parseQuotation(pages, options = {}) {
   const doc = buildDocument(pages);
   const classification = classifyDocument(doc);
 
+  // [DIAGNOSTIC 1] Product detected by classifier.
+  console.log('[DIAGNOSTIC 1] classifyDocument() result:', JSON.stringify(classification), '| sourceFileName:', options.sourceFileName);
+
   if (!classification.product) {
     return {
       data: null,
@@ -126,6 +135,7 @@ function parseQuotation(pages, options = {}) {
   }
 
   const isAsas360 = classification.product === 'asas360';
+  console.log('[DIAGNOSTIC] Extractor dispatch: %s', isAsas360 ? 'extractAsas360() (parser/extractors/asas360.js)' : 'extractAnugerahMax() (parser/extractors/anugerahmax.js)');
   const { data, warnings, errors } = isAsas360
     ? extractAsas360(doc, options)
     : extractAnugerahMax(doc, options);
@@ -133,6 +143,15 @@ function parseQuotation(pages, options = {}) {
   const postExtraction = normalizeAndValidate(data);
   warnings.push(...postExtraction.warnings);
   errors.push(...postExtraction.errors);
+
+  // [DIAGNOSTIC 2] Complete normalized JSON (data.medical + data.protection
+  // are the product-agnostic sections every renderer/review-page should
+  // read from - see normalize/toMedicalJson.js and normalize/toProtectionJson.js).
+  console.log('[DIAGNOSTIC 2] Complete normalized data.medical:', JSON.stringify(data.medical, null, 2));
+  console.log('[DIAGNOSTIC 2] Complete normalized data.protection:', JSON.stringify(data.protection, null, 2));
+  console.log('[DIAGNOSTIC 2] Full data keys present:', Object.keys(data));
+  console.log('[DIAGNOSTIC 2] warnings:', JSON.stringify(warnings));
+  console.log('[DIAGNOSTIC 2] errors:', JSON.stringify(errors));
 
   return { data, warnings, errors };
 }
