@@ -126,6 +126,16 @@ check('projection.projectionRows[0]', data.projection.projectionRows[0], {
 check('projection.medicalInflationAssumptionLow', data.projection.medicalInflationAssumptionLow, 7);
 check('projection.medicalInflationAssumptionHigh', data.projection.medicalInflationAssumptionHigh, 10);
 
+// Universal Protection JSON (see normalize/toProtectionJson.js) - kept
+// separate from data.medical. AnugerahMax states Death and TPD as ONE
+// combined guaranteed figure, so both fields honestly share it.
+check('protection.basicPlanName', data.protection.basicPlanName, 'PruBSN AnugerahMax (Basic)');
+check('protection.basicPlanTerm', data.protection.basicPlanTerm, 44);
+check('protection.basicSumCovered', data.protection.basicSumCovered, 10000);
+check('protection.deathBenefit', data.protection.deathBenefit, { amount: 10000, description: 'Guaranteed Death / Total Permanent Disability Benefit' });
+check('protection.tpdBenefit', data.protection.tpdBenefit, { amount: 10000, description: 'Guaranteed Death / Total Permanent Disability Benefit' });
+check('protection.cashValue', data.protection.cashValue, { scenarioX: 2193, scenarioY: 24570, schedule: null });
+
 // This document's required fields should all be present - zero errors expected.
 check('errors.length', errors.length, 0);
 

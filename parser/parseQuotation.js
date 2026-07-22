@@ -32,9 +32,11 @@ const { classifyDocument } = require('./classifyDocument');
 const { extractAnugerahMax } = require('./extractors/anugerahmax');
 const { extractAsas360 } = require('./extractors/asas360');
 const { fromAnugerahMax, fromAsas360 } = require('./normalize/toMedicalJson');
+const { fromAnugerahMax: protectionFromAnugerahMax, fromAsas360: protectionFromAsas360 } = require('./normalize/toProtectionJson');
 const { getCoverageStrategy } = require('./coverageStrategy');
 const { validateQuotation } = require('./validate');
 const { validateMedical } = require('./validateMedical');
+const { validateProtection } = require('./validateProtection');
 
 const UNSUPPORTED_PRODUCT_MESSAGE =
   'Could not identify this Product Illustration as a supported product (PruBSN AnugerahMax or PruBSN Asas360).';
@@ -85,6 +87,15 @@ function normalizeAndValidate(data) {
 
   const strategy = getCoverageStrategy(data.medical.coverageModel);
   if (strategy) data.medical.coverageExplanation = strategy.explanation;
+
+  // --- Protection domain (see normalize/toProtectionJson.js) ---
+  // Basic-plan/Death/TPD/Cash Value facts, kept in their own section,
+  // separate from data.medical - warning-only validation, since this is
+  // an additive domain, not a pre-existing hard requirement.
+  data.protection = isAsas360 ? protectionFromAsas360(data) : protectionFromAnugerahMax(data);
+  const protectionValidation = validateProtection(data.protection);
+  warnings.push(...protectionValidation.warnings);
+  errors.push(...protectionValidation.errors);
 
   return { warnings, errors };
 }

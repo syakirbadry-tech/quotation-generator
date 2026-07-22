@@ -322,7 +322,7 @@ function findBenefitFuzzy(benefitItems, ...requiredWords) {
 }
 
 function renderQuotationCard(data, mode, agentReview = {}) {
-  const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, medical = {}, projection = {} } = data || {};
+  const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, medical = {}, protection = {}, projection = {} } = data || {};
   const helpers = buildHelpers(mode);
   const { missing, money, textOr } = helpers;
   const agentConfig = getAgentConfig(agent.agentCode) || {};
@@ -509,6 +509,15 @@ function renderQuotationCard(data, mode, agentReview = {}) {
       <div class="fig"><div class="lab">Co-payment</div><div class="amt">${textOr(medical.coPayment)}</div><div class="sub">${coPaymentAmount(medical.coPayment) ? `RM ${coPaymentAmount(medical.coPayment)} per disability` : ''}</div></div>
       <div class="fig"><div class="lab">Hospital &amp; Surgical</div><div class="amt">${hospitalSurgicalCompact ? escapeHtml(hospitalSurgicalCompact) : missing()}</div><div class="sub">cashless at panel</div></div>
       <div class="fig"><div class="lab">Coverage Term</div><div class="amt">${medical.coverageToAge != null ? `to Age ${medical.coverageToAge}` : missing()}</div><div class="sub">${coverageTermYears != null ? `${coverageTermYears} years` : ''}</div></div>
+    </div>
+
+    <h2 class="sec">Protection Summary</h2>
+    <div class="prep">
+      <div class="item name"><div class="k">Basic Plan</div><div class="v">${textOr(protection.basicPlanName)}</div></div>
+      <div class="item"><div class="k">Basic Sum Covered</div><div class="v">${protection.basicSumCovered != null ? money(protection.basicSumCovered) : missing()}</div></div>
+      <div class="item"><div class="k">Death Benefit</div><div class="v">${protection.deathBenefit ? money(protection.deathBenefit.amount) : missing()}</div></div>
+      <div class="item"><div class="k">TPD Benefit</div><div class="v">${protection.tpdBenefit ? money(protection.tpdBenefit.amount) : missing()}</div></div>
+      ${protection.deathBenefit && protection.deathBenefit.description ? `<div class="item name"><div class="k">Death / TPD basis</div><div class="v" style="font-size:12px;font-weight:400">${escapeHtml(protection.deathBenefit.description)}</div></div>` : ''}
     </div>
 
     <h2 class="sec">What your medical card covers</h2>

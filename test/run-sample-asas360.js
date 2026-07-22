@@ -82,6 +82,7 @@ check('medical.planTier', data.medical.planTier, '200');
 check('medical.coverageModel', data.medical.coverageModel, 'LIFETIME_MEDICAL_FUND');
 check('medical.annualLimit', data.medical.annualLimit, null);
 check('medical.lifetimeFundAmount', data.medical.lifetimeFundAmount, 1000000);
+check('medical.lifetimeLimit (exact PDS wording, p.14)', data.medical.lifetimeLimit, 'No Limit, subject to SVP');
 check('medical.costSharingAfterExhaustion', data.medical.costSharingAfterExhaustion, { insurerPct: 80, clientPct: 20 });
 check('medical.roomAndBoard', data.medical.roomAndBoard, { amount: 200, maxDaysPerYear: 150 });
 check('medical.coPayment', data.medical.coPayment, 'Deductible RM500');
@@ -104,12 +105,35 @@ check(
     'As Charged (once per lifetime)',
   ]
 );
+// Outpatient Cancer Treatment (g) and Outpatient Kidney Dialysis Treatment
+// (h) share ONE merged value cell in the source - both must show the full
+// combined sentence, not half each (see extractors/asas360.js).
+check(
+  'medical.benefitItems: g)/h) combined merged value',
+  ['Outpatient Cancer Treatment', 'Outpatient Kidney Dialysis Treatment'].map(
+    (label) => data.medical.benefitItems.find((b) => b.label === label).value
+  ),
+  ['As Charged, combined up to RM1,500,000 per lifetime', 'As Charged, combined up to RM1,500,000 per lifetime']
+);
 check('medical.fullExclusionsList.length', data.medical.fullExclusionsList.length, 33);
 check('medical.waitingPeriods', data.medical.waitingPeriods, [
   { days: 120, description: 'Specified Illnesses' },
-  { days: 30, description: 'any other causes, and' },
+  { days: 30, description: 'any other causes' },
   { days: 180, description: 'Mental Care Treatment' },
 ]);
+// Exclusion (ff) spans a page break in the source - must be clean prose,
+// never contaminated with the page footer/header that lands mid-item.
+check(
+  'medical.fullExclusionsList: (ff) is not contaminated by page-break footer/header noise',
+  data.medical.fullExclusionsList.find((e) => e.marker === 'ff').text,
+  "Experimental treatment, including medication and/or unconventional medical technology/procedure, which has not been proved to be effective, based on established medical practice, and which has not been approved by a recognised body in Malaysia; or"
+);
+// Exclusion (gg) must not absorb the trailing "This list is non-exhaustive..." disclaimer that follows it in the source.
+check(
+  'medical.fullExclusionsList: (gg) does not absorb the trailing disclaimer sentence',
+  data.medical.fullExclusionsList.find((e) => e.marker === 'gg').text,
+  "Care or treatment that does not lead to a recovery, conservation of the Covered Person's condition or restoration to the Covered Person's previous state of health."
+);
 
 // Directly printed contribution figures (Monthly Total Amount Payable / Total Annual Contribution)
 check('monthlyTotalAmountPayable', data.monthlyTotalAmountPayable, 337);
@@ -123,8 +147,9 @@ check(
   []
 );
 
-// This document has two known, honest limitations (see fromAsas360()'s own
-// comments) - not bugs, so they're asserted as the *expected* warnings.
+// This document has one known, honest limitation (see fromAsas360()'s own
+// comment) plus a handful of genuinely-merged-cell benefit rows - not
+// bugs, so they're asserted as the *expected* warnings.
 check(
   'warnings',
   warnings.map((w) => w.field).sort(),
@@ -141,6 +166,58 @@ check(
 // two-column reconstruction AnugerahMax's extractBenefits.js already
 // uses; this was previously (incorrectly) assumed not to exist.
 check('medical.medicalExclusions.length', data.medical.medicalExclusions.length, 3);
+
+// Universal Protection JSON (see normalize/toProtectionJson.js) - kept
+// separate from data.medical. Death/TPD Benefit is genuinely formula-
+// based for Asas360 (Basic Sum Covered plus/before the cash value of the
+// certificate, per Appendix: Death & TPD Benefit, p.19) - never a
+// fabricated single combined figure.
+check('protection.basicPlanName', data.protection.basicPlanName, 'PruBSN Asas360 (Basic)');
+check('protection.basicPlanTerm', data.protection.basicPlanTerm, 59);
+check('protection.basicSumCovered', data.protection.basicSumCovered, 25000);
+check('protection.deathBenefit', data.protection.deathBenefit, {
+  amount: 25000,
+  description: 'Basic Sum Covered plus the cash value of the certificate',
+});
+check('protection.tpdBenefit', data.protection.tpdBenefit, {
+  amount: 25000,
+  description: "Basic Sum Covered, payable before the certificate anniversary of the Covered Person's age 70 next birthday",
+});
+// Asas360 never prints a single "the" cash value (investment-linked,
+// varies by year/scenario) - only Table 1's real year-by-year schedule.
+check('protection.cashValue.scenarioX (never a fabricated single figure)', data.protection.cashValue.scenarioX, null);
+check('protection.cashValue.scenarioY (never a fabricated single figure)', data.protection.cashValue.scenarioY, null);
+check('protection.cashValue.schedule.length (Table 1, p.5 - 16 certificate years)', data.protection.cashValue.schedule.length, 16);
+check('protection.cashValue.schedule[0] (year 1, matches Table 1 exactly)', data.protection.cashValue.schedule[0], {
+  year: 1,
+  contributionPaid: 4044,
+  sumCovered: 10000,
+  cashValueScenarioX: 388,
+  cashValueScenarioY: 394,
+  deathBenefitScenarioX: 10388,
+  deathBenefitScenarioY: 10394,
+});
+check('protection.cashValue.schedule[last] (year 59, matches Table 1 exactly)', data.protection.cashValue.schedule[data.protection.cashValue.schedule.length - 1], {
+  year: 59,
+  contributionPaid: 4044,
+  sumCovered: 25000,
+  cashValueScenarioX: 103461,
+  cashValueScenarioY: 267740,
+  deathBenefitScenarioX: 128461,
+  deathBenefitScenarioY: 292740,
+});
+// The real, printed per-year Health360-specific Tabarru' deduction (Table
+// 3, p.8) - fulfils the promise medical.contribution's own warning makes
+// ("see Table 3's Tabarru' deduction schedule instead").
+check('medical.tabarruDeductionSchedule.length', data.medical.tabarruDeductionSchedule.length, 16);
+check('medical.tabarruDeductionSchedule[0] (year 1: RM2,670 Health360-specific Tabarru\')', data.medical.tabarruDeductionSchedule[0], {
+  year: 1,
+  basicTabarru: 39,
+  vitalCarePlusTabarru: 40,
+  health360Tabarru: 2670,
+  crisisProtectorTabarru: 0,
+});
+
 check('errors.length', errors.length, 0);
 
 console.log(`\n${pass} passed, ${fail} failed.`);

@@ -46,6 +46,8 @@ console.log('=== Agent review: AnugerahMax ===');
   ok('contribution breakdown shown (AnugerahMax has real ISA/Wakalah/rider data)', html.includes('Wakalah Certificate Charge'));
   ok('Product Options Table section is gone', !html.includes('Other options to consider'));
   ok('no "Recommended"/"Option 1"/"Option 2" labels leak through', !html.includes('Recommended</div>') && !/>Option 1</.test(html) && !/>Option 2</.test(html));
+  ok('Protection Summary: Basic Plan populated', html.includes('PruBSN AnugerahMax (Basic)'));
+  ok('Protection Summary: Death/TPD Benefit populated', html.includes('Guaranteed Death / Total Permanent Disability Benefit'));
 }
 
 console.log('\n=== Agent review: Asas360 ===');
@@ -58,7 +60,7 @@ console.log('\n=== Agent review: Asas360 ===');
   ok('room & board populated', html.includes('RM 200/day'));
   ok('coverage term populated', html.includes('to Age 60'));
   ok('Lifetime Medical Fund figure label used instead of "Annual Limit"', html.includes('Lifetime Medical Fund'));
-  ok('Smart Value Point figure populated', html.includes('No Limit, subject to Smart Value Point'));
+  ok('Smart Value Point figure populated', html.includes('No Limit, subject to SVP'));
   ok('co-payment populated', html.includes('Deductible RM500'));
   ok('benefits table populated (not "benefits table not found")', !html.includes('benefits table not found'));
   ok('medical exclusions populated (not "exclusions not found")', !html.includes('exclusions not found'));
@@ -67,6 +69,8 @@ console.log('\n=== Agent review: Asas360 ===');
   ok('Product Options Table section is gone', !html.includes('Other options to consider'));
   ok('no "Recommended"/"Option 1"/"Option 2" labels leak through', !html.includes('Recommended</div>') && !/>Option 1</.test(html) && !/>Option 2</.test(html));
   ok('zero required-field errors', html.includes('No required fields are missing.'));
+  ok('Protection Summary: Basic Plan populated (new protection domain - was entirely absent before)', html.includes('PruBSN Asas360 (Basic)'));
+  ok('Protection Summary: Death/TPD basis description shown (formula-based, never a fabricated single figure)', html.includes('Basic Sum Covered plus the cash value of the certificate'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed.`);

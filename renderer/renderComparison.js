@@ -176,7 +176,15 @@ function renderKeyFiguresTable(allData, headerCells) {
     return `<td${col(i)}>${textOr(model === 'LIFETIME_MEDICAL_FUND' ? 'Lifetime Medical Fund' : model === 'ANNUAL_LIMIT' ? 'Annual Limit' : null)}</td>`;
   }).join('')}</tr>`;
   const annualLimitRow = `<tr><th>Annual Limit</th>${allData.map((d, i) => `<td${col(i)}>${textOr((d.medical || {}).annualLimit)}</td>`).join('')}</tr>`;
-  const lifetimeLimitRow = `<tr><th>Lifetime Medical Fund</th>${allData.map((d, i) => `<td${col(i)}>${textOr((d.medical || {}).lifetimeLimit)}</td>`).join('')}</tr>`;
+  // Shows the real Smart Value Point figure (e.g. "RM1,000,000") alongside
+  // the descriptive lifetimeLimit text ("No Limit, subject to SVP") -
+  // previously only the description was shown, never the actual number a
+  // client would want to compare between options.
+  const lifetimeLimitRow = `<tr><th>Lifetime Medical Fund</th>${allData.map((d, i) => {
+    const medical = d.medical || {};
+    const amount = medical.lifetimeFundAmount != null ? money(medical.lifetimeFundAmount) : null;
+    return `<td${col(i)}>${textOr(medical.lifetimeLimit)}${amount ? `<div class="cmp-plan-sub">${amount}</div>` : ''}</td>`;
+  }).join('')}</tr>`;
   const coPayRow = `<tr><th>Co-payment</th>${allData.map((d, i) => {
     const opt = (d.medical || {}).coPayment;
     const amt = coPaymentAmount(opt);

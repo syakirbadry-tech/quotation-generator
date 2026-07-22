@@ -167,6 +167,16 @@ const PRODUCT_FACTS = {
     extensionToAge100: true,
     pidmProtected: true,
   },
+  // Verified directly from the real Asas360 sample: p.1's cover page
+  // carries the same PIDM/TIPS protection notice AnugerahMax's does, and
+  // p.30's "Appendix: Other Certificate Benefits and Options" describes
+  // the same Extension of Certificate Term feature (coverage continues to
+  // age 100 next birthday, cash value permitting) - not assumed from
+  // AnugerahMax, independently confirmed in Asas360's own document.
+  'PruBSN Asas360': {
+    extensionToAge100: true,
+    pidmProtected: true,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -207,7 +217,7 @@ function imageWithFallback(url, altText, layoutClass = 'pq-kenburns') {
 // ---------------------------------------------------------------------------
 
 function buildViewModel(data, agentReview) {
-  const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, medical = {}, projection = {} } = data || {};
+  const { metadata = {}, client = {}, agent = {}, plan = {}, contributions = {}, medical = {}, protection = {}, projection = {} } = data || {};
   const agentConfig = getAgentConfig(agent.agentCode) || {};
   // Every medical fact (rider name, tier, co-payment, coverage term, room &
   // board, benefit items, waiting periods, coverage model) is read from the
@@ -255,15 +265,15 @@ function buildViewModel(data, agentReview) {
 
   const currentRow = (projection.projectionRows || []).find((r) => r.age === client.ageNextBirthday) || null;
 
-  // Certificate term in years - AnugerahMax's own extracted plan.basicPlanTerm
-  // is used directly (byte-identical, zero risk); Asas360 has no equivalent
-  // extracted field in Version 1's medical-only scope, so it's derived from
-  // the same two product-agnostic facts every certificate has (coverageToAge,
-  // client's current age) - verified against the real Asas360 sample's own
-  // printed "Certificate Term: 59 years" line (60 - 1 = 59).
+  // Certificate term in years - sourced from the product-agnostic
+  // data.protection.basicPlanTerm (see normalize/toProtectionJson.js),
+  // populated for both products now. Falls back to the derived
+  // coverageToAge-minus-current-age calculation only if that's somehow
+  // absent - verified against the real Asas360 sample's own printed
+  // "Certificate Term: 59 years" line (60 - 1 = 59, matches exactly).
   const coverageTermYears =
-    plan.basicPlanTerm != null
-      ? plan.basicPlanTerm
+    protection.basicPlanTerm != null
+      ? protection.basicPlanTerm
       : medical.coverageToAge != null && client.ageNextBirthday != null
       ? medical.coverageToAge - client.ageNextBirthday
       : null;
@@ -296,12 +306,23 @@ function buildViewModel(data, agentReview) {
     monthlyCompact,
     totalAnnualContribution: contributions.totalAnnualContribution != null ? contributions.totalAnnualContribution : (data && data.totalAnnualContribution),
     totalContributionOverTerm: contributions.totalContributionOverTerm,
-    guaranteedDeathTPDBenefit: contributions.guaranteedDeathTPDBenefit,
+    // Sourced from data.protection (see normalize/toProtectionJson.js),
+    // populated for both products - Asas360's is formula-based (Basic Sum
+    // Covered plus/before the cash value of the certificate), never a
+    // fabricated single combined number, so the description is carried
+    // alongside the guaranteed floor amount rather than replacing it.
+    guaranteedDeathTPDBenefit: protection.deathBenefit ? protection.deathBenefit.amount : null,
+    deathBenefitDescription: protection.deathBenefit ? protection.deathBenefit.description : null,
     isaContribution: contributions.isaContribution,
     protectionContribution: contributions.protectionContribution,
     wakalahCertificateCharge: contributions.wakalahCertificateCharge,
-    cashValueX: contributions.nonGuaranteedCashValueScenarioX,
-    cashValueY: contributions.nonGuaranteedCashValueScenarioY,
+    // Only ever populated when the product prints a single flat cash
+    // value figure (AnugerahMax) - Asas360's investment-linked structure
+    // only ever prints a year-by-year schedule (protection.cashValue.schedule),
+    // never a single "the" cash value, so these stay null for that product
+    // rather than picking one arbitrary year and presenting it as definitive.
+    cashValueX: protection.cashValue ? protection.cashValue.scenarioX : null,
+    cashValueY: protection.cashValue ? protection.cashValue.scenarioY : null,
 
     coverageModel: medical.coverageModel,
     coverageExplanation: medical.coverageExplanation,
@@ -1070,6 +1091,7 @@ function renderGuaranteedProtection(vm) {
     <div class="pq-guarantee-hero pq-reveal d2">
       <div class="pq-eyebrow">Death / TPD Benefit</div>
       <div class="pq-figure">${vm.guaranteedDeathTPDBenefit != null ? escapeHtml(moneyRM(vm.guaranteedDeathTPDBenefit)) : naSpan()}</div>
+      ${vm.deathBenefitDescription ? `<div class="pq-note" style="margin-top:6px">${escapeHtml(vm.deathBenefitDescription)}</div>` : ''}
       <div class="pq-note">Paid if ${textOr(vm.clientFirstName, 'the covered person')} passes away or suffers Total Permanent Disability, before age ${vm.coverageToAge != null ? escapeHtml(String(vm.coverageToAge)) : naSpan()} next birthday.</div>
     </div>
     <div class="pq-fact-list">

@@ -353,6 +353,12 @@ function extractBenefitItems(doc, warnings) {
   }
 
   // --- Merged-cell inheritance pass (see file comment above) ---
+  // Must run BEFORE the g)/h) combine below: g)'s own bare "As Charged"
+  // has to still be bare "As Charged" (not yet folded into the combined
+  // sentence) when this pass counts how many bare "As Charged" values
+  // exist in "Outpatient Treatment Benefits" - otherwise it would
+  // miscount (only m) Day Surgery left) and wrongly inherit "As Charged"
+  // into genuinely-blank rows like k) Home Nursing Care.
   const sectionsSeen = new Set(items.map((it) => it.section));
   sectionsSeen.forEach((sectionName) => {
     const rowsInSection = items.filter((it) => it.section === sectionName);
@@ -365,6 +371,22 @@ function extractBenefitItems(doc, warnings) {
       }
     });
   });
+
+  // Outpatient Cancer Treatment (g) and Outpatient Kidney Dialysis
+  // Treatment (h) share ONE merged value cell in the source table -
+  // confirmed from the raw text: "As Charged, combined up to
+  // RM1,500,000 per lifetime" trails BOTH items' bullet lists as a single
+  // block, not split between them (h's own row only carries the
+  // "combined up to..." half because that's where the block happens to
+  // end in the flattened text). Give both rows the full combined
+  // sentence rather than half each.
+  const cancerItem = items.find((it) => it.label === 'Outpatient Cancer Treatment');
+  const dialysisItem = items.find((it) => it.label === 'Outpatient Kidney Dialysis Treatment');
+  if (cancerItem && dialysisItem && cancerItem.value && dialysisItem.value && cancerItem.value !== dialysisItem.value) {
+    const combined = `${cancerItem.value}, ${dialysisItem.value}`;
+    cancerItem.value = combined;
+    dialysisItem.value = combined;
+  }
 
   items.forEach((it) => {
     const finalValue = [it.value, it.note].filter(Boolean).join(' ') || null;
@@ -398,7 +420,12 @@ function extractWaitingPeriods(doc, warnings) {
     const line = raw.trim();
     const m = line.match(/(\d+)\s+days?\s+after\s+(?:the\s+)?(?:effective date of the rider|effective date of the certificate)?\s*(?:or\s+(?:the\s+)?date it is revived)?\s*(?:for|,?\s*for)?\s*(.+)/i);
     if (m) {
-      periods.push({ days: parseInt(m[1], 10), description: m[2].replace(/[,.]$/, '').trim() });
+      // Strips the list's own trailing conjunction ("... any other causes,
+      // and") alongside the usual trailing punctuation - a bulleted list of
+      // 3 items reads naturally with "and" before the last one in the
+      // source PDF, but that's list grammar, not part of the description.
+      const description = m[2].replace(/,?\s*and\s*$/i, '').replace(/[,.]$/, '').trim();
+      periods.push({ days: parseInt(m[1], 10), description });
     }
   });
   if (!periods.length) {
@@ -441,12 +468,136 @@ function extractExclusions(doc, warnings) {
     warnings.push({ field: 'medicalRider.fullExclusionsList', message: 'Could not locate the medical "Exclusions:" list.' });
     return [];
   }
-  return splitLetteredList(section.lines);
+  // This lettered list spans a page break (p.28 -> p.29) in the real
+  // sample, and pdftotext's repeating page footer/header land mid-item
+  // (confirmed: inside item (ff)'s own text, between "...not been proved
+  // to be effective," and its continuation "based on established medical
+  // practice..."). splitLetteredList() has no noise-filtering of its own
+  // (it's a generic, shared helper), so the filtering has to happen here,
+  // the same way extractBenefitItems() already does for the benefit table.
+  const lines = section.lines.filter((raw) => !isNoiseLine(raw.trim()));
+  const items = splitLetteredList(lines);
+  // The trailing "This list is non-exhaustive..." disclaimer sentence
+  // that follows the last lettered item ((gg)) in the source text is not
+  // part of that item - strip it back off rather than let it get absorbed
+  // into (gg)'s own text by splitLetteredList()'s continuation-line logic.
+  const last = items[items.length - 1];
+  if (last) {
+    last.text = last.text.replace(/\s*This list is non-exhaustive\..*$/i, '').trim();
+  }
+  return items;
 }
 
-/** Lifetime limit isn't printed as its own labelled figure for Asas360/Health360 (unlike AnugerahMax's "Lifetime Limit: No Lifetime Limit" line) - the closest real, printed statement is the SVP mechanism's own wording. Represented honestly as a fixed, sourced phrase rather than left blank or invented as a number. */
+/** "Lifetime Limit :No Limit, subject to SVP" - printed verbatim on Health360's own PDS (p.14, "Step 2 - Does it meet your needs?"). Quoted exactly, not paraphrased, since this is regulated financial-product copy. */
 function deriveLifetimeLimitDisplay(smartValuePoint) {
-  return smartValuePoint != null ? 'No Limit, subject to Smart Value Point' : null;
+  return smartValuePoint != null ? 'No Limit, subject to SVP' : null;
+}
+
+/**
+ * Basic plan facts ("PruBSN Asas360 (Basic)" row in the main quotation
+ * table, p.2): term (years) and sum covered (RM) - protection-domain
+ * facts (see normalize/toProtectionJson.js), not medical ones. Anchored
+ * on the literal "(Basic)" parenthetical, which appears exactly once in
+ * the document.
+ */
+function extractBasicPlanFacts(doc, warnings) {
+  const idx = findAnchorIndexInDoc(doc, /PruBSN\s+Asas360\s*\(Basic\)/i);
+  if (idx === -1) {
+    warnings.push({ field: 'protection.basicPlan', message: 'Could not locate the "PruBSN Asas360 (Basic)" row in the quotation table.' });
+    return { basicPlanName: null, basicPlanTerm: null, basicSumCovered: null };
+  }
+  const line = doc.allLines[idx].text;
+  const m = line.match(/\(Basic\)\s*(\d+)\s+([\d,]+)/i);
+  if (!m) {
+    warnings.push({ field: 'protection.basicPlan', message: 'Located the "PruBSN Asas360 (Basic)" row but could not parse its term/sum covered figures.' });
+    return { basicPlanName: 'PruBSN Asas360 (Basic)', basicPlanTerm: null, basicSumCovered: null };
+  }
+  return {
+    basicPlanName: 'PruBSN Asas360 (Basic)',
+    basicPlanTerm: parseInt(m[1], 10),
+    basicSumCovered: parseCurrency(m[2]),
+  };
+}
+
+/**
+ * Table 1: PruBSN Asas360 (p.5) - year-by-year Non-Guaranteed Cash Value
+ * under Scenario X (2% p.a.) and Scenario Y (5% p.a.), alongside Sum
+ * Covered and Non-Guaranteed Death Benefits. A genuine, real, printed
+ * schedule - unlike AnugerahMax's flat single-figure cash value, Asas360's
+ * investment-linked structure only ever prints cash value as a
+ * year-by-year table, so this is extracted as a schedule rather than
+ * forcing a single "the" cash value figure the source doesn't state.
+ *
+ * Row format (space-separated, verified against the real sample): Year,
+ * Contribution Paid, Allocated Contribution (RM), Allocated Contribution
+ * (%), Tabarru' Basic, Tabarru' Rider(s), Other Charges, Fund Mgmt Charge
+ * (X), Fund Mgmt Charge (Y), Sum Covered, Cash Value (X), Cash Value (Y),
+ * Death Benefit (X), Death Benefit (Y), Commission (RM), Commission (%) -
+ * 16 whitespace-separated tokens per row, anchored on a bare leading
+ * integer (the certificate year) so the table's own "Total" row (no
+ * leading year) is never misread as data.
+ */
+function extractCashValueSchedule(doc, warnings) {
+  const section = getSectionLines(doc, /^Table 1:\s*PruBSN Asas360/i, /^Table 2:\s*Rider/i);
+  if (section.startIndex === -1) {
+    warnings.push({ field: 'protection.cashValue.schedule', message: 'Could not locate "Table 1: PruBSN Asas360".' });
+    return [];
+  }
+  const rows = [];
+  section.lines.forEach((raw) => {
+    const line = raw.trim();
+    const m = line.match(
+      /^(\d+)\s+([\d,]+)\s+([\d,]+)\s+([\d.]+)\s+(\d+)\s+([\d,]+)\s+(\d+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d.]+)$/
+    );
+    if (!m) return;
+    rows.push({
+      year: parseInt(m[1], 10),
+      contributionPaid: parseCurrency(m[2]),
+      sumCovered: parseCurrency(m[10]),
+      cashValueScenarioX: parseCurrency(m[11]),
+      cashValueScenarioY: parseCurrency(m[12]),
+      deathBenefitScenarioX: parseCurrency(m[13]),
+      deathBenefitScenarioY: parseCurrency(m[14]),
+    });
+  });
+  if (!rows.length) {
+    warnings.push({ field: 'protection.cashValue.schedule', message: '"Table 1" was located but no year rows could be parsed - verify against the source PDF.' });
+  }
+  return rows;
+}
+
+/**
+ * Table 3: Breakdown of Tabarru` Deductions (p.8) - the real, printed
+ * per-year Health360-specific Tabarru' deduction. This is the field
+ * fromAsas360()'s own contribution warning already promises exists
+ * ("see Table 3's Tabarru' deduction schedule") - previously that promise
+ * was never fulfilled; this extractor fulfils it. Row format: Year,
+ * Basic Tabarru', Vital Care Plus Tabarru', Health360 Tabarru', Crisis
+ * Protector Tabarru' - 5 whitespace-separated numeric tokens per row.
+ */
+function extractTabarruDeductionSchedule(doc, warnings) {
+  const section = getSectionLines(doc, /^Table 3:\s*Breakdown of Tabarru/i, /^Appendix:\s*Projection by Accounts/i);
+  if (section.startIndex === -1) {
+    warnings.push({ field: 'medical.tabarruDeductionSchedule', message: "Could not locate \"Table 3: Breakdown of Tabarru\` Deductions\"." });
+    return [];
+  }
+  const rows = [];
+  section.lines.forEach((raw) => {
+    const line = raw.trim();
+    const m = line.match(/^(\d+)\s+(\d+)\s+(\d+)\s+([\d,]+)\s+(\d+)$/);
+    if (!m) return;
+    rows.push({
+      year: parseInt(m[1], 10),
+      basicTabarru: parseCurrency(m[2]),
+      vitalCarePlusTabarru: parseCurrency(m[3]),
+      health360Tabarru: parseCurrency(m[4]),
+      crisisProtectorTabarru: parseCurrency(m[5]),
+    });
+  });
+  if (!rows.length) {
+    warnings.push({ field: 'medical.tabarruDeductionSchedule', message: '"Table 3" was located but no year rows could be parsed - verify against the source PDF.' });
+  }
+  return rows;
 }
 
 function extractAsas360(doc, options) {
@@ -470,6 +621,10 @@ function extractAsas360(doc, options) {
   const waitingPeriods = extractWaitingPeriods(doc, warnings);
   const fullExclusionsList = extractExclusions(doc, warnings);
   const medicalExclusions = extractMedicalExclusionsDigest(doc, warnings);
+  const tabarruDeductionSchedule = extractTabarruDeductionSchedule(doc, warnings);
+
+  const { basicPlanName, basicPlanTerm, basicSumCovered } = extractBasicPlanFacts(doc, warnings);
+  const cashValueSchedule = extractCashValueSchedule(doc, warnings);
 
   const data = {
     metadata: metadataRest,
@@ -487,6 +642,26 @@ function extractAsas360(doc, options) {
       smartValuePoint,
       lifetimeLimit: deriveLifetimeLimitDisplay(smartValuePoint),
       coPaymentOption,
+      tabarruDeductionSchedule,
+    },
+    // Protection domain (see normalize/toProtectionJson.js) - the basic
+    // plan's own facts, kept separate from the Health360 medical rider
+    // above. Death/TPD benefit for Asas360 is genuinely formula-based
+    // (Basic Sum Covered plus/before the cash value of the certificate,
+    // per the Appendix: Death & TPD Benefit, p.19) rather than a single
+    // fixed figure the way AnugerahMax's is - represented honestly as
+    // {amount, description} rather than a fabricated combined number.
+    basicPlan: {
+      basicPlanName,
+      basicPlanTerm,
+      basicSumCovered,
+      deathBenefit: basicSumCovered != null
+        ? { amount: basicSumCovered, description: 'Basic Sum Covered plus the cash value of the certificate' }
+        : null,
+      tpdBenefit: basicSumCovered != null
+        ? { amount: basicSumCovered, description: "Basic Sum Covered, payable before the certificate anniversary of the Covered Person's age 70 next birthday" }
+        : null,
+      cashValueSchedule,
     },
     monthlyTotalAmountPayable: monthly,
     totalAnnualContribution: annual,
