@@ -224,6 +224,25 @@ Staff-only API behind the login page and submissions dashboard hosted at
 
 `ADMIN_ALLOWED_ORIGIN` in `wrangler.toml` must match the dashboard's origin (`https://syakirbadry-tech.github.io`). Change it if the dashboard moves to a custom domain.
 
+### Setting up without a computer (phone or any browser)
+
+1. Airtable scope - same as step 1 above (airtable.com/create/tokens works in a phone browser).
+2. Open https://syakirbadry-tech.github.io/Client-Form/admin/setup.html, enter the new
+   password twice, and tap **Generate values**. It makes `ADMIN_PASSWORD_HASH` and
+   `ADMIN_SESSION_SECRET` on the device (same format as `scripts/hash-password.mjs`;
+   nothing is sent anywhere).
+3. Cloudflare dashboard -> Workers & Pages -> `prubsn-submission-service` -> Settings ->
+   Variables and Secrets -> **Add**, type **Secret**, once each for `ADMIN_USERNAME`,
+   `ADMIN_PASSWORD_HASH` and `ADMIN_SESSION_SECRET`. Secrets set here survive later deploys.
+4. Rate limiting: dashboard -> Storage & Databases -> KV -> create a namespace called
+   `RATE_LIMIT_KV`, then put its ID in the `[[kv_namespaces]]` block of `wrangler.toml`
+   (GitHub's web editor is fine). A binding added only in the dashboard is removed by the
+   next `wrangler deploy`.
+5. Deploy with the **Deploy submission Worker** GitHub Action (Actions tab -> Run workflow).
+   It needs repository secrets `CLOUDFLARE_API_TOKEN` (Cloudflare -> My Profile -> API
+   Tokens -> "Edit Cloudflare Workers" template) and `CLOUDFLARE_ACCOUNT_ID`. It runs the
+   tests, then `wrangler deploy`.
+
 ### Changing the password / signing everyone out
 
 - New password: re-run `hash-password.mjs` and `wrangler secret put ADMIN_PASSWORD_HASH`. Existing sessions stay valid until they expire.
