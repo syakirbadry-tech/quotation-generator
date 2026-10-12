@@ -2,6 +2,11 @@
 # `wrangler dev`. Never commit a real token to any tracked file.
 #
 # Create the token at https://airtable.com/create/tokens with:
-#   - scope: data.records:write
+#   - scopes: data.records:write, data.records:read (read is needed by the admin dashboard)
 #   - access: the base containing the Clients table (appcA4lwc8KrLNxwM)
 AIRTABLE_PAT=patXXXXXXXXXXXXXX.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Admin dashboard (src/admin.js)
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD_HASH=pbkdf2$100000$...   # node scripts/hash-password.mjs 'your-password'
+ADMIN_SESSION_SECRET=replace-with-a-long-random-string

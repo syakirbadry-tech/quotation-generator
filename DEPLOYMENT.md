@@ -196,6 +196,39 @@ The Phase 9 spec's example public URL used a branded domain (`quote.asgansargrou
 
 See `backend/migrations/0001_create_quotations.sql` for the full schema. One row per published quotation: the client's name/plan/contribution figures (for potential future dashboard use), the renderer version that produced it, the full already-rendered HTML (served back byte-for-byte, never re-rendered), and the structured parser JSON alongside it. Nothing is ever deleted or expired automatically in this initial version — see [remaining limitations](#remaining-limitations-carried-into-this-deployment).
 
+## Admin dashboard API (`/admin/*`)
+
+Staff-only API behind the login page and submissions dashboard hosted at
+`https://syakirbadry-tech.github.io/Client-Form/admin/`. Source: `backend/src/admin.js`.
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `POST /admin/login` | username + password | Returns a signed session token (valid 8 hours) |
+| `GET /admin/submissions` | Bearer token | All submissions, summary columns only, newest first |
+| `GET /admin/submissions/:id` | Bearer token | One full submission, including document photos |
+| `PATCH /admin/submissions/:id` | Bearer token | Change `Submission Status` |
+
+### One-time setup
+
+1. **Give the Airtable token read access.** At <https://airtable.com/create/tokens>, edit the token stored in `AIRTABLE_PAT` and add the `data.records:read` scope (it previously only needed `data.records:write`). No redeploy needed for this step.
+2. **Set the three admin secrets** (from `backend/`):
+   ```bash
+   npx wrangler secret put ADMIN_USERNAME              # e.g. syakir
+   node scripts/hash-password.mjs 'your-strong-password'  # 12+ chars; prints pbkdf2$...
+   npx wrangler secret put ADMIN_PASSWORD_HASH         # paste the printed pbkdf2$... value
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   npx wrangler secret put ADMIN_SESSION_SECRET        # paste the random value
+   ```
+3. **Turn on login rate limiting (strongly recommended).** Create the KV namespace and uncomment the `[[kv_namespaces]]` block in `wrangler.toml` (see "Optional: rate limiting" above). With it, each IP gets 5 login attempts per minute; without it, logins are not rate limited.
+4. `npx wrangler deploy`
+
+`ADMIN_ALLOWED_ORIGIN` in `wrangler.toml` must match the dashboard's origin (`https://syakirbadry-tech.github.io`). Change it if the dashboard moves to a custom domain.
+
+### Changing the password / signing everyone out
+
+- New password: re-run `hash-password.mjs` and `wrangler secret put ADMIN_PASSWORD_HASH`. Existing sessions stay valid until they expire.
+- Sign everyone out immediately: `wrangler secret put ADMIN_SESSION_SECRET` with a new random value.
+
 ## Rollback procedure
 
 Cloudflare keeps every previous deployment. To roll back:

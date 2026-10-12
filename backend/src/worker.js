@@ -30,6 +30,7 @@ import { validatePayloadShape, parseJsonBody, checkContentLength } from './valid
 import { submitToClientsTable } from './airtable.js';
 import { checkRateLimit } from './rateLimit.js';
 import { validatePublishPayload, slugify, insertQuotation, getQuotationById, notFoundHtml } from './publish.js';
+import { handleAdmin } from './admin.js';
 
 const AIRTABLE_TIMEOUT_MS = 15000;
 
@@ -217,6 +218,10 @@ async function handleGetQuotation(env, id) {
 async function fetchHandler(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
+
+  // Staff dashboard API - its own auth and stricter CORS, see admin.js.
+  const adminResponse = await handleAdmin(request, env, path);
+  if (adminResponse) return adminResponse;
 
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders(env) });
