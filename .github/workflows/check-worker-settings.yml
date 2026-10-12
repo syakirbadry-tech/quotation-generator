@@ -1,0 +1,70 @@
+name: Check Worker settings
+
+# Lists which secrets the deployed Worker has (names only - Cloudflare never
+# returns values) and reports any the staff dashboard needs but is missing.
+# Optionally sets ADMIN_USERNAME and/or generates a fresh ADMIN_SESSION_SECRET.
+# Uses the same repository secrets as "Deploy submission Worker".
+on:
+  workflow_dispatch:
+    inputs:
+      admin_username:
+        description: "Set ADMIN_USERNAME to this (leave blank to keep the current one)"
+        required: false
+        default: ""
+      new_session_secret:
+        description: "Generate a new ADMIN_SESSION_SECRET (signs everyone out)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set ADMIN_USERNAME
+        if: inputs.admin_username != ''
+        env:
+          ADMIN_USERNAME_INPUT: ${{ inputs.admin_username }}
+        run: printf '%s' "$ADMIN_USERNAME_INPUT" | npx wrangler secret put ADMIN_USERNAME
+
+      - name: Generate ADMIN_SESSION_SECRET
+        if: inputs.new_session_secret
+        run: openssl rand -hex 32 | tr -d '\n' | npx wrangler secret put ADMIN_SESSION_SECRET
+
+      - name: List secrets and report missing ones
+        run: |
+          npx wrangler secret list --format json > "$RUNNER_TEMP/secrets.json"
+          node -e '
+            const names = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).map((s) => s.name);
+            console.log("Secrets on the Worker:", names.join(", ") || "(none)");
+            const required = ["ADMIN_USERNAME", "ADMIN_PASSWORD_HASH", "ADMIN_SESSION_SECRET", "AIRTABLE_PAT"];
+            const missing = required.filter((n) => !names.includes(n));
+            if (missing.length) {
+              console.log("::error::Missing: " + missing.join(", "));
+              process.exit(1);
+            }
+            console.log("All dashboard secrets are present.");
+          ' "$RUNNER_TEMP/secrets.json"
