@@ -7,6 +7,13 @@ compatibility_date = "2026-07-21"
 AIRTABLE_BASE_ID = "appcA4lwc8KrLNxwM"
 AIRTABLE_TABLE_ID = "tblmBQko8J7yOsBbv"
 ALLOWED_ORIGIN = "*"
+# Admin dashboard (src/admin.js) - only this origin may call /admin/*.
+ADMIN_ALLOWED_ORIGIN = "https://syakirbadry-tech.github.io"
+
+# Admin dashboard secrets (never written here) - see ../DEPLOYMENT.md:
+#   wrangler secret put ADMIN_USERNAME
+#   wrangler secret put ADMIN_PASSWORD_HASH     (from scripts/hash-password.mjs)
+#   wrangler secret put ADMIN_SESSION_SECRET    (any random 32+ char string)
 
 # AIRTABLE_PAT is a SECRET and must never be written here or committed
 # anywhere. Set it with:
