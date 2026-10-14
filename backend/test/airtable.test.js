@@ -139,7 +139,7 @@ console.log('\n=== Network calls (mocked fetch - never real Airtable) ===');
     let uploadUrl, uploadBody;
     global.fetch = async (url, opts) => { uploadUrl = url; uploadBody = JSON.parse(opts.body); return { ok: true, status: 200, json: async () => ({}) }; };
     await uploadAttachment(env, 'recFAKE123', DOCUMENT_FIELD_IDS.nricFront, { filename: 'ic.jpg', mimeType: 'image/jpeg', base64: 'ZmFrZQ==' });
-    check('uploadAttachment posts to the correct record+field URL', uploadUrl, `https://api.airtable.com/v0/appFAKE/tblFAKE/recFAKE123/${DOCUMENT_FIELD_IDS.nricFront}/uploadAttachment`);
+    check('uploadAttachment posts to the correct record+field URL', uploadUrl, `https://content.airtable.com/v0/appFAKE/recFAKE123/${DOCUMENT_FIELD_IDS.nricFront}/uploadAttachment`);
     check('uploadAttachment sends contentType/file/filename', uploadBody, { contentType: 'image/jpeg', file: 'ZmFrZQ==', filename: 'ic.jpg' });
 
     // submitToClientsTable: create succeeds, one document upload fails - must not fail the whole submission
@@ -153,6 +153,17 @@ console.log('\n=== Network calls (mocked fetch - never real Airtable) ===');
     check('submitToClientsTable returns the created record id', result.recordId, 'recFAKE456');
     check('a failed attachment upload is reported, not thrown/swallowed', result.attachmentErrors, [{ field: 'nricFront', message: 'upload failed' }]);
     check('exactly 2 calls were made: 1 create-record + 1 attachment (only nricFront was present in fullPayload.documents)', callCount, 2);
+
+    // All 4 documents (3 photos + signature) are uploaded, each to its own field.
+    const uploadedFields = [];
+    global.fetch = async (url) => {
+      if (url.endsWith('uploadAttachment')) { uploadedFields.push(url.split('/').slice(-2)[0]); return { ok: true, status: 200, json: async () => ({}) }; }
+      return { ok: true, status: 200, json: async () => ({ records: [{ id: 'recFAKE789' }] }) };
+    };
+    const doc = { filename: 'x.png', mimeType: 'image/png', base64: 'ZmFrZQ==' };
+    const all = await submitToClientsTable(env, { ...fullPayload, documents: { nricFront: doc, nricRear: doc, selfie: doc, signature: doc } });
+    check('all 4 documents upload with no errors', all.attachmentErrors, []);
+    check('the signature is uploaded to the Signature field along with the 3 photos', uploadedFields.sort(), Object.values(DOCUMENT_FIELD_IDS).sort());
   } finally {
     global.fetch = originalFetch;
   }
