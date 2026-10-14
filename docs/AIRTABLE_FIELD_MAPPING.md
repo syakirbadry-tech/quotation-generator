@@ -108,6 +108,7 @@ The `Clients` table schema below already exists in the live base as of 2026-07-2
 | `documents.nricFront` | NRIC Front Photo | `fldcA1s5q4Z0rtiqY` | multipleAttachments | **Base64 — needs a script step, see [Known caveats](#known-caveats--recommended-fixes) #3** |
 | `documents.nricRear` | NRIC Rear Photo | `fldHEAMMWfAemuvkz` | multipleAttachments | same |
 | `documents.selfie` | Selfie with IC Photo | `fldRMW9bVDHuQX1Vq` | multipleAttachments | same |
+| `documents.signature` | Signature | `fld1NfhD4qEcvMZnm` | multipleAttachments | same |
 
 ### Bank Details
 
@@ -164,7 +165,7 @@ The `Clients` table schema below already exists in the live base as of 2026-07-2
 2. **Smoking Status choice mismatch.** Existing choices are `Non-smoker`, `Smoker`, `Former Smoker`; the form sends `Non-Smoker` (capital S). Same two remediation options as #1 — either enable "allow new options," or add `Non-Smoker` as an additional choice.
 3. **Document attachments are base64, not URLs.** `documents.nricFront/nricRear/selfie` each carry `{ filename, mimeType, base64 }`. Airtable's no-code field mapping for a `multipleAttachments` field expects a URL Airtable can fetch, not inline base64 — a plain field-mapping action cannot populate these 3 fields. Use a **"Run a script"** action after the record is created, calling Airtable's attachment upload endpoint directly (it accepts base64 natively, no external hosting required):
    ```
-   POST https://api.airtable.com/v0/{baseId}/{tableId}/{recordId}/{attachmentFieldId}/uploadAttachment
+   POST https://content.airtable.com/v0/{baseId}/{recordId}/{attachmentFieldId}/uploadAttachment
    Body: { "contentType": "<mimeType>", "file": "<base64>", "filename": "<filename>" }
    ```
    Call it once per uploaded document (skip any that are absent — the client may not have reached the Documents step successfully, though the form requires all 3 before Submit is enabled).

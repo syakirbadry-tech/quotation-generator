@@ -13,6 +13,9 @@
  */
 
 const AIRTABLE_API_BASE = 'https://api.airtable.com/v0';
+// Attachment uploads live on a separate host, and their path has no table id:
+// POST https://content.airtable.com/v0/{baseId}/{recordId}/{fieldId}/uploadAttachment
+const AIRTABLE_CONTENT_BASE = 'https://content.airtable.com/v0';
 
 /** Only include a field if the value is a genuinely non-empty string - never write "" over a real value, and never invent one. */
 function str(value) {
@@ -185,7 +188,7 @@ export async function createClientsRecord(env, fields) {
  * hosting/URL required.
  */
 export async function uploadAttachment(env, recordId, fieldId, doc) {
-  const url = `${AIRTABLE_API_BASE}/${env.AIRTABLE_BASE_ID}/${encodeURIComponent(env.AIRTABLE_TABLE_ID)}/${recordId}/${fieldId}/uploadAttachment`;
+  const url = `${AIRTABLE_CONTENT_BASE}/${env.AIRTABLE_BASE_ID}/${recordId}/${fieldId}/uploadAttachment`;
   const res = await fetch(url, {
     method: 'POST',
     headers: airtableHeaders(env),
@@ -206,10 +209,11 @@ export const DOCUMENT_FIELD_IDS = {
   nricFront: 'fldcA1s5q4Z0rtiqY',
   nricRear: 'fldHEAMMWfAemuvkz',
   selfie: 'fldRMW9bVDHuQX1Vq',
+  signature: 'fld1NfhD4qEcvMZnm',
 };
 
 /**
- * Creates the record, then uploads whichever of the 3 documents are
+ * Creates the record, then uploads whichever of the 4 documents are
  * present. A document upload failure does not undo or fail the overall
  * submission - the applicant's data already landed on a real record, and
  * making the client redo all 8 steps because one photo upload had a
@@ -223,17 +227,13 @@ export async function submitToClientsTable(env, payload) {
   const fields = buildClientsFields(payload);
   const recordId = await createClientsRecord(env, fields);
 
-  const attachmentErrors = [];
+  // Uploaded in parallel so several phone photos fit inside the Worker's Airtable timeout.
   const documents = payload.documents || {};
-  for (const [key, fieldId] of Object.entries(DOCUMENT_FIELD_IDS)) {
-    const doc = documents[key];
-    if (!doc || !doc.base64) continue;
-    try {
-      await uploadAttachment(env, recordId, fieldId, doc);
-    } catch (err) {
-      attachmentErrors.push({ field: key, message: err.message });
-    }
-  }
+  const uploads = Object.entries(DOCUMENT_FIELD_IDS)
+    .filter(([key]) => documents[key] && documents[key].base64)
+    .map(([key, fieldId]) => uploadAttachment(env, recordId, fieldId, documents[key])
+      .then(() => null, (err) => ({ field: key, message: err.message })));
+  const attachmentErrors = (await Promise.all(uploads)).filter(Boolean);
 
   return { recordId, attachmentErrors };
 }
