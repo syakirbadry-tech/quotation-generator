@@ -109,6 +109,7 @@ The `Clients` table schema below already exists in the live base as of 2026-07-2
 | `documents.nricRear` | NRIC Rear Photo | `fldHEAMMWfAemuvkz` | multipleAttachments | same |
 | `documents.selfie` | Selfie with IC Photo | `fldRMW9bVDHuQX1Vq` | multipleAttachments | same |
 | `documents.signature` | Signature | `fld1NfhD4qEcvMZnm` | multipleAttachments | same |
+| *(set by the Worker)* | Documents Uploaded | `fldfl3aVUgbERwwMT` | checkbox | Ticked after all document uploads finish. The "New Client Added" email automation triggers on this, not on record creation: at creation time no attachments exist yet, so the email went out without them. |
 
 ### Bank Details
 
