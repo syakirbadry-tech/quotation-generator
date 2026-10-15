@@ -205,6 +205,28 @@ export async function uploadAttachment(env, recordId, fieldId, doc) {
   }
 }
 
+/**
+ * Ticks the record's "Documents Uploaded" checkbox. The "New Client Added"
+ * email automation triggers on this box rather than on record creation:
+ * on creation the documents haven't been uploaded yet, so an email sent
+ * then had no attachments.
+ */
+export async function markDocumentsUploaded(env, recordId) {
+  const url = `${AIRTABLE_API_BASE}/${env.AIRTABLE_BASE_ID}/${encodeURIComponent(env.AIRTABLE_TABLE_ID)}/${recordId}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: airtableHeaders(env),
+    body: JSON.stringify({ fields: { [DOCUMENTS_UPLOADED_FIELD_ID]: true } }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message = (body && body.error && (body.error.message || body.error.type)) || `HTTP ${res.status}`;
+    throw new Error(message);
+  }
+}
+
+export const DOCUMENTS_UPLOADED_FIELD_ID = 'fldfl3aVUgbERwwMT';
+
 export const DOCUMENT_FIELD_IDS = {
   nricFront: 'fldcA1s5q4Z0rtiqY',
   nricRear: 'fldHEAMMWfAemuvkz',
@@ -213,8 +235,8 @@ export const DOCUMENT_FIELD_IDS = {
 };
 
 /**
- * Creates the record, then uploads whichever of the 4 documents are
- * present. A document upload failure does not undo or fail the overall
+ * Creates the record, uploads whichever of the 4 documents are present,
+ * then ticks "Documents Uploaded" (which sends the notification email). A document upload failure does not undo or fail the overall
  * submission - the applicant's data already landed on a real record, and
  * making the client redo all 8 steps because one photo upload had a
  * transient error would be worse than a support follow-up to re-attach
@@ -234,6 +256,11 @@ export async function submitToClientsTable(env, payload) {
     .map(([key, fieldId]) => uploadAttachment(env, recordId, fieldId, documents[key])
       .then(() => null, (err) => ({ field: key, message: err.message })));
   const attachmentErrors = (await Promise.all(uploads)).filter(Boolean);
+
+  // Set even when an upload failed, so the notification email still goes out
+  // with whatever did arrive.
+  await markDocumentsUploaded(env, recordId)
+    .catch((err) => attachmentErrors.push({ field: 'documentsUploaded', message: err.message }));
 
   return { recordId, attachmentErrors };
 }

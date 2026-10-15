@@ -10,7 +10,7 @@
  */
 
 import assert from 'node:assert';
-import { buildClientsFields, createClientsRecord, uploadAttachment, submitToClientsTable, DOCUMENT_FIELD_IDS } from '../src/airtable.js';
+import { buildClientsFields, createClientsRecord, uploadAttachment, submitToClientsTable, DOCUMENT_FIELD_IDS, DOCUMENTS_UPLOADED_FIELD_ID } from '../src/airtable.js';
 
 let pass = 0;
 let fail = 0;
@@ -152,18 +152,30 @@ console.log('\n=== Network calls (mocked fetch - never real Airtable) ===');
     const result = await submitToClientsTable(env, fullPayload);
     check('submitToClientsTable returns the created record id', result.recordId, 'recFAKE456');
     check('a failed attachment upload is reported, not thrown/swallowed', result.attachmentErrors, [{ field: 'nricFront', message: 'upload failed' }]);
-    check('exactly 2 calls were made: 1 create-record + 1 attachment (only nricFront was present in fullPayload.documents)', callCount, 2);
+    check('exactly 3 calls were made: 1 create-record + 1 attachment (only nricFront was present in fullPayload.documents) + 1 Documents Uploaded tick', callCount, 3);
 
     // All 4 documents (3 photos + signature) are uploaded, each to its own field.
     const uploadedFields = [];
-    global.fetch = async (url) => {
+    let patch = null, uploadsBeforePatch = null;
+    global.fetch = async (url, opts) => {
       if (url.endsWith('uploadAttachment')) { uploadedFields.push(url.split('/').slice(-2)[0]); return { ok: true, status: 200, json: async () => ({}) }; }
+      if (opts.method === 'PATCH') { patch = { url, body: JSON.parse(opts.body) }; uploadsBeforePatch = uploadedFields.length; return { ok: true, status: 200, json: async () => ({}) }; }
       return { ok: true, status: 200, json: async () => ({ records: [{ id: 'recFAKE789' }] }) };
     };
     const doc = { filename: 'x.png', mimeType: 'image/png', base64: 'ZmFrZQ==' };
     const all = await submitToClientsTable(env, { ...fullPayload, documents: { nricFront: doc, nricRear: doc, selfie: doc, signature: doc } });
     check('all 4 documents upload with no errors', all.attachmentErrors, []);
     check('the signature is uploaded to the Signature field along with the 3 photos', uploadedFields.sort(), Object.values(DOCUMENT_FIELD_IDS).sort());
+    check('Documents Uploaded is ticked on the new record', patch, { url: 'https://api.airtable.com/v0/appFAKE/tblFAKE/recFAKE789', body: { fields: { [DOCUMENTS_UPLOADED_FIELD_ID]: true } } });
+    check('...only after all 4 uploads finished (the email automation triggers on it)', uploadsBeforePatch, 4);
+
+    // A failed tick is reported, not thrown - the record and documents are already saved.
+    global.fetch = async (url, opts) => {
+      if (opts.method === 'PATCH') return { ok: false, status: 503, json: async () => ({ error: { message: 'unavailable' } }) };
+      return { ok: true, status: 200, json: async () => ({ records: [{ id: 'recFAKE790' }] }) };
+    };
+    const tickFailed = await submitToClientsTable(env, fullPayload);
+    check('a failed Documents Uploaded tick is reported in attachmentErrors', tickFailed.attachmentErrors, [{ field: 'documentsUploaded', message: 'unavailable' }]);
   } finally {
     global.fetch = originalFetch;
   }
