@@ -55,7 +55,7 @@ const AIRTABLE_API_BASE = 'https://api.airtable.com/v0';
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const SETUP_CODE_TTL_SECONDS = 7 * 24 * 60 * 60;
 const SETUP_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I/L
-const MIN_PASSWORD_LENGTH = 10;
+const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 200;
 // Cloudflare Workers cap PBKDF2 at 100k iterations.
 const NEW_HASH_ITERATIONS = 100000;
@@ -335,8 +335,22 @@ async function handleLogin(request, env) {
   const user = env.AIRTABLE_USERS_TABLE_ID && isEmail(username) ? await findUserByEmail(env, username) : null;
   const usable = user && user.active && user.role && user.passwordHash;
   const passwordOk = await verifyPassword(password, usable ? user.passwordHash : DUMMY_PASSWORD_HASH);
-  if (!usable || !passwordOk) return invalid();
-  return json({ success: true, ...(await userSession(env, user)) }, 200, env);
+  if (usable && passwordOk) return json({ success: true, ...(await userSession(env, user)) }, 200, env);
+
+  // Signing in with the one-time password the owner gave them: no session
+  // yet - they must choose their own password first (POST /admin/set-password).
+  if (user && (await setupCodeMatches(user, password))) {
+    return fail('Please choose your own password to finish signing in.', 'password_change_required', 403, env);
+  }
+  return invalid();
+}
+
+async function setupCodeMatches(user, code) {
+  const normalized = normalizeSetupCode(code);
+  const expires = Date.parse(user.setupCodeExpires || '');
+  if (!user.active || !user.role || !user.setupCodeHash || normalized.length !== 10) return false;
+  if (!Number.isFinite(expires) || expires <= Date.now()) return false;
+  return timingSafeEqual(encoder.encode(await sha256Hex(normalized)), encoder.encode(user.setupCodeHash));
 }
 
 async function handleSetPassword(request, env) {
@@ -357,13 +371,8 @@ async function handleSetPassword(request, env) {
   }
 
   const user = isEmail(username) ? await findUserByEmail(env, username) : null;
-  const codeHash = await sha256Hex(code);
-  const expires = user && Date.parse(user.setupCodeExpires || '');
-  const valid = user && user.active && user.role && user.setupCodeHash && code.length === 10 &&
-    Number.isFinite(expires) && expires > Date.now() &&
-    timingSafeEqual(encoder.encode(codeHash), encoder.encode(user.setupCodeHash));
-  if (!valid) {
-    return fail('That email and setup code do not match, or the code has expired. Ask your team owner for a new code.', 'invalid_setup_code', 401, env);
+  if (!user || !(await setupCodeMatches(user, code))) {
+    return fail('That email and one-time password do not match, or it has expired. Ask your team owner for a new one.', 'invalid_setup_code', 401, env);
   }
 
   const updated = await updateUser(env, user.id, {

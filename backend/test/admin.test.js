@@ -326,19 +326,22 @@ async function teamTests(baseEnv) {
     ok('code stored only as a hash', users[3].fields['Setup Code Hash'] && !users[3].fields['Setup Code Hash'].includes(codeRes.code.replace('-', '')));
 
     const setPw = (body) => worker.fetch(req('/admin/set-password', { method: 'POST', body }), env);
-    check('wrong code -> 401', (await setPw({ username: 'newbie@example.com', code: 'AAAAA-AAAAA', password: 'long enough pw' })).status, 401);
+    check('wrong code -> 401', (await setPw({ username: 'newbie@example.com', code: 'AAAAA-AAAAA', password: 'pw8chars' })).status, 401);
     check('short password -> 400', (await setPw({ username: 'newbie@example.com', code: codeRes.code, password: 'short' })).status, 400);
-    const done = await setPw({ username: 'NewBie@example.com', code: codeRes.code.toLowerCase().replace('-', ' '), password: 'long enough pw' });
+    const otpLogin = await login(env, 'newbie@example.com', codeRes.code);
+    check('signing in with the one-time password asks for a new one', otpLogin.status, 403);
+    check('reset-required code', (await otpLogin.json()).code, 'password_change_required');
+    const done = await setPw({ username: 'NewBie@example.com', code: codeRes.code.toLowerCase().replace('-', ' '), password: 'pw8chars' });
     check('valid code sets password', done.status, 200);
     ok('signed in straight away', (await done.json()).token);
-    check('code is single-use', (await setPw({ username: 'newbie@example.com', code: codeRes.code, password: 'another long pw' })).status, 401);
-    check('new password works', (await login(env, 'newbie@example.com', 'long enough pw')).status, 200);
+    check('code is single-use', (await setPw({ username: 'newbie@example.com', code: codeRes.code, password: 'another8' })).status, 401);
+    check('new password works', (await login(env, 'newbie@example.com', 'pw8chars')).status, 200);
 
     users[3].fields['Setup Code Hash'] = 'x';
     users[3].fields['Setup Code Expires'] = '2000-01-01T00:00:00.000Z';
     const fresh = await (await worker.fetch(req('/admin/team/recNEWBIE00000001/setup-code', { method: 'POST', token }), env)).json();
     users[3].fields['Setup Code Expires'] = '2000-01-01T00:00:00.000Z';
-    check('expired code -> 401', (await setPw({ username: 'newbie@example.com', code: fresh.code, password: 'long enough pw' })).status, 401);
+    check('expired code -> 401', (await setPw({ username: 'newbie@example.com', code: fresh.code, password: 'pw8chars' })).status, 401);
 
     const off = await worker.fetch(req('/admin/team/recAGENTA00000001', { method: 'PATCH', token, body: { active: false } }), env);
     check('owner deactivates', (await off.json()).user.active, false);
