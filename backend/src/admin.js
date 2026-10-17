@@ -13,6 +13,7 @@
  *
  *   POST  /admin/login              { username, password } -> { token, expiresAt, user }
  *   POST  /admin/set-password       { username, code, password } -> { token, expiresAt, user }
+ *   POST  /admin/change-password    (leader/agent) { currentPassword, newPassword } -> { token, expiresAt, user }
  *   GET   /admin/submissions        -> { submissions: [summary...] }
  *   GET   /admin/submissions/:id    -> { submission: { id, createdTime, fields } }
  *   PATCH /admin/submissions/:id    { status } -> { submission: {...} }
@@ -307,7 +308,11 @@ async function readJsonBody(request, env) {
 }
 
 async function userSession(env, user) {
-  const session = await createSessionToken(env, user.email, undefined, { kind: 'user', uid: user.id });
+  // Never issue a token that looks older than the stored password change
+  // (resolveViewer rejects those), whatever precision Airtable keeps.
+  const setAt = Math.ceil((Date.parse(user.passwordSetAt || '') || 0) / 1000);
+  const now = Math.max(Math.floor(Date.now() / 1000), setAt);
+  const session = await createSessionToken(env, user.email, now, { kind: 'user', uid: user.id });
   return { ...session, user: { name: user.name, email: user.email, role: user.role } };
 }
 
@@ -406,6 +411,34 @@ async function handleUpdateStatus(request, env, id, viewer) {
   return json({ success: true, submission: toSummary(record) }, 200, env);
 }
 
+// Self-service change for leaders/agents, mirroring the OSH portal's
+// POST /api/auth/change-password: a wrong current password is a 400, not a
+// 401, so a typo doesn't look like an expired session to the dashboard.
+async function handleChangePassword(request, env, viewer) {
+  if (viewer.kind !== 'user') {
+    return fail("The owner's password is kept in the Worker settings and can't be changed here.", 'forbidden', 403, env);
+  }
+  const { body, error } = await readJsonBody(request, env);
+  if (error) return error;
+  const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : '';
+  const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
+  if (newPassword.length < MIN_PASSWORD_LENGTH || newPassword.length > MAX_PASSWORD_LENGTH) {
+    return fail(`New password must be at least ${MIN_PASSWORD_LENGTH} characters.`, 'weak_password', 400, env);
+  }
+  const user = await getUser(env, viewer.id);
+  if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+    return fail('Your current password is not correct.', 'wrong_password', 400, env);
+  }
+  const updated = await updateUser(env, user.id, {
+    passwordHash: await hashPassword(newPassword),
+    setupCodeHash: '',
+    setupCodeExpires: null,
+    passwordSetAt: new Date().toISOString(),
+  });
+  // Changing the password ends every other session (see resolveViewer); hand this one a fresh token.
+  return json({ success: true, ...(await userSession(env, updated)) }, 200, env);
+}
+
 async function handleTeam(request, env, path) {
   if (!env.AIRTABLE_USERS_TABLE_ID) return fail('Team accounts are not set up yet.', 'not_configured', 500, env);
 
@@ -491,6 +524,11 @@ export async function handleAdmin(request, env, path) {
     if (path === '/admin/me') {
       if (request.method !== 'GET') return fail('Method not allowed - use GET.', 'method_not_allowed', 405, env);
       return json({ success: true, user: viewerInfo(viewer) }, 200, env);
+    }
+
+    if (path === '/admin/change-password') {
+      if (request.method !== 'POST') return fail('Method not allowed - use POST.', 'method_not_allowed', 405, env);
+      return await handleChangePassword(request, env, viewer);
     }
 
     if (path === '/admin/team' || path.startsWith('/admin/team/')) {

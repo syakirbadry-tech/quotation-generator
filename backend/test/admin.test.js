@@ -337,6 +337,17 @@ async function teamTests(baseEnv) {
     check('code is single-use', (await setPw({ username: 'newbie@example.com', code: codeRes.code, password: 'another8' })).status, 401);
     check('new password works', (await login(env, 'newbie@example.com', 'pw8chars')).status, 200);
 
+    const newbie = await (await login(env, 'newbie@example.com', 'pw8chars')).json();
+    const change = (token, body) => worker.fetch(req('/admin/change-password', { method: 'POST', token, body }), env);
+    check('wrong current password -> 400', (await change(newbie.token, { currentPassword: 'nope', newPassword: 'changed88' })).status, 400);
+    const changed = await change(newbie.token, { currentPassword: 'pw8chars', newPassword: 'changed88' });
+    check('change password -> 200', changed.status, 200);
+    const fresh8 = await changed.json();
+    check('new password signs in', (await login(env, 'newbie@example.com', 'changed88')).status, 200);
+    check('old password no longer works', (await login(env, 'newbie@example.com', 'pw8chars')).status, 401);
+    check('returned token still works', (await worker.fetch(req('/admin/submissions', { token: fresh8.token }), env)).status, 200);
+    check('owner cannot use change-password', (await change(token, { currentPassword: PASSWORD, newPassword: 'whatever1' })).status, 403);
+
     users[3].fields['Setup Code Hash'] = 'x';
     users[3].fields['Setup Code Expires'] = '2000-01-01T00:00:00.000Z';
     const fresh = await (await worker.fetch(req('/admin/team/recNEWBIE00000001/setup-code', { method: 'POST', token }), env)).json();
