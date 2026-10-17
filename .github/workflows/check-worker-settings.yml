@@ -76,10 +76,16 @@ jobs:
         run: |
           # A picture that is not an IC (the ASG logo): a working scanner answers 422 not_mykad.
           printf '{"image":{"mimeType":"image/jpeg","base64":"%s"}}' "$(base64 -w0 test/fixtures/not-an-ic.jpg)" > "$RUNNER_TEMP/body.json"
+          # Capture the Worker's own error log during the test call, so a failure shows its cause.
+          npx wrangler tail --format pretty > "$RUNNER_TEMP/tail.log" 2>&1 &
+          tail_pid=$!
+          sleep 8
           code=$(curl -s -o "$RUNNER_TEMP/scan.json" -w '%{http_code}' -X POST \
             -H 'Content-Type: application/json' -H 'Origin: https://syakirbadry-tech.github.io' \
             --data @"$RUNNER_TEMP/body.json" https://prubsn-submission-service.syakirbadry.workers.dev/scan-ic)
           echo "HTTP $code: $(cat "$RUNNER_TEMP/scan.json")"
+          sleep 5; kill "$tail_pid" 2>/dev/null || true
+          echo "--- Worker log during the test ---"; grep -i "scan" "$RUNNER_TEMP/tail.log" || echo "(nothing logged)"
           if grep -q '"not_mykad"' "$RUNNER_TEMP/scan.json"; then
             echo "IC scanning works (the test picture was correctly rejected as not a MyKad)."
           elif grep -q '"scan_unavailable"' "$RUNNER_TEMP/scan.json"; then
