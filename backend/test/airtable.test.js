@@ -112,6 +112,38 @@ console.log('\n=== buildClientsFields: minimal payload never crashes and never i
   check('an empty-ish payload produces only the fields it has real data for, plus the one default (Submission Status) and the version it was given', fields, { 'Submission Status': 'Received', 'Payload Version': '1.2' });
 }
 
+console.log('\n=== buildClientsFields: form version and existing coverage ===');
+{
+  const base = { version: '1.2', metadata: {}, applicant: {}, beneficiaries: [] };
+  const withCoverage = buildClientsFields({
+    ...base,
+    formVersion: '2.0',
+    existingCoverage: {
+      hasCoverage: true,
+      policies: [
+        { company: 'Great Eastern', type: 'Medical card', premium: 150, frequency: 'Monthly' },
+        { company: 'AIA', type: 'Life insurance', premium: '1200', frequency: 'Yearly' },
+        { company: 'Etiqa', type: 'Personal accident', premium: 90, frequency: 'Quarterly' },
+      ],
+    },
+  });
+  check('Form Version is stored', withCoverage['Form Version'], '2.0');
+  check('Existing Coverage = Yes', withCoverage['Existing Coverage'], 'Yes');
+  check('one readable line per policy', withCoverage['Existing Policies'],
+    '1. Great Eastern - Medical card - RM 150.00 monthly\n2. AIA - Life insurance - RM 1200.00 yearly\n3. Etiqa - Personal accident - RM 90.00 quarterly');
+  check('yearly total converts each frequency (150x12 + 1200 + 90x4)', withCoverage['Existing Premium per Year'], 3360);
+  check('policies kept verbatim as JSON', JSON.parse(withCoverage['Existing Policies (JSON)']).length, 3);
+
+  const none = buildClientsFields({ ...base, existingCoverage: { hasCoverage: false, policies: [{ company: 'X' }] } });
+  check('No coverage stores only "No", ignoring stray policies', [none['Existing Coverage'], none['Existing Policies']], ['No', undefined]);
+
+  const legacy = buildClientsFields(base);
+  ok('a form without the question writes none of the coverage fields', !('Existing Coverage' in legacy) && !('Form Version' in legacy));
+
+  const odd = buildClientsFields({ ...base, existingCoverage: { hasCoverage: true, policies: [null, { company: 'Zurich', premium: 'abc', frequency: 'Weekly' }] } });
+  check('bad premium / unknown frequency never invents a yearly total', [odd['Existing Policies'], odd['Existing Premium per Year']], ['1. Zurich', undefined]);
+}
+
 console.log('\n=== Network calls (mocked fetch - never real Airtable) ===');
 {
   const originalFetch = global.fetch;

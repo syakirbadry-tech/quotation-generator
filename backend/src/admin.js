@@ -86,6 +86,9 @@ const SUMMARY_FIELDS = {
   monthlyIncome: 'Monthly Income',
   agentName: 'Agent Name',
   agentEmail: 'Agent Email',
+  existingCoverage: 'Existing Coverage',
+  existingPremiumYearly: 'Existing Premium per Year',
+  formVersion: 'Form Version',
 };
 
 const encoder = new TextEncoder();

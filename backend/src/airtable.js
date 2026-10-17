@@ -109,6 +109,9 @@ export function buildClientsFields(payload) {
   setIfPresent(fields, 'Coverage Model', str(selectedPlanDetails.coverageModelLabel));
   setIfPresent(fields, 'Lifetime Fund Amount', num(selectedPlanDetails.lifetimeFundAmount));
 
+  // Existing Coverage (client form 2.0+) - what protection the client already has.
+  Object.assign(fields, existingCoverageFields(p.existingCoverage));
+
   // Bank Details
   setIfPresent(fields, 'Bank Name', str(bank.bankName));
   setIfPresent(fields, 'Account Number', str(bank.accountNumber));
@@ -147,8 +150,58 @@ export function buildClientsFields(payload) {
   setIfPresent(fields, 'Parser Version', str(metadata.parserVersion));
   setIfPresent(fields, 'Renderer Version', str(metadata.rendererVersion));
   setIfPresent(fields, 'Payload Version', str(p.version));
+  setIfPresent(fields, 'Form Version', str(p.formVersion));
 
   return fields;
+}
+
+// How many times a year each premium frequency is paid.
+const PAYMENTS_PER_YEAR = { Monthly: 12, Quarterly: 4, 'Half-yearly': 2, Yearly: 1 };
+const MAX_EXISTING_POLICIES = 10;
+
+/**
+ * existingCoverage = { hasCoverage: boolean, policies: [{ company, type, premium, frequency }] }
+ * -> Existing Coverage / Existing Policies / Existing Policies (JSON) /
+ * Existing Premium per Year. Empty object when the payload predates the
+ * question, so older forms never get a fabricated "No".
+ */
+function existingCoverageFields(coverage) {
+  const out = {};
+  if (!coverage || typeof coverage.hasCoverage !== 'boolean') return out;
+  out['Existing Coverage'] = coverage.hasCoverage ? 'Yes' : 'No';
+  if (!coverage.hasCoverage || !Array.isArray(coverage.policies)) return out;
+
+  const policies = coverage.policies
+    .filter((x) => x && typeof x === 'object')
+    .slice(0, MAX_EXISTING_POLICIES)
+    .map((x) => ({
+      company: str(x.company) || '',
+      type: str(x.type) || '',
+      premium: num(x.premium),
+      frequency: str(x.frequency) || '',
+    }))
+    .filter((x) => x.company || x.type || x.premium !== undefined);
+  if (!policies.length) return out;
+
+  out['Existing Policies'] = policies
+    .map((x, i) => {
+      const premium = x.premium !== undefined ? `RM ${x.premium.toFixed(2)}${x.frequency ? ` ${x.frequency.toLowerCase()}` : ''}` : '';
+      return `${i + 1}. ${[x.company, x.type, premium].filter(Boolean).join(' - ')}`;
+    })
+    .join('\n');
+  out['Existing Policies (JSON)'] = JSON.stringify(policies);
+
+  let yearly = 0;
+  let counted = false;
+  for (const x of policies) {
+    const times = PAYMENTS_PER_YEAR[x.frequency];
+    if (x.premium !== undefined && times) {
+      yearly += x.premium * times;
+      counted = true;
+    }
+  }
+  if (counted) out['Existing Premium per Year'] = Math.round(yearly * 100) / 100;
+  return out;
 }
 
 function airtableHeaders(env) {
