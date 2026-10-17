@@ -38,7 +38,9 @@ jobs:
         run: npm test
 
       - name: Deploy
-        run: npx wrangler deploy
+        # --keep-vars: don't delete variables added in the Cloudflare dashboard
+        # (a "Text" ADMIN_PASSWORD_HASH was wiped by a plain deploy twice).
+        run: npx wrangler deploy --keep-vars
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
