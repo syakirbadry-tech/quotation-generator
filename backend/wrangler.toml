@@ -6,6 +6,8 @@ compatibility_date = "2026-07-21"
 [vars]
 AIRTABLE_BASE_ID = "appcA4lwc8KrLNxwM"
 AIRTABLE_TABLE_ID = "tblmBQko8J7yOsBbv"
+# Dashboard Users (leaders/agents who sign in to the staff dashboard) - see src/users.js.
+AIRTABLE_USERS_TABLE_ID = "tblQV3owo7qy2KLFw"
 ALLOWED_ORIGIN = "*"
 # Admin dashboard (src/admin.js) - only this origin may call /admin/*.
 ADMIN_ALLOWED_ORIGIN = "https://syakirbadry-tech.github.io"

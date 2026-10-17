@@ -10,7 +10,7 @@
 
 import assert from 'node:assert';
 import worker from '../src/worker.js';
-import { pbkdf2, createSessionToken, verifySessionToken } from '../src/admin.js';
+import { pbkdf2, createSessionToken, verifySessionToken, hashPassword } from '../src/admin.js';
 
 let pass = 0;
 let fail = 0;
@@ -207,8 +207,159 @@ async function run() {
     check('6th attempt in a minute is blocked', statuses, [401, 401, 401, 401, 401, 429]);
   }
 
+  await teamTests(env);
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);
+}
+
+// In-memory stand-in for the two Airtable tables the dashboard uses.
+function fakeAirtable({ users, clients }) {
+  const created = [];
+  let n = 0;
+  const newId = () => `recNEW${String(++n).padStart(11, '0')}`;
+  const formulaValue = (f) => (/= '((?:[^'\\]|\\.)*)'/.exec(f) || [])[1];
+  mockAirtable((url, init) => {
+    const u = new URL(url);
+    const [, , , table, id] = u.pathname.split('/');
+    const rows = table === 'tblUSERS' ? users : clients;
+    const method = init.method || 'GET';
+    if (method === 'POST' && !id) {
+      const body = JSON.parse(init.body);
+      const recs = (body.records || [body]).map((r) => ({ id: newId(), createdTime: '2026-10-17T00:00:00.000Z', fields: r.fields }));
+      for (const rec of recs) {
+        rows.push(rec);
+        created.push({ table, rec });
+      }
+      return { body: body.records ? { records: recs } : recs[0] };
+    }
+    if (method === 'POST' || (method === 'PATCH' && !id)) return { body: { records: [] } }; // attachment uploads / batch ticks
+    if (id) {
+      const rec = rows.find((r) => r.id === id);
+      if (!rec) return { status: 404, body: { error: 'NOT_FOUND' } };
+      if (method === 'PATCH') Object.assign(rec.fields, JSON.parse(init.body).fields);
+      return { body: rec };
+    }
+    const formula = u.searchParams.get('filterByFormula') || '';
+    let out = rows;
+    if (table === 'tblUSERS' && formula.includes('{Email}')) out = rows.filter((r) => String(r.fields.Email || '').toLowerCase() === formulaValue(formula));
+    if (table === 'tblUSERS' && formula.includes('{Form Code}')) out = rows.filter((r) => r.fields['Form Code'] === formulaValue(formula) && r.fields.Active);
+    return { body: { records: out } };
+  });
+  return created;
+}
+
+async function teamTests(baseEnv) {
+  const env = { ...baseEnv, AIRTABLE_USERS_TABLE_ID: 'tblUSERS' };
+  const AGENT_PW = 'agent password 123';
+  const agentHash = await hashPassword(AGENT_PW);
+  const users = [
+    { id: 'recLEADER00000001', fields: { Name: 'Rose Leader', Email: 'rose@example.com', Role: 'Leader', Active: true, 'Form Code': 'rose', 'Password Hash': agentHash } },
+    { id: 'recAGENTA00000001', fields: { Name: 'Ain Agent', Email: 'Ain@Example.com', Role: 'Agent', Active: true, 'Form Code': 'ain', 'Password Hash': agentHash } },
+    { id: 'recAGENTB00000001', fields: { Name: 'Bee Agent', Email: 'bee@example.com', Role: 'Agent', Active: false, 'Form Code': 'bee', 'Password Hash': agentHash } },
+    { id: 'recNEWBIE00000001', fields: { Name: 'New Bie', Email: 'newbie@example.com', Role: 'Agent', Active: true, 'Form Code': 'newbie' } },
+  ];
+  const clients = [
+    { id: 'recCLIENTA0000001', createdTime: '2026-10-01T00:00:00.000Z', fields: { 'Full Name': 'Client of Ain', 'Agent Email': 'ain@example.com', 'Account Number': '111' } },
+    { id: 'recCLIENTO0000001', createdTime: '2026-10-02T00:00:00.000Z', fields: { 'Full Name': 'Owner client', 'Account Number': '222' } },
+  ];
+  fakeAirtable({ users, clients });
+  const loginAs = async (username, password = AGENT_PW) => (await login(env, username, password)).json();
+
+  console.log('=== team logins ===');
+  {
+    const agent = await loginAs('ain@example.com');
+    check('agent signs in (email case-insensitive)', agent.success, true);
+    check('agent role returned', agent.user.role, 'agent');
+    check('wrong password rejected', (await login(env, 'ain@example.com', 'nope nope nope')).status, 401);
+    check('inactive user rejected', (await login(env, 'bee@example.com')).status, 401);
+    check('user without password rejected', (await login(env, 'newbie@example.com', '')).status, 401);
+    check('unknown email rejected', (await login(env, 'who@example.com')).status, 401);
+    const owner = await loginAs('admin', PASSWORD);
+    check('owner still signs in', owner.user.role, 'owner');
+  }
+
+  console.log('=== agent sees only own clients ===');
+  {
+    const { token } = await loginAs('ain@example.com');
+    const list = await (await worker.fetch(req('/admin/submissions', { token }), env)).json();
+    check('list scoped to agent', list.submissions.map((s) => s.fullName), ['Client of Ain']);
+    ok('list asks Airtable to filter by agent email', airtableCalls.some((c) => (new URL(c.url).searchParams.get('filterByFormula') || '').includes("{Agent Email})) = 'ain@example.com'")));
+    check('own client detail -> 200', (await worker.fetch(req('/admin/submissions/recCLIENTA0000001', { token }), env)).status, 200);
+    check("other client's detail -> 404", (await worker.fetch(req('/admin/submissions/recCLIENTO0000001', { token }), env)).status, 404);
+    const patchOther = await worker.fetch(req('/admin/submissions/recCLIENTO0000001', { method: 'PATCH', token, body: { status: 'Approved' } }), env);
+    check("other client's status -> 404", patchOther.status, 404);
+    check('other client untouched', clients[1].fields['Submission Status'], undefined);
+    const patchOwn = await worker.fetch(req('/admin/submissions/recCLIENTA0000001', { method: 'PATCH', token, body: { status: 'In Review' } }), env);
+    check('own client status -> 200', patchOwn.status, 200);
+    check('team page forbidden for agent', (await worker.fetch(req('/admin/team', { token }), env)).status, 403);
+
+    users[1].fields.Active = false;
+    check('deactivating ends the session', (await worker.fetch(req('/admin/submissions', { token }), env)).status, 401);
+    users[1].fields.Active = true;
+  }
+
+  console.log('=== leader sees everyone ===');
+  {
+    const { token } = await loginAs('rose@example.com');
+    const list = await (await worker.fetch(req('/admin/submissions', { token }), env)).json();
+    check('leader list unscoped', list.submissions.length, 2);
+    check('leader opens any client', (await worker.fetch(req('/admin/submissions/recCLIENTO0000001', { token }), env)).status, 200);
+    check('team page forbidden for leader', (await worker.fetch(req('/admin/team', { token }), env)).status, 403);
+  }
+
+  console.log('=== team management + setup codes ===');
+  {
+    const { token } = await loginAs('admin', PASSWORD);
+    const team = await (await worker.fetch(req('/admin/team', { token }), env)).json();
+    check('owner lists team', team.users.length, 4);
+    ok('hashes never returned', !JSON.stringify(team).includes('pbkdf2'));
+
+    const add = await worker.fetch(req('/admin/team', { method: 'POST', token, body: { name: 'Ain Two', email: 'ain2@example.com', role: 'agent' } }), env);
+    check('add member -> 201', add.status, 201);
+    check('form code made unique', (await add.json()).user.formCode, 'ain2');
+    const dup = await worker.fetch(req('/admin/team', { method: 'POST', token, body: { name: 'X', email: 'AIN@example.com', role: 'agent' } }), env);
+    check('duplicate email -> 409', dup.status, 409);
+
+    const codeRes = await (await worker.fetch(req('/admin/team/recNEWBIE00000001/setup-code', { method: 'POST', token }), env)).json();
+    ok('setup code format', /^[A-Z2-9]{5}-[A-Z2-9]{5}$/.test(codeRes.code));
+    ok('code stored only as a hash', users[3].fields['Setup Code Hash'] && !users[3].fields['Setup Code Hash'].includes(codeRes.code.replace('-', '')));
+
+    const setPw = (body) => worker.fetch(req('/admin/set-password', { method: 'POST', body }), env);
+    check('wrong code -> 401', (await setPw({ username: 'newbie@example.com', code: 'AAAAA-AAAAA', password: 'long enough pw' })).status, 401);
+    check('short password -> 400', (await setPw({ username: 'newbie@example.com', code: codeRes.code, password: 'short' })).status, 400);
+    const done = await setPw({ username: 'NewBie@example.com', code: codeRes.code.toLowerCase().replace('-', ' '), password: 'long enough pw' });
+    check('valid code sets password', done.status, 200);
+    ok('signed in straight away', (await done.json()).token);
+    check('code is single-use', (await setPw({ username: 'newbie@example.com', code: codeRes.code, password: 'another long pw' })).status, 401);
+    check('new password works', (await login(env, 'newbie@example.com', 'long enough pw')).status, 200);
+
+    users[3].fields['Setup Code Hash'] = 'x';
+    users[3].fields['Setup Code Expires'] = '2000-01-01T00:00:00.000Z';
+    const fresh = await (await worker.fetch(req('/admin/team/recNEWBIE00000001/setup-code', { method: 'POST', token }), env)).json();
+    users[3].fields['Setup Code Expires'] = '2000-01-01T00:00:00.000Z';
+    check('expired code -> 401', (await setPw({ username: 'newbie@example.com', code: fresh.code, password: 'long enough pw' })).status, 401);
+
+    const off = await worker.fetch(req('/admin/team/recAGENTA00000001', { method: 'PATCH', token, body: { active: false } }), env);
+    check('owner deactivates', (await off.json()).user.active, false);
+    users[1].fields.Active = true;
+  }
+
+  console.log('=== agent form link tags the submission ===');
+  {
+    const created = fakeAirtable({ users, clients });
+    const payload = { version: '1.2', metadata: { submissionId: 'sub-1' }, applicant: { fullName: 'Tagged Client' }, beneficiaries: [], agentCode: 'ain' };
+    const res = await worker.fetch(new Request('https://worker.example/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }), env);
+    check('submit 200', res.status, 200);
+    const rec = created.find((c) => c.table === 'tblFAKE').rec;
+    check('agent email tagged', rec.fields['Agent Email'], 'ain@example.com');
+    check('agent name tagged', rec.fields['Agent Name'], 'Ain Agent');
+
+    const created2 = fakeAirtable({ users, clients });
+    const res2 = await worker.fetch(new Request('https://worker.example/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, agentCode: 'nobody' }) }), env);
+    check('unknown code still submits', res2.status, 200);
+    check('unknown code leaves it untagged', created2.find((c) => c.table === 'tblFAKE').rec.fields['Agent Email'], undefined);
+  }
 }
 
 run();
