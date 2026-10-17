@@ -7,9 +7,12 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node test/validate.test.js && node test/airtable.test.js && node test/worker.test.js && node test/publish.test.js && node test/routing.test.js && node test/admin.test.js"
+    "test": "node test/validate.test.js && node test/airtable.test.js && node test/worker.test.js && node test/publish.test.js && node test/routing.test.js && node test/admin.test.js && node test/icScan.test.js"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0"
   }
 }

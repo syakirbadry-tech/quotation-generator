@@ -23,6 +23,17 @@ ADMIN_ALLOWED_ORIGIN = "https://syakirbadry-tech.github.io"
 # (production) and in .dev.vars (untracked, see .dev.vars.example) for
 # local `wrangler dev`. See ../DEPLOYMENT.md.
 
+# IC scan (POST /scan-ic, src/icScan.js): each scan is a paid AI call, so
+# limit it per connection. Needs the ANTHROPIC_API_KEY secret:
+#   wrangler secret put ANTHROPIC_API_KEY
+[[ratelimits]]
+name = "SCAN_RATE_LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 10
+  period = 60
+
 # Optional rate limiting: uncomment after creating a KV namespace with
 #   wrangler kv namespace create RATE_LIMIT_KV
 # and pasting the id it prints below. Entirely optional - the Worker

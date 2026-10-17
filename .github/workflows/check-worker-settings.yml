@@ -68,3 +68,26 @@ jobs:
             }
             console.log("All dashboard secrets are present.");
           ' "$RUNNER_TEMP/secrets.json"
+
+      - name: Check IC scanning (form 3.0)
+        run: |
+          node -e '
+            const names = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).map((s) => s.name);
+            if (!names.includes("ANTHROPIC_API_KEY")) {
+              console.log("::warning::ANTHROPIC_API_KEY is not set - IC scanning is off and clients type their details.");
+              process.exit(0);
+            }
+          ' "$RUNNER_TEMP/secrets.json"
+          # A plain picture that is not an IC: a working scanner answers 422 not_mykad.
+          convert -size 400x250 xc:white -pointsize 28 -annotate +20+130 "Not an IC card" "$RUNNER_TEMP/test.jpg"
+          printf '{"image":{"mimeType":"image/jpeg","base64":"%s"}}' "$(base64 -w0 "$RUNNER_TEMP/test.jpg")" > "$RUNNER_TEMP/body.json"
+          code=$(curl -s -o "$RUNNER_TEMP/scan.json" -w '%{http_code}' -X POST \
+            -H 'Content-Type: application/json' -H 'Origin: https://syakirbadry-tech.github.io' \
+            --data @"$RUNNER_TEMP/body.json" https://prubsn-submission-service.syakirbadry.workers.dev/scan-ic)
+          echo "HTTP $code: $(cat "$RUNNER_TEMP/scan.json")"
+          if grep -q '"not_mykad"' "$RUNNER_TEMP/scan.json"; then
+            echo "IC scanning works (the test picture was correctly rejected as not a MyKad)."
+          else
+            echo "::error::IC scanning did not answer as expected - check the ANTHROPIC_API_KEY and that the account has credit."
+            exit 1
+          fi
