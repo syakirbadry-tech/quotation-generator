@@ -140,6 +140,15 @@ The `Clients` table schema below already exists in the live base as of 2026-07-2
 | `metadata.product` | Quotation Product | `fldjWwD1KpYwm8AfH` | singleLineText | **New field** |
 | `plansCompared` | Plans Compared (JSON) | `fldp2IAS3urtZdo6y` | multilineText | **New field.** `JSON.stringify(plansCompared)` — every quotation (1-3) the client was actually shown, kept verbatim so a comparison session's other options are never lost even though only the selected one gets its own columns |
 
+### Existing Coverage (client form 2.0+)
+
+| Payload path | Airtable field | Field ID | Type | Notes |
+|---|---|---|---|---|
+| `existingCoverage.hasCoverage` | Existing Coverage | `fldIBg7h49aeCZzsN` | singleSelect | `Yes` / `No`. Not written at all when the payload has no `existingCoverage` (older forms) |
+| `existingCoverage.policies[]` | Existing Policies | `fld4GTQAZJsgGqoyp` | multilineText | One line per policy: `1. Company - Type - RM 150.00 monthly` |
+| `existingCoverage.policies[]` | Existing Policies (JSON) | `fldNa36xj0QO3nMQj` | multilineText | `[{ company, type, premium, frequency }]`, up to 10 |
+| *(computed)* | Existing Premium per Year | `fld9sU97ZOZADc6PT` | currency (RM) | Sum of premiums × payments per year (Monthly 12, Quarterly 4, Half-yearly 2, Yearly 1) |
+
 ### Submission Status / audit trail
 
 | Payload path | Airtable field | Field ID | Type | Notes |
@@ -150,6 +159,7 @@ The `Clients` table schema below already exists in the live base as of 2026-07-2
 | `metadata.parserVersion` | Parser Version | `fldmq7SzTL6dmU5Lb` | singleLineText | **New field.** Audit/debugging aid — which frozen `parser/` tag produced the underlying quotation |
 | `metadata.rendererVersion` | Renderer Version | `fldpc8XNQPV5LkZmG` | singleLineText | **New field** |
 | `version` | Payload Version | `fldUnNtlv2KVKuM5T` | singleLineText | **New field.** Lets you tell old vs. new records apart as the payload schema evolves |
+| `formVersion` | Form Version | `fld20FwYhuDsBHF8x` | singleLineText | Which version of the client form (Client-Form `client-detail-form.html`, `FORM_VERSION`) the client filled in. Blank for earlier submissions |
 
 ### Created Date / Updated Date
 
