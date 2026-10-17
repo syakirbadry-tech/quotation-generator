@@ -32,6 +32,7 @@ import { checkRateLimit } from './rateLimit.js';
 import { validatePublishPayload, slugify, insertQuotation, getQuotationById, notFoundHtml } from './publish.js';
 import { handleAdmin } from './admin.js';
 import { findUserByFormCode, isFormCode } from './users.js';
+import { handleScanIc } from './icScan.js';
 
 const AIRTABLE_TIMEOUT_MS = 15000;
 
@@ -245,6 +246,16 @@ async function fetchHandler(request, env) {
   // Staff dashboard API - its own auth and stricter CORS, see admin.js.
   const adminResponse = await handleAdmin(request, env, path);
   if (adminResponse) return adminResponse;
+
+  // IC photo reading for the client form - its own CORS (form site only), see icScan.js.
+  if (path === '/scan-ic') {
+    try {
+      return await handleScanIc(request, env);
+    } catch (err) {
+      console.error('Unexpected error in /scan-ic:', err && err.stack);
+      return fail('An unexpected error occurred.', 'internal_error', 500, env);
+    }
+  }
 
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders(env) });
