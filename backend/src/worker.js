@@ -31,6 +31,7 @@ import { submitToClientsTable } from './airtable.js';
 import { checkRateLimit } from './rateLimit.js';
 import { validatePublishPayload, slugify, insertQuotation, getQuotationById, notFoundHtml } from './publish.js';
 import { handleAdmin } from './admin.js';
+import { findUserByFormCode, isFormCode } from './users.js';
 
 const AIRTABLE_TIMEOUT_MS = 15000;
 
@@ -76,6 +77,26 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+/**
+ * An agent's personal form link (client-detail-form.html?agent=<code>)
+ * sends payload.agentCode. Look the code up in the Dashboard Users table
+ * and tag the submission with that agent's name and email, which is what
+ * scopes it to them on the dashboard. Best effort by design: an unknown
+ * code or an Airtable hiccup must never cost the client their submission,
+ * it just lands untagged (owner/leaders still see it).
+ */
+async function applyAgentCode(env, payload) {
+  const code = payload.agentCode;
+  if (!isFormCode(code) || !env.AIRTABLE_USERS_TABLE_ID) return;
+  if (payload.agent && payload.agent.email) return; // already tagged (e.g. by the quotation tool)
+  try {
+    const user = await withTimeout(findUserByFormCode(env, code), 5000);
+    if (user && user.email) payload.agent = { ...(payload.agent || {}), name: user.name, email: user.email };
+  } catch (err) {
+    console.error('Agent code lookup failed:', err && err.message);
+  }
+}
+
 async function handleSubmit(request, env) {
   const missingConfig = ['AIRTABLE_PAT', 'AIRTABLE_BASE_ID', 'AIRTABLE_TABLE_ID'].filter((k) => !env[k]);
   if (missingConfig.length) {
@@ -114,6 +135,8 @@ async function handleSubmit(request, env) {
   if (shapeError) {
     return fail(shapeError, 'invalid_payload', 400, env);
   }
+
+  await applyAgentCode(env, parsed.payload);
 
   try {
     const { recordId, attachmentErrors } = await withTimeout(submitToClientsTable(env, parsed.payload), AIRTABLE_TIMEOUT_MS);
