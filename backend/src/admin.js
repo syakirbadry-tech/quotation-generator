@@ -316,7 +316,7 @@ async function userSession(env, user) {
   const setAt = Math.ceil((Date.parse(user.passwordSetAt || '') || 0) / 1000);
   const now = Math.max(Math.floor(Date.now() / 1000), setAt);
   const session = await createSessionToken(env, user.email, now, { kind: 'user', uid: user.id });
-  return { ...session, user: { name: user.name, email: user.email, role: user.role } };
+  return { ...session, user: { name: user.name, email: user.email, role: user.role, formCode: user.formCode || '' } };
 }
 
 async function handleLogin(request, env) {

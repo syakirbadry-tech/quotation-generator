@@ -271,6 +271,7 @@ async function teamTests(baseEnv) {
     const agent = await loginAs('ain@example.com');
     check('agent signs in (email case-insensitive)', agent.success, true);
     check('agent role returned', agent.user.role, 'agent');
+    check('agent form code returned (for the Forms page link)', agent.user.formCode, 'ain');
     check('wrong password rejected', (await login(env, 'ain@example.com', 'nope nope nope')).status, 401);
     check('inactive user rejected', (await login(env, 'bee@example.com')).status, 401);
     check('user without password rejected', (await login(env, 'newbie@example.com', '')).status, 401);
