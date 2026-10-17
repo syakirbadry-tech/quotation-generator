@@ -74,9 +74,8 @@ jobs:
         # dashboard "Text" variable isn't listed as a secret but still works.
         if: always()
         run: |
-          # A plain picture that is not an IC: a working scanner answers 422 not_mykad.
-          convert -size 400x250 xc:white -pointsize 28 -annotate +20+130 "Not an IC card" "$RUNNER_TEMP/test.jpg"
-          printf '{"image":{"mimeType":"image/jpeg","base64":"%s"}}' "$(base64 -w0 "$RUNNER_TEMP/test.jpg")" > "$RUNNER_TEMP/body.json"
+          # A picture that is not an IC (the ASG logo): a working scanner answers 422 not_mykad.
+          printf '{"image":{"mimeType":"image/jpeg","base64":"%s"}}' "$(base64 -w0 test/fixtures/not-an-ic.jpg)" > "$RUNNER_TEMP/body.json"
           code=$(curl -s -o "$RUNNER_TEMP/scan.json" -w '%{http_code}' -X POST \
             -H 'Content-Type: application/json' -H 'Origin: https://syakirbadry-tech.github.io' \
             --data @"$RUNNER_TEMP/body.json" https://prubsn-submission-service.syakirbadry.workers.dev/scan-ic)
