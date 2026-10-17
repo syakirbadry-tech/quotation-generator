@@ -127,6 +127,13 @@ async function run() {
     check('upstream failure -> 502 without leaking upstream text', [res.status, body.code, body.error.includes('internal detail')], [502, 'scan_failed', false]);
   }
 
+  {
+    mockClaude(() => new Response(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }), { status: 401, headers: { 'Content-Type': 'application/json' } }));
+    const res = await worker.fetch(scanRequest({ image: IMAGE }), { ANTHROPIC_API_KEY: ' test-key\n' });
+    check('key sent without stray whitespace', sent.headers.get('x-api-key'), 'test-key');
+    check('rejected key -> 503 scan_unavailable (form falls back to typing)', [res.status, (await res.json()).code], [503, 'scan_unavailable']);
+  }
+
   global.fetch = originalFetch;
   console.log(`\n${pass} passed, ${fail} failed.`);
   if (fail) process.exit(1);

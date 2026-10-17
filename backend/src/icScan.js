@@ -107,7 +107,8 @@ async function allowedByRateLimit(env, request) {
 
 /** Calls Claude with the photo and returns the parsed reading, or throws. */
 async function readCard(env, image) {
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: 45000, maxRetries: 1 });
+  // Trimmed: a key pasted on a phone often picks up a trailing space or newline.
+  const client = new Anthropic({ apiKey: String(env.ANTHROPIC_API_KEY).trim(), timeout: 45000, maxRetries: 1 });
   const response = await client.beta.messages.create({
     model: SCAN_MODEL,
     max_tokens: 4000,
@@ -169,6 +170,10 @@ export async function handleScanIc(request, env) {
     return reply({ success: true, fields, missing, readable: read.readable !== false, note }, 200, env);
   } catch (err) {
     if (err && err.isRefusal) return fail('We could not read this card. Please type your details.', 'unreadable', 422, env);
+    if (err instanceof Anthropic.AuthenticationError) {
+      console.error('IC scan: ANTHROPIC_API_KEY was rejected - re-enter it in the Worker settings.');
+      return fail('Automatic IC reading is not available right now - please type your details.', 'scan_unavailable', 503, env);
+    }
     // Upstream error text is logged only, never sent to the browser (same rule as /submit).
     console.error('IC scan failed:', err && (err.status || ''), err && err.message);
     if (err instanceof Anthropic.RateLimitError) return fail('IC reading is busy - please try again in a moment, or type your details.', 'busy', 503, env);
