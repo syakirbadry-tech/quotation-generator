@@ -89,7 +89,7 @@ jobs:
           if grep -q '"not_mykad"' "$RUNNER_TEMP/scan.json"; then
             echo "IC scanning works (the test picture was correctly rejected as not a MyKad)."
           elif grep -q '"scan_unavailable"' "$RUNNER_TEMP/scan.json"; then
-            echo "::error::ANTHROPIC_API_KEY is not set on the Worker - IC scanning is off."
+            echo "::error::ANTHROPIC_API_KEY is missing or was rejected by Anthropic - IC scanning is off. Re-enter the key in the Worker settings."
             exit 1
           else
             echo "::error::IC scanning did not answer as expected - check the ANTHROPIC_API_KEY and that the account has credit."
