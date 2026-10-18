@@ -48,6 +48,7 @@
  */
 
 import { checkRateLimit } from './rateLimit.js';
+import { handleVb } from './vb.js';
 import {
   airtableFetch, formulaString, isEmail, findUserByEmail, getUser, listUsers, createUser, updateUser, publicUser, suggestFormCode,
 } from './users.js';
@@ -96,7 +97,7 @@ const encoder = new TextEncoder();
 function adminCorsHeaders(env) {
   return {
     'Access-Control-Allow-Origin': env.ADMIN_ALLOWED_ORIGIN || 'https://syakirbadry-tech.github.io',
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '600',
     Vary: 'Origin',
@@ -537,6 +538,15 @@ export async function handleAdmin(request, env, path) {
     if (path === '/admin/team' || path.startsWith('/admin/team/')) {
       if (viewer.kind !== 'owner') return fail('Only the owner can manage the team.', 'forbidden', 403, env);
       return await handleTeam(request, env, path);
+    }
+
+    if (path === '/admin/vb' || path.startsWith('/admin/vb/')) {
+      try {
+        return await handleVb(request, env, path, viewer, { json, fail, readJsonBody });
+      } catch (err) {
+        console.error('VB error:', err && err.message);
+        return fail('Could not reach the VB database. Please try again.', 'vb_error', 502, env);
+      }
     }
 
     if (path === '/admin/submissions') {
