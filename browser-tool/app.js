@@ -30,6 +30,7 @@ const { RENDERER_VERSION } = require('../renderer/renderNarrativeQuotation.js');
 const { buildPrefillData } = require('./application/buildPrefillData.js');
 const { composeClientDocument } = require('./application/composeClientDocument.js');
 const { publishQuotation } = require('./publishQuotation.js');
+const { renderStoryHtml, STORY_RENDERER_VERSION } = require('../renderer/renderStory.js');
 
 const MAX_QUOTATIONS = 3;
 // A real PruBSN Product Illustration is a few MB at most (the sample used
@@ -212,6 +213,7 @@ const state = {
   validUntilIso: '',
   generatedDocs: [], // [{ fileName, html }] one per quotation, filled in on Generate
   comparisonHtml: null,
+  story: { status: 'idle', url: null, error: null }, // the story presentation's client link
 };
 
 // --- DOM ------------------------------------------------------------------
@@ -255,6 +257,15 @@ const el = {
   downloadBtn: document.getElementById('download-btn'),
   printBtn: document.getElementById('print-btn'),
   outputBackBtn: document.getElementById('output-back-btn'),
+  storyHelp: document.getElementById('story-help'),
+  storyPresentBtn: document.getElementById('story-present-btn'),
+  storyLinkBtn: document.getElementById('story-link-btn'),
+  storyDownloadBtn: document.getElementById('story-download-btn'),
+  storyStatus: document.getElementById('story-status'),
+  storyLinkRow: document.getElementById('story-link-row'),
+  storyLinkInput: document.getElementById('story-link-input'),
+  storyCopyBtn: document.getElementById('story-copy-btn'),
+  storyOpenBtn: document.getElementById('story-open-btn'),
   outputStartOverBtn: document.getElementById('output-start-over-btn'),
 };
 
@@ -676,9 +687,93 @@ el.generateBtn.addEventListener('click', () => {
     : null;
 
   state.activeOutputIndex = 0;
+  resetStory();
   renderOutputStage();
   showStage('output');
   publishAllGeneratedDocs();
+});
+
+// --- Story presentation ----------------------------------------------
+// One deck covers every uploaded quotation: the first drives the story,
+// the others appear side by side as options. The agent's copy keeps the
+// presenter notes; the client's copy (download / link) never does.
+
+function storyInputs() {
+  return state.quotations.map((q) => ({ data: q.data }));
+}
+
+function storyPlanLabel(q) {
+  const d = q.data || {};
+  const plan = (d.medical && d.medical.planName) || (d.metadata && d.metadata.productName) || q.fileName;
+  const c = d.contributions || {};
+  const monthly = Number.isFinite(c.totalMonthlyContribution) ? c.totalMonthlyContribution : d.monthlyTotalAmountPayable;
+  return Number.isFinite(monthly) ? `${plan}, RM${monthly}/month` : plan;
+}
+
+function resetStory() {
+  state.story = { status: 'idle', url: null, error: null };
+  const n = state.quotations.length;
+  el.storyHelp.textContent = n > 1
+    ? `Uses all ${n} quotations in upload order: the first (${storyPlanLabel(state.quotations[0])}) tells the story, and all ${n} appear side by side as Option 1 to ${n}. Upload the plan you recommend first.`
+    : 'Built from this quotation. Upload 2 or 3 quotations together to add an options comparison scene.';
+  renderStoryStatus();
+}
+
+function renderStoryStatus() {
+  const st = state.story || { status: 'idle' };
+  el.storyLinkBtn.disabled = st.status === 'pending';
+  if (st.status === 'pending') {
+    el.storyStatus.innerHTML = '<div class="banner banner-info"><span class="spinner" aria-hidden="true"></span> Making the story link…</div>';
+  } else if (st.status === 'failed') {
+    el.storyStatus.innerHTML = `<div class="banner banner-error">Could not make the story link: ${escapeHtml(String(st.error || 'unknown error').replace(/\.+$/, ''))}.</div>`;
+  } else if (st.status === 'success') {
+    el.storyStatus.innerHTML = '<div class="banner banner-ok">Story link ready. The client sees the deck without your notes.</div>';
+  } else {
+    el.storyStatus.innerHTML = '';
+  }
+  el.storyLinkRow.hidden = st.status !== 'success';
+  if (st.status === 'success') el.storyLinkInput.value = st.url;
+}
+
+function openHtmlInNewTab(html) {
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  const win = window.open(url, '_blank');
+  if (!win) alert('Please allow pop-ups for this site to open the presentation.');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+el.storyPresentBtn.addEventListener('click', () => {
+  openHtmlInNewTab(renderStoryHtml(storyInputs(), { presenterNotes: true }));
+});
+
+el.storyDownloadBtn.addEventListener('click', () => {
+  const name = (state.quotations[0].data.client.fullName || 'client').replace(/[^a-z0-9]+/gi, '_');
+  downloadHtml(renderStoryHtml(storyInputs()), `${name}_story.html`);
+});
+
+el.storyLinkBtn.addEventListener('click', async () => {
+  state.story = { status: 'pending' };
+  renderStoryStatus();
+  const result = await publishQuotation(state.quotations[0].data, renderStoryHtml(storyInputs()), STORY_RENDERER_VERSION);
+  state.story = result.status === 'success' ? { status: 'success', url: result.url } : { status: 'failed', error: result.error };
+  renderStoryStatus();
+});
+
+el.storyCopyBtn.addEventListener('click', async () => {
+  if (!state.story || state.story.status !== 'success') return;
+  try {
+    if (!navigator.clipboard) throw new Error('Clipboard API unavailable');
+    await navigator.clipboard.writeText(state.story.url);
+    el.storyCopyBtn.textContent = '✓ Story link copied';
+  } catch (e) {
+    el.storyCopyBtn.textContent = 'Could not copy - select the link above manually';
+    el.storyLinkInput.select();
+  }
+  setTimeout(() => { el.storyCopyBtn.textContent = 'Copy Story Link'; }, 2500);
+});
+
+el.storyOpenBtn.addEventListener('click', () => {
+  if (state.story && state.story.status === 'success') window.open(state.story.url, '_blank');
 });
 
 function renderPublishBlock(doc) {
@@ -837,6 +932,7 @@ function resetAll() {
   state.activeOutputIndex = 0;
   state.generatedDocs = [];
   state.comparisonHtml = null;
+  state.story = { status: 'idle', url: null, error: null };
   el.quotationNumberInput.value = '';
   el.validUntilInput.value = '';
   el.ackCheckbox.checked = false;

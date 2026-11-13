@@ -85,10 +85,12 @@
   .banner-info { background: var(--rose-soft); color: var(--teal-dk); display: flex; align-items: center; gap: 8px; }
   .banner-error #publish-retry-btn { margin-left: 10px; }
 
+  .story-block { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px 18px 14px; margin-bottom: 18px; }
+  .story-help { font-size: 13px; color: var(--meta); margin: 0 0 10px; }
   .publish-link-row { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
   .publish-link-row label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--meta); margin-bottom: 8px; }
   .publish-link-controls { display: flex; flex-wrap: wrap; gap: 8px; }
-  #public-link-input { flex: 1 1 260px; min-width: 0; font-family: var(--sans); font-size: 13px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--rose-soft); color: var(--ink); }
+  #public-link-input, #story-link-input { flex: 1 1 260px; min-width: 0; font-family: var(--sans); font-size: 13px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--rose-soft); color: var(--ink); }
 
   h2.section-title { font-family: var(--serif); font-size: 19px; color: var(--teal-dk); margin: 30px 0 12px; }
   h2.section-title small { display: block; font-family: var(--sans); font-size: 12px; color: var(--meta); font-weight: 400; margin-top: 3px; }
@@ -148,7 +150,7 @@
   footer.app-footer { text-align: center; font-size: 11.5px; color: #a39d96; padding: 30px 20px 40px; }
 
   @media print {
-    header.app-header, #stage-upload, .tabs, .actions-bar, .output-actions, footer.app-footer, #publish-status, .publish-link-row { display: none !important; }
+    header.app-header, #stage-upload, .tabs, .actions-bar, .output-actions, footer.app-footer, #publish-status, .publish-link-row, .story-block { display: none !important; }
     body { background: #fff; }
     .preview-frame { height: auto; border: none; }
   }
@@ -236,6 +238,25 @@
         <button type="button" id="open-client-view-btn" class="btn-outline">Open Client View</button>
       </div>
     </div>
+
+    <section id="story-block" class="story-block">
+      <h2 class="section-title">Story Presentation<small>The animated deck: opening numbers, the two-paths story, the client&rsquo;s own questions, then their plan step by step</small></h2>
+      <p class="story-help" id="story-help"></p>
+      <div class="output-actions">
+        <button id="story-present-btn" class="btn-teal" type="button">Present now (with my notes)</button>
+        <button id="story-link-btn" class="btn-outline" type="button">Make client link</button>
+        <button id="story-download-btn" class="btn-outline" type="button">Download HTML</button>
+      </div>
+      <div id="story-status"></div>
+      <div id="story-link-row" class="publish-link-row" hidden>
+        <label for="story-link-input">Story link for the client</label>
+        <div class="publish-link-controls">
+          <input type="text" id="story-link-input" readonly aria-label="Story presentation link">
+          <button type="button" id="story-copy-btn" class="btn-teal">Copy Story Link</button>
+          <button type="button" id="story-open-btn" class="btn-outline">Open</button>
+        </div>
+      </div>
+    </section>
 
     <div id="comparison-block" hidden>
       <h2 class="section-title">Comparison<small>Shown automatically because more than one quotation was generated</small></h2>

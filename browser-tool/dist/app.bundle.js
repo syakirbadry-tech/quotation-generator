@@ -4426,6 +4426,2062 @@ ${continueButtonHtml}
     }
   });
 
+  // renderer/story/storyStyles.js
+  var require_storyStyles = __commonJS({
+    "renderer/story/storyStyles.js"(exports, module) {
+      "use strict";
+      var STORY_CSS = `
+/* Layout: one full-screen scene at a time, tap or swipe to advance, illustrated SVG motion in each scene. Same committed look as the AnugerahMax story deck (single light "dawn" world with night scenes). */
+:root {
+  --ink: #0B2545;
+  --ink-soft: #5A6B85;
+  --teal: #178D93;
+  --teal-bright: #4FD1D9;
+  --gold: #D4A23A;
+  --coral: #C2553F;
+  --paper: #FFFFFF;
+  --night: #0B2545;
+  --night-2: #16345E;
+  --mist: #C9D6E8;
+  --mist-2: #8FA3BF;
+  --dawn: linear-gradient(165deg, #F6C9D6 0%, #F2D3E2 18%, #E7D7EC 38%, #D6E1F0 60%, #C3E7F3 82%, #BEEAF4 100%);
+  --serif: "Newsreader", Georgia, "Times New Roman", serif;
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --ease: cubic-bezier(.22, 1, .36, 1);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: #E7D7EC; color: var(--ink); font-family: var(--sans); overflow: hidden; -webkit-tap-highlight-color: transparent; }
+
+.deck { position: relative; height: 100%; background: var(--dawn); overflow: hidden; }
+.slide {
+  position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center;
+  padding-block: 64px 96px;
+  padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px));
+  opacity: 0; visibility: hidden; transform: translateX(40px);
+  transition: opacity .6s var(--ease), transform .6s var(--ease), visibility 0s .6s;
+  overflow-y: auto;
+}
+.slide.is-active { opacity: 1; visibility: visible; transform: none; transition: opacity .6s var(--ease), transform .6s var(--ease), visibility 0s; }
+.slide.is-past { transform: translateX(-40px); }
+.slide.night { background: radial-gradient(120% 90% at 50% 0%, var(--night-2) 0%, var(--night) 70%); color: #fff; }
+.inner { width: min(760px, 100%); margin-inline: auto; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.center { text-align: center; align-items: center; }
+
+.eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--teal); }
+.night .eyebrow { color: var(--teal-bright); }
+h1, h2 { font-family: var(--serif); font-weight: 600; margin: 0; text-wrap: balance; line-height: 1.12; }
+h1 { font-size: clamp(32px, 6vw, 56px); }
+h2 { font-size: clamp(26px, 4.6vw, 42px); }
+.hl { color: var(--teal); }
+.night .hl { color: var(--teal-bright); }
+p { margin: 0; font-size: clamp(16px, 2vw, 19px); line-height: 1.55; color: var(--ink-soft); max-width: 60ch; }
+.night p { color: var(--mist); }
+.fine { font-size: 12.5px; line-height: 1.5; color: var(--ink-soft); }
+.night .fine { color: var(--mist-2); }
+.num { font-variant-numeric: tabular-nums; }
+
+.rv { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .slide .rv { opacity: 0; transform: translateY(22px); }
+  .slide.is-active .rv { opacity: 1; transform: none; transition: opacity .8s var(--ease), transform .8s var(--ease); }
+  .slide.is-active .d1 { transition-delay: .15s; } .slide.is-active .d2 { transition-delay: .3s; }
+  .slide.is-active .d3 { transition-delay: .45s; } .slide.is-active .d4 { transition-delay: .6s; }
+  .slide.is-active .d5 { transition-delay: .75s; } .slide.is-active .d6 { transition-delay: .9s; }
+  .slide.is-active .d7 { transition-delay: 1.05s; } .slide.is-active .d8 { transition-delay: 1.2s; }
+}
+
+/* Intro */
+.brand { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.brand-mark { width: 84px; height: 84px; }
+.brand-mark .ring { fill: none; stroke: var(--teal); stroke-width: 3; }
+.brand-mark .leaf { fill: var(--gold); transform-origin: 50% 60%; }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .brand-mark .ring { animation: draw 1.6s var(--ease) both; }
+  .is-active .brand-mark .leaf { animation: pop 1s var(--ease) .9s both; }
+}
+.tagline { font-family: var(--serif); font-style: italic; font-size: clamp(24px, 4vw, 32px); color: var(--teal); }
+.tap-hint { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: #7C88A0; }
+@media (prefers-reduced-motion: no-preference) { .is-active .tap-hint { animation: nudge 1.8s ease-in-out 2s infinite; } }
+
+/* Cover */
+.badge { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 999px; background: rgba(255,255,255,.7); font-size: 13px; font-weight: 600; color: #7A5F0E; }
+.agent-line { font-size: 14px; color: var(--ink-soft); }
+.bump { width: 150px; height: auto; }
+.bump .ln { fill: none; stroke: var(--teal); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.bump .heart { fill: var(--coral); transform-box: fill-box; transform-origin: center; }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .bump .ln { animation: draw 2s var(--ease) both; }
+  .is-active .bump .heart { animation: pop .8s var(--ease) 1.2s both, beat 1.4s ease-in-out 2s infinite; }
+}
+
+/* Agenda */
+.agenda { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ag { background: var(--paper); border-radius: 14px; padding: 16px; display: flex; gap: 12px; align-items: flex-start; box-shadow: 0 6px 18px rgba(11,37,69,.06); min-width: 0; }
+.ag .n { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: #E3F4F5; color: var(--teal); }
+.ag b { display: block; font-size: 15.5px; }
+.ag span { font-size: 13.5px; color: var(--ink-soft); }
+.promise { background: var(--night); color: #fff; border-radius: 16px; padding: 16px 18px; font-size: 15.5px; line-height: 1.5; }
+.promise b { color: var(--teal-bright); }
+
+/* People grid */
+.people { width: min(520px, 100%); height: auto; }
+.people .p { fill: rgba(255,255,255,.18); transform-box: fill-box; transform-origin: center bottom; }
+.people .p.on { fill: var(--teal-bright); }
+@media (prefers-reduced-motion: no-preference) { .is-active .people .p { animation: pop .6s var(--ease) both; } }
+.kb-fig { font-family: var(--serif); font-size: clamp(48px, 10vw, 88px); font-weight: 700; color: var(--teal-bright); line-height: 1; }
+.kb-fig small { font-size: .35em; color: #CFE0EE; font-weight: 600; }
+
+/* Tiles */
+.glance { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.glance.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tile { background: var(--paper); border-radius: 14px; padding: 16px; min-width: 0; color: var(--ink); text-align: left; }
+.tile.dark { background: var(--teal); color: #fff; }
+.tile.navy { background: var(--night); color: #fff; }
+.tile .k { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+.tile.dark .k, .tile.navy .k { color: #CFF1F2; }
+.tile .v { font-family: var(--serif); font-size: clamp(24px, 3.6vw, 34px); font-weight: 700; margin-top: 4px; line-height: 1.1; }
+.tile .s { font-size: 13px; line-height: 1.45; color: var(--ink-soft); margin-top: 4px; }
+.tile.dark .s, .tile.navy .s { color: #CFF1F2; }
+.tile .src { font-size: 11.5px; color: var(--mist-2); margin-top: 8px; }
+.tile.dark .src { color: #BFE7E9; }
+
+/* Underinsured bar */
+.under { display: flex; flex-direction: column; gap: 8px; }
+.under-track { height: 22px; border-radius: 999px; background: rgba(11,37,69,.1); overflow: hidden; display: flex; }
+.under-fill { width: 96%; background: var(--coral); transform-origin: left; border-radius: 999px; }
+.under-labels { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-soft); gap: 12px; }
+@media (prefers-reduced-motion: no-preference) {
+  .slide .under-fill { transform: scaleX(0); }
+  .is-active .under-fill { transform: scaleX(1); transition: transform 1.6s var(--ease) .6s; }
+}
+
+/* Horizontal bars */
+.hbars { display: flex; flex-direction: column; gap: 14px; }
+.hrow { display: grid; grid-template-columns: 120px minmax(0, 1fr) 64px; gap: 12px; align-items: center; }
+.hrow .lbl { font-size: 14.5px; font-weight: 600; }
+.hrow .val { font-family: var(--serif); font-size: 24px; font-weight: 700; text-align: right; }
+.htrack { height: 34px; }
+.hbar { height: 100%; border-radius: 4px 10px 10px 4px; background: var(--teal); transform-origin: left; }
+.hbar.hi { background: var(--coral); }
+.hbar.lo { background: #9ED3D6; }
+@media (prefers-reduced-motion: no-preference) {
+  .slide .hbar { transform: scaleX(0); }
+  .is-active .hbar { transform: scaleX(1); transition: transform 1.3s var(--ease); }
+  .is-active .hrow:nth-child(2) .hbar { transition-delay: .25s; }
+  .is-active .hrow:nth-child(3) .hbar { transition-delay: .5s; }
+}
+
+/* Vertical bars */
+.bars { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; align-items: end; height: 240px; margin-top: 8px; }
+.bar-col { display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; min-width: 0; }
+.bar-pair { display: flex; align-items: flex-end; height: 100%; width: 100%; justify-content: center; }
+.bar { width: 58%; border-radius: 8px 8px 3px 3px; background: var(--teal); transform-origin: bottom; }
+.bar.hi { background: var(--coral); }
+.bar-val { font-size: 12px; font-weight: 700; }
+.bar-age { font-size: 12px; color: var(--ink-soft); }
+@media (prefers-reduced-motion: no-preference) {
+  .slide .bar { transform: scaleY(0); }
+  .is-active .bar { transform: scaleY(1); transition: transform 1.2s var(--ease); }
+}
+
+/* Cover list */
+.cover-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.cv { background: var(--paper); border-radius: 12px; padding: 14px; min-width: 0; }
+.cv b { display: block; font-size: 14.5px; }
+.cv span { font-size: 13px; color: var(--ink-soft); }
+.cv em { font-style: normal; display: block; font-weight: 700; color: var(--teal); margin-top: 4px; font-size: 14px; }
+.cv.alert { background: var(--night); color: #fff; }
+.cv.alert span { color: var(--mist); }
+.cv.alert em { color: var(--teal-bright); }
+.cv .vs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.cv .vs i { font-style: normal; font-size: 12.5px; font-weight: 700; padding: 3px 8px; border-radius: 999px; }
+.cv .vs .sup { background: #E3F4F5; color: #0F6F74; }
+.cv .vs .ess { background: #FBEDE9; color: #9A3F2D; }
+
+/* Two paths */
+.paths { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.path { border-radius: 16px; padding: 18px 16px 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; min-width: 0; }
+.path.bank { background: var(--paper); box-shadow: 0 8px 24px rgba(11,37,69,.08); }
+.path.fund { background: var(--night); color: #fff; }
+.path-k { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+.fund .path-k { color: var(--mist-2); }
+.path-t { font-weight: 700; font-size: 15px; }
+.path svg { width: 100%; max-width: 220px; height: auto; }
+.path .cap { font-size: 13px; line-height: 1.45; color: var(--ink-soft); }
+.fund .cap { color: var(--mist); }
+.coin { fill: var(--gold); }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .coin { animation: coinFall 2.4s var(--ease) infinite; }
+  .is-active .coin.c2 { animation-delay: .8s; } .is-active .coin.c3 { animation-delay: 1.6s; }
+  .is-active .breathe { animation: breathe 3s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+}
+
+/* The moment */
+.ecg { width: 100%; max-width: 520px; height: auto; }
+.ecg path { fill: none; stroke: var(--teal-bright); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.alarm-fig { width: 120px; height: auto; }
+.alarm-fig .body { fill: none; stroke: #F2A65A; stroke-width: 4; stroke-linecap: round; }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .ecg path { animation: draw 2.4s linear both; }
+  .is-active .alarm-fig { animation: startle .5s ease-in-out 1s 3; }
+}
+.big-red { font-family: var(--serif); font-size: clamp(44px, 9vw, 84px); font-weight: 700; color: #F2A65A; line-height: 1; }
+
+/* Steps */
+.steps { display: flex; flex-direction: column; gap: 10px; }
+.step { display: flex; gap: 14px; align-items: flex-start; background: var(--paper); border-radius: 14px; padding: 14px 16px; box-shadow: 0 6px 18px rgba(11,37,69,.06); }
+.step.worst { background: var(--coral); color: #fff; }
+.step .n { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: #FBEDE9; color: var(--coral); }
+.step.worst .n { background: rgba(255,255,255,.2); color: #fff; }
+.step b { display: block; font-size: 15.5px; }
+.step span { font-size: 14px; color: var(--ink-soft); }
+.step.worst span { color: #FBE3DD; }
+.settled { background: var(--teal); color: #fff; border-radius: 18px; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.settled .check { width: 72px; height: 72px; }
+.settled .check circle { fill: rgba(255,255,255,.18); }
+.settled .check path { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+@media (prefers-reduced-motion: no-preference) { .is-active .settled .check path { animation: draw 1s var(--ease) .6s both; } }
+.settled .fig { font-family: var(--serif); font-size: clamp(24px, 4vw, 32px); font-weight: 600; }
+
+/* Donut */
+.donut-wrap { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 24px; align-items: center; }
+.donut { position: relative; width: 100%; max-width: 220px; aspect-ratio: 1; }
+.donut svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.donut circle { fill: none; stroke-width: 22; }
+.donut .track { stroke: rgba(11,37,69,.08); }
+.donut-total { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.donut-total .k { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+.donut-total .v { font-family: var(--serif); font-size: 38px; font-weight: 700; }
+.split { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.split-row { background: var(--paper); border-radius: 12px; padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start; }
+.split-row i { flex: none; width: 12px; height: 12px; border-radius: 3px; margin-top: 4px; }
+.split-row b { display: block; }
+.split-row span { font-size: 13.5px; color: var(--ink-soft); }
+
+/* Pyramid */
+.pyr-wrap { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; align-items: center; }
+.pyramid { width: 100%; height: auto; }
+.pyramid .tier { transform-box: fill-box; transform-origin: center bottom; }
+.pyramid .t0 { fill: var(--night); }
+.pyramid .t1 { fill: var(--teal); }
+.pyramid .t2 { fill: #5FB7BB; }
+.pyramid .t3 { fill: #A7D9DB; }
+.pyramid .t4 { fill: var(--gold); }
+.pyramid text { font-family: var(--sans); font-weight: 700; text-anchor: middle; }
+.pyramid .lt { fill: #FFFFFF; }
+.pyramid .dk { fill: var(--ink); }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .pyramid .tier { animation: rise .8s var(--ease) both; }
+  .is-active .pyramid .g1 { animation-delay: .35s; } .is-active .pyramid .g2 { animation-delay: .7s; }
+  .is-active .pyramid .g3 { animation-delay: 1.05s; } .is-active .pyramid .g4 { animation-delay: 1.4s; }
+}
+.rule { background: var(--night); color: #fff; border-radius: 12px; padding: 12px 14px; font-size: 14px; line-height: 1.5; }
+.rule b { color: var(--teal-bright); }
+
+/* Questions and chips */
+.qs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.q { background: var(--paper); border-radius: 14px; padding: 14px 16px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.q .qk { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--teal); font-weight: 700; }
+.q b { font-size: 15px; line-height: 1.4; }
+.q span { font-size: 13px; color: var(--ink-soft); line-height: 1.45; }
+.chip-group { display: flex; flex-direction: column; gap: 8px; }
+.chip-label { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--ink-soft); }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { font: 600 14px var(--sans); color: var(--ink); background: var(--paper); border: 2px solid transparent; border-radius: 999px; padding: 10px 16px; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--night); color: #fff; border-color: var(--teal-bright); }
+.chip:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+.said { background: rgba(255,255,255,.75); border-radius: 12px; padding: 12px 14px; font-size: 14px; color: var(--ink); line-height: 1.5; }
+.said b { color: var(--teal); }
+
+/* Options */
+.options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.opt { background: var(--paper); border-radius: 14px; padding: 16px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.opt.rec { background: var(--night); color: #fff; box-shadow: 0 0 0 3px var(--teal); }
+.opt .k { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+.opt.rec .k { color: var(--teal-bright); }
+.opt .nm { font-weight: 700; font-size: 14px; }
+.opt .v { font-family: var(--serif); font-size: 26px; font-weight: 700; }
+.opt .v small { font-size: 13px; font-family: var(--sans); font-weight: 500; }
+.opt .meta { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; }
+.opt.rec .meta { color: var(--mist); }
+
+/* Timeline */
+.timeline { position: relative; margin-top: 20px; padding-top: 36px; }
+.tl-line { position: absolute; top: 46px; left: 6px; right: 6px; height: 4px; border-radius: 4px; background: rgba(11,37,69,.12); }
+.tl-fill { position: absolute; top: 46px; left: 6px; height: 4px; border-radius: 4px; background: var(--teal); width: calc(100% - 12px); transform-origin: left; }
+@media (prefers-reduced-motion: no-preference) {
+  .slide .tl-fill { transform: scaleX(0); }
+  .is-active .tl-fill { transform: scaleX(1); transition: transform 2.4s var(--ease) .3s; }
+}
+.tl-points { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.tl-pt { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tl-pt .dot { width: 24px; height: 24px; border-radius: 50%; background: var(--teal); border: 5px solid #fff; box-shadow: 0 0 0 2px var(--teal); }
+.tl-pt .dot.warn { background: var(--coral); box-shadow: 0 0 0 2px var(--coral); }
+.tl-pt .day { font-family: var(--serif); font-size: 24px; font-weight: 700; }
+.tl-pt b { font-size: 14.5px; }
+.tl-pt span { font-size: 13px; color: var(--ink-soft); }
+
+/* Close */
+.done { width: 96px; height: 96px; border-radius: 50%; background: var(--teal); display: grid; place-items: center; }
+.done svg { width: 44px; height: 44px; }
+.done path { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .done { animation: ring 2.4s ease-in-out 1.2s infinite; }
+  .is-active .done path { animation: draw .9s var(--ease) .3s both; }
+}
+.agent { display: flex; gap: 12px; align-items: center; background: rgba(255,255,255,.75); border-radius: 14px; padding: 12px 16px; text-align: left; }
+.agent .av { width: 44px; height: 44px; border-radius: 12px; background: var(--night); color: var(--gold); display: grid; place-items: center; font-family: var(--serif); font-weight: 700; font-size: 18px; flex: none; }
+.agent b { display: block; font-size: 14.5px; }
+.agent span { font-size: 12.5px; color: var(--ink-soft); }
+.next-list { display: flex; flex-direction: column; gap: 8px; text-align: left; width: 100%; }
+.next-list div { background: rgba(255,255,255,.75); border-radius: 12px; padding: 10px 14px; font-size: 14px; color: var(--ink); }
+
+/* Sources */
+.src-list { display: flex; flex-direction: column; gap: 8px; }
+.src-list a { display: block; background: var(--paper); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; color: var(--ink); text-decoration: none; line-height: 1.45; }
+.src-list a span { display: block; color: var(--ink-soft); font-size: 12px; }
+.src-list a:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+
+
+/* Congenital conditions */
+.cond-head { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 18px; align-items: center; }
+.cond-art { width: 120px; height: auto; }
+.cond-art .ln { fill: none; stroke: var(--teal); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.cond-art .soft { fill: rgba(23,141,147,.10); }
+.cond-art .gold { fill: var(--gold); transform-box: fill-box; transform-origin: center; }
+.cond-title { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cond-big { display: flex; align-items: center; gap: 14px; font-family: var(--serif); font-size: clamp(22px, 3.6vw, 32px); font-weight: 600; line-height: 1.15; text-wrap: balance; }
+.cond-big b { color: var(--teal); font-weight: 600; }
+.kb27 { font-size: clamp(64px, 11vw, 96px); font-weight: 700; color: var(--coral); line-height: 1; flex: none; }
+.cond { display: flex; flex-direction: column; gap: 10px; background: rgba(255,255,255,.6); border-radius: 14px; padding: 14px; }
+.cond-g { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 10px; align-items: start; }
+.cond-k { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--ink-soft); padding-top: 3px; }
+.ic { width: 22px; height: 22px; flex: none; }
+.ic path { fill: none; stroke: var(--teal); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cond-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.cond-chips i { font-style: normal; font-size: 13px; font-weight: 600; color: var(--ink); background: var(--paper); border-radius: 999px; padding: 5px 11px; line-height: 1.35; }
+.cond-chips i.key { background: var(--gold); color: var(--ink); box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px var(--gold); }
+.cond-chips i.sup { background: #E3F4F5; color: #0F6F74; }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .cond-art .ln { animation: draw 2.2s var(--ease) both; }
+  .is-active .cond-art .soft { animation: fadeIn 1.2s ease .8s both; }
+  .is-active .cond-art .pulse { animation: pop .8s var(--ease) 1.4s both, beat 1.4s ease-in-out 2.2s infinite; }
+  .is-active .ic path { animation: draw 1.4s var(--ease) both; }
+  .is-active .cond-chips i { animation: pop .5s var(--ease) both; }
+  .is-active .cond-g:nth-child(1) .ic path, .is-active .cond-g:nth-child(1) i { animation-delay: .5s; }
+  .is-active .cond-g:nth-child(2) .ic path, .is-active .cond-g:nth-child(2) i { animation-delay: .7s; }
+  .is-active .cond-g:nth-child(3) .ic path, .is-active .cond-g:nth-child(3) i { animation-delay: .9s; }
+  .is-active .cond-g:nth-child(4) .ic path, .is-active .cond-g:nth-child(4) i { animation-delay: 1.1s; }
+  .is-active .cond-g:nth-child(5) .ic path, .is-active .cond-g:nth-child(5) i { animation-delay: 1.3s; }
+  .is-active .cond-g:nth-child(6) .ic path, .is-active .cond-g:nth-child(6) i { animation-delay: 1.5s; }
+  .is-active .cond-g:nth-child(7) .ic path, .is-active .cond-g:nth-child(7) i { animation-delay: 1.7s; }
+  .is-active .cond-chips i.key { animation: pop .5s var(--ease) .7s both, glow 2s ease-in-out 1.8s infinite; }
+}
+@keyframes glow { 0%, 100% { box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px var(--gold); } 50% { box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 9px rgba(212,162,58,.35); } }
+@media (max-width: 600px) {
+  .cond-head { grid-template-columns: 84px minmax(0, 1fr); gap: 12px; }
+  .cond-art { width: 84px; }
+  .cond-big { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .cond-g { grid-template-columns: 1fr; gap: 6px; }
+}
+
+/* Scene art (line drawings) */
+.scene-art { width: min(260px, 70%); height: auto; align-self: center; }
+.scene-art .ln { fill: none; stroke: var(--teal-bright); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.scene-art .soft { fill: rgba(79,209,217,.12); }
+.scene-art .gold { fill: var(--gold); transform-box: fill-box; transform-origin: center; }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .scene-art .ln { animation: draw 2.2s var(--ease) both; }
+  .is-active .scene-art .soft { animation: fadeIn 1.2s ease .8s both; }
+  .is-active .scene-art .pulse { animation: pop .8s var(--ease) 1.4s both, beat 1.6s ease-in-out 2.2s infinite; }
+}
+.bed-art { width: min(200px, 55%); }
+
+/* Answer form */
+.form-card { background: rgba(255,255,255,.7); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; color: var(--ink-soft); }
+.field input { font: 500 16px var(--sans); color: var(--ink); background: var(--paper); border: 2px solid #D6E1F0; border-radius: 10px; padding: 10px 12px; width: 100%; max-width: 420px; letter-spacing: 0; text-transform: none; }
+.field input:focus-visible { outline: none; border-color: var(--teal); }
+.limit-box { display: flex; flex-direction: column; gap: 10px; border-top: 1px dashed #C9D6E8; padding-top: 12px; }
+@media (prefers-reduced-motion: no-preference) { .limit-box:not([hidden]) { animation: rise .5s var(--ease) both; } }
+
+/* Tappable benefit cards */
+.cv-btn { font: inherit; color: inherit; text-align: left; border: 2px solid transparent; cursor: pointer; display: flex; flex-direction: column; gap: 2px; position: relative; }
+.cv-btn b { display: block; padding-right: 64px; }
+.cv-btn .vs { display: flex; }
+.cv-btn .more { position: absolute; top: 12px; right: 12px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--teal); background: #E3F4F5; border-radius: 999px; padding: 3px 9px; }
+.cv-btn:hover { border-color: #9ED3D6; }
+.cv-btn:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+.ci { font: 600 13px var(--sans); color: var(--ink); background: var(--paper); border: 0; border-radius: 999px; padding: 5px 11px 5px 22px; line-height: 1.35; cursor: pointer; position: relative; box-shadow: 0 0 0 2px #9ED3D6 inset; }
+.ci::before { content: ""; position: absolute; left: 9px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; background: var(--teal); }
+.ci.key { background: var(--gold); box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px var(--gold); }
+.ci.key::before { background: var(--ink); }
+.ci:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .cond-chips .ci { animation: pop .5s var(--ease) both; }
+  .is-active .cond-g:nth-child(1) .ci { animation-delay: .5s; } .is-active .cond-g:nth-child(2) .ci { animation-delay: .7s; }
+  .is-active .cond-g:nth-child(3) .ci { animation-delay: .9s; } .is-active .cond-g:nth-child(5) .ci { animation-delay: 1.3s; }
+  .is-active .cond-g:nth-child(6) .ci { animation-delay: 1.5s; }
+  .is-active .cond-chips .ci.key { animation: pop .5s var(--ease) .7s both, glow 2s ease-in-out 1.8s infinite; }
+}
+
+/* Detail sheet */
+.sheet-bg { position: absolute; inset: 0; z-index: 7; background: rgba(11,37,69,.45); }
+.sheet { position: absolute; z-index: 8; left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); margin-inline: auto; max-width: 620px; max-height: calc(100% - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow-y: auto; background: var(--paper); color: var(--ink); border-radius: 20px; padding: 22px 20px 20px; box-shadow: 0 24px 60px rgba(11,37,69,.35); }
+@media (prefers-reduced-motion: no-preference) { .sheet:not([hidden]) { animation: rise .45s var(--ease) both; } .sheet-bg:not([hidden]) { animation: fadeIn .3s ease both; } }
+.sheet-x { position: absolute; top: 10px; right: 10px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: #EEF3F8; color: var(--ink); font-size: 22px; cursor: pointer; }
+.sheet-x:focus-visible, .sheet-go:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+.sheet .sk { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; color: var(--teal); }
+.sheet h3 { font-family: var(--serif); font-size: clamp(22px, 4vw, 30px); font-weight: 600; margin: 4px 48px 8px 0; line-height: 1.15; text-wrap: balance; }
+.sheet p { font-size: 15px; }
+.sheet .pw { font-size: 17px; color: var(--ink); line-height: 1.5; }
+.sl { list-style: none; margin: 12px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.sl li { background: #F3F7FB; border-radius: 10px; padding: 9px 12px; font-size: 14.5px; }
+.sl li b { display: block; }
+.sl li span { font-size: 13px; color: var(--ink-soft); }
+@media (prefers-reduced-motion: no-preference) {
+  .sl li { animation: rise .5s var(--ease) both; }
+  .sl li:nth-child(2) { animation-delay: .06s; } .sl li:nth-child(3) { animation-delay: .12s; } .sl li:nth-child(4) { animation-delay: .18s; }
+  .sl li:nth-child(5) { animation-delay: .24s; } .sl li:nth-child(6) { animation-delay: .3s; } .sl li:nth-child(7) { animation-delay: .36s; } .sl li:nth-child(8) { animation-delay: .42s; }
+}
+.sv { display: flex; flex-direction: column; gap: 6px; background: var(--night); color: #fff; border-radius: 12px; padding: 12px 14px; margin: 12px 0 8px; font-size: 14px; line-height: 1.45; }
+.sv b { color: var(--teal-bright); }
+.sheet-go { font: 700 14px var(--sans); color: #fff; background: var(--teal); border: 0; border-radius: 999px; padding: 12px 18px; cursor: pointer; margin-top: 8px; }
+
+/* Pictures */
+.pic { display: block; width: min(280px, 100%); height: auto; margin: 8px auto 4px; }
+.pic .ln { fill: none; stroke: var(--teal); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.pic .soft { fill: rgba(23,141,147,.10); }
+.pic .ghost { fill: none; stroke: #A9B6C8; stroke-width: 3; stroke-dasharray: 6 6; stroke-linecap: round; }
+.pic .hot { fill: rgba(194,85,63,.22); stroke: var(--coral); stroke-width: 3; transform-box: fill-box; transform-origin: center; }
+.pic .hot-ln { fill: none; stroke: var(--coral); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.pic .ray { fill: none; stroke: var(--teal-bright); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 6 8; }
+.pic .yel { fill: #F4D35E; stroke: #C99A1E; stroke-width: 2; }
+.pic .drop { fill: rgba(79,209,217,.5); stroke: var(--teal); stroke-width: 2; }
+.pic .cloud { fill: #E6ECF2; stroke: #B9C6D4; stroke-width: 2; transform-box: fill-box; transform-origin: center; }
+.pic .cloud2 { fill: #FFFFFF; opacity: .85; }
+@media (prefers-reduced-motion: no-preference) {
+  .pic .ln, .pic .hot-ln { animation: draw 1.8s var(--ease) both; }
+  .pic .hot-ln { animation-delay: .9s; }
+  .pic .soft, .pic .yel, .pic .drop, .pic .cloud2 { animation: fadeIn 1s ease .6s both; }
+  .pic .ray { animation: flow 1.2s linear infinite; }
+  .pic .hot { animation: pop .7s var(--ease) 1s both; }
+  .pic .pulse { animation: pop .7s var(--ease) 1s both, beat 1.6s ease-in-out 1.8s infinite; }
+}
+@keyframes flow { to { stroke-dashoffset: -28; } }
+
+/* Smart Value Point bar */
+.svp { display: flex; flex-direction: column; gap: 8px; }
+.svp-track { display: flex; height: 44px; border-radius: 12px; overflow: hidden; background: rgba(11,37,69,.08); }
+.svp-full { flex: 0 0 72%; background: var(--teal); color: #fff; display: flex; align-items: center; padding-left: 14px; font-size: 13px; font-weight: 700; transform-origin: left; }
+.svp-over { flex: 1; background: repeating-linear-gradient(45deg, #178D93 0 10px, #C2553F 10px 13px); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; transform-origin: left; }
+.svp-over span, .svp-full span { text-shadow: 0 1px 2px rgba(11,37,69,.5); white-space: nowrap; }
+.svp-labels { display: grid; grid-template-columns: 1fr auto 1fr; font-size: 12.5px; color: var(--ink-soft); }
+.svp-labels span:nth-child(2) { text-align: center; color: var(--ink); }
+.svp-labels span:last-child { text-align: right; }
+@media (prefers-reduced-motion: no-preference) {
+  .slide .svp-full, .slide .svp-over { transform: scaleX(0); }
+  .is-active .svp-full { transform: scaleX(1); transition: transform 1.4s var(--ease) .4s; }
+  .is-active .svp-over { transform: scaleX(1); transition: transform 1s var(--ease) 1.8s; }
+}
+
+/* Medical card benefit columns */
+.mc-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.mc-col { background: rgba(255,255,255,.06); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; text-align: left; }
+.mc-k { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; color: var(--teal-bright); }
+.mc-row { background: var(--paper); color: var(--ink); border-radius: 10px; padding: 9px 12px; }
+.mc-row b { display: block; font-size: 14px; }
+.mc-row em { font-style: normal; display: block; font-weight: 700; color: var(--teal); font-size: 13.5px; margin-top: 2px; }
+.mc-row span { display: block; font-size: 12.5px; color: var(--ink-soft); }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .mc-row { animation: rise .55s var(--ease) both; }
+  .is-active .mc-col .mc-row:nth-child(2) { animation-delay: .4s; } .is-active .mc-col .mc-row:nth-child(3) { animation-delay: .5s; }
+  .is-active .mc-col .mc-row:nth-child(4) { animation-delay: .6s; } .is-active .mc-col .mc-row:nth-child(5) { animation-delay: .7s; }
+  .is-active .mc-col .mc-row:nth-child(6) { animation-delay: .8s; } .is-active .mc-col .mc-row:nth-child(7) { animation-delay: .9s; }
+  .is-active .mc-col .mc-row:nth-child(8) { animation-delay: 1s; }
+}
+
+/* Send answers */
+.send-box { width: 100%; background: rgba(255,255,255,.8); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.send-summary { font-size: 13.5px; line-height: 1.55; color: var(--ink); white-space: pre-line; }
+.send-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.send-btn { font: 700 15px var(--sans); color: #fff; background: var(--teal); border: 0; border-radius: 999px; padding: 12px 20px; cursor: pointer; }
+.send-btn:disabled { opacity: .55; cursor: default; }
+.copy-btn { font: 600 14px var(--sans); color: var(--ink); background: var(--paper); border: 2px solid #C9D6E8; border-radius: 999px; padding: 10px 16px; cursor: pointer; }
+.send-btn:focus-visible, .copy-btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.send-status { font-size: 13.5px; line-height: 1.45; min-height: 1em; }
+.send-status.ok { color: #0F6F74; font-weight: 700; }
+.send-status.warn { color: #9A3F2D; font-weight: 600; }
+.cover-for { font-family: var(--serif); font-style: italic; font-size: clamp(20px, 3.4vw, 26px); color: var(--ink); }
+.cover-for b { font-style: normal; color: var(--teal); font-weight: 700; }
+
+@media (max-width: 600px) {
+  .mc-cols { grid-template-columns: 1fr; }
+  .svp-full span { font-size: 11px; }
+}
+
+
+.photo { display: block; width: 100%; max-width: 520px; max-height: 46vh; object-fit: contain; margin: 8px auto 0; border-radius: 12px; background: #F3F7FB; }
+@media (prefers-reduced-motion: no-preference) { .photo { animation: rise .6s var(--ease) both; } }
+.credit { font-size: 11.5px !important; color: var(--ink-soft); text-align: center; margin-top: 4px !important; }
+
+
+.step-k { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--mist-2); font-weight: 600; }
+.limit-track { width: min(420px, 100%); height: 18px; border-radius: 999px; background: rgba(255,255,255,.1); overflow: hidden; display: flex; }
+.limit-base { width: 55%; background: var(--teal-bright); }
+.limit-boost { width: 45%; background: var(--gold); transform-origin: left; }
+@media (prefers-reduced-motion: no-preference) {
+  .slide .limit-boost { transform: scaleX(0); }
+  .is-active .limit-boost { transform: scaleX(1); transition: transform 1.4s var(--ease) 1s; }
+}
+.limit-labels { width: min(420px, 100%); display: flex; justify-content: space-between; font-size: 13px; color: var(--mist); }
+
+
+/* Fix: tall scenes start at the top instead of clipping above the screen */
+.slide { justify-content: flex-start; }
+.slide > .inner { margin-block: auto; }
+
+/* Savings jar */
+.jar-glass { fill: rgba(238,243,248,.12); stroke: #0B2545; stroke-width: 3; }
+.jar-lid { fill: #C9D6E8; stroke: #0B2545; stroke-width: 3; }
+.jar-shine { stroke: #FFFFFF; stroke-width: 4; stroke-linecap: round; opacity: .8; }
+.jar-fill { fill: rgba(212,162,58,.28); }
+.jar-stack ellipse { fill: #D4A23A; stroke: #A87D22; stroke-width: 1.5; }
+.jar-cap { stroke: var(--coral); stroke-width: 2; stroke-dasharray: 4 4; opacity: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .jar-fill { animation: jarRise 3.2s var(--ease) .6s both; }
+  .is-active .jar-stack ellipse { animation: pop .5s var(--ease) both; transform-box: fill-box; transform-origin: center; }
+  .is-active .jar-stack ellipse:nth-child(1) { animation-delay: .9s; } .is-active .jar-stack ellipse:nth-child(4) { animation-delay: 1.2s; }
+  .is-active .jar-stack ellipse:nth-child(2) { animation-delay: 1.6s; } .is-active .jar-stack ellipse:nth-child(5) { animation-delay: 2s; }
+  .is-active .jar-stack ellipse:nth-child(3) { animation-delay: 2.4s; }
+  .is-active .jar-cap { animation: fadeIn .6s ease 3.4s both; }
+}
+@keyframes jarRise { from { transform: translateY(44px); } to { transform: none; } }
+
+/* Tabarru' fund network */
+.net-line { stroke: rgba(79,209,217,.6); stroke-width: 2; stroke-dasharray: 4 5; fill: none; }
+.net-out { stroke: var(--gold); stroke-width: 3; stroke-dasharray: 5 5; fill: none; opacity: 0; }
+.node circle, .node path { fill: none; stroke: var(--teal-bright); stroke-width: 2.5; stroke-linecap: round; }
+.node.help circle, .node.help path { stroke: var(--gold); stroke-width: 3; }
+.node { transform-box: fill-box; transform-origin: center; }
+.fund-coin { fill: var(--gold); stroke: #F2D08A; stroke-width: 2; transform-box: fill-box; transform-origin: center; }
+.fund-ring { fill: none; stroke: var(--gold); stroke-width: 2; transform-box: fill-box; transform-origin: center; opacity: 0; }
+.fund-mark { fill: none; stroke: #0B2545; stroke-width: 2.4; stroke-linecap: round; }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .node { animation: pop .6s var(--ease) both; }
+  .is-active .net-line { animation: fadeIn .6s ease 1s both, flowIn 1.2s linear 1s infinite; }
+  .is-active .fund-coin { animation: pop .7s var(--ease) .9s both, beat 1.8s ease-in-out 2s infinite; }
+  .is-active .fund-ring { animation: ripple 2.2s ease-out 1.6s infinite; }
+  .is-active .net-out { animation: fadeIn .5s ease 2.4s both, flowIn 1s linear 2.4s infinite; }
+  .is-active .node.help { animation: pop .6s var(--ease) .6s both, helpGlow 1.8s ease-in-out 2.8s infinite; }
+}
+@keyframes flowIn { to { stroke-dashoffset: -18; } }
+@keyframes ripple { 0% { transform: scale(1); opacity: .8; } 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes helpGlow { 0%, 100% { filter: none; } 50% { filter: drop-shadow(0 0 6px rgba(212,162,58,.9)); } }
+
+/* Photo backgrounds on journey scenes */
+.slide.photo-bg { background: var(--night); }
+.slide.photo-bg::before { content: ""; position: absolute; inset: 0; background-image: var(--bg); background-size: cover; background-position: center; transform: scale(1.06); }
+.slide.photo-bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(11,37,69,.72) 0%, rgba(11,37,69,.82) 45%, rgba(11,37,69,.94) 100%); }
+.slide.photo-bg > .inner { position: relative; z-index: 1; }
+@media (prefers-reduced-motion: no-preference) {
+  .slide.photo-bg.is-active::before { animation: kenburns 14s ease-out both; }
+}
+@keyframes kenburns { from { transform: scale(1.18) translateY(-1.5%); } to { transform: scale(1.04); } }
+
+
+/* AnugerahMax additions */
+.bars5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.bars6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.bar-pair { gap: 4px; }
+.bar.thin { width: 40%; }
+.bar.gold { background: var(--gold); }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--ink-soft); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.limit-base.half, .limit-boost.half { width: 50%; }
+.tl4 .tl-points { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.mc-btn { font: inherit; text-align: left; border: 2px solid transparent; cursor: pointer; position: relative; width: 100%; }
+.mc-btn b { padding-right: 64px; }
+.mc-btn .more { position: absolute; top: 9px; right: 10px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--teal); background: #E3F4F5; border-radius: 999px; padding: 3px 9px; }
+.mc-btn:hover { border-color: #9ED3D6; }
+.mc-btn:focus-visible { outline: 3px solid var(--teal-bright); outline-offset: 2px; }
+.cover-art { width: 110px; }
+
+/* Growth chart */
+.chart { width: 100%; height: auto; overflow: visible; }
+.chart .grid { stroke: rgba(11,37,69,.08); stroke-width: 1; }
+.chart .axis { fill: var(--ink-soft); font-size: 15px; font-family: var(--sans); }
+.chart .lineY { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.chart .lineX { fill: none; stroke: var(--teal); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.chart .areaY { fill: rgba(11,37,69,.06); }
+.chart .peak { fill: var(--gold); stroke: #fff; stroke-width: 2; }
+.chart .peak-t { font-size: 16px; font-weight: 700; fill: var(--ink); font-family: var(--sans); }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .chart .lineY, .is-active .chart .lineX { animation: draw 2.6s var(--ease) both; }
+  .is-active .chart .lineX { animation-delay: .4s; }
+  .is-active .chart .areaY { animation: fadeIn 1.5s ease 1.4s both; }
+  .is-active .chart .peak, .is-active .chart .peak-t { animation: fadeIn .6s ease 2.6s both; }
+}
+.scen { display: flex; gap: 10px; flex-wrap: wrap; }
+.scen div { background: var(--paper); border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.scen i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+@media (max-width: 600px) {
+  .tl4 .tl-points { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 18px; }
+  .tl4 .tl-line, .tl4 .tl-fill { display: none; }
+}
+
+
+/* Option comparison table */
+.cmp-wrap { overflow-x: auto; border-radius: 14px; background: var(--paper); box-shadow: 0 8px 24px rgba(11,37,69,.08); }
+.cmp { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 13.5px; line-height: 1.4; color: var(--ink); }
+.cmp th, .cmp td { text-align: left; padding: 8px 12px; vertical-align: top; border-bottom: 1px solid #E6EDF5; }
+.cmp thead th { font-family: var(--serif); font-size: 18px; font-weight: 700; background: #F3F7FB; position: sticky; top: 0; }
+.cmp thead th span { display: block; font-family: var(--sans); font-size: 12px; font-weight: 600; color: var(--ink-soft); }
+.cmp thead th.o2 { background: var(--night); color: #fff; }
+.cmp thead th.o2 span { color: var(--teal-bright); }
+.cmp td:first-child { width: 34%; font-weight: 600; }
+.cmp td:nth-child(2) { width: 30%; color: var(--ink-soft); }
+.cmp td:nth-child(3) { background: rgba(23,141,147,.05); }
+.cmp td.none { color: #A3AEBF; font-style: italic; }
+.cmp tr.grp td { background: #EEF3F8; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; color: var(--teal); padding: 6px 12px; }
+.tag { font-style: normal; display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border-radius: 999px; padding: 2px 7px; margin-left: 4px; vertical-align: 1px; white-space: nowrap; }
+.tag.up { background: #E3F4F5; color: #0F6F74; }
+.tag.new { background: #FBF1DC; color: #8A6412; }
+.tag.down { background: #FBEDE9; color: #9A3F2D; }
+.tag.same { background: #EEF1F5; color: #5A6B85; }
+@media (prefers-reduced-motion: no-preference) {
+  .is-active .cmp tbody tr { animation: rise .5s var(--ease) both; }
+  .is-active .cmp tbody tr:nth-child(n+2) { animation-delay: .35s; }
+  .is-active .cmp tbody tr:nth-child(n+6) { animation-delay: .5s; }
+  .is-active .cmp tbody tr:nth-child(n+10) { animation-delay: .65s; }
+  .is-active .cmp tbody tr:nth-child(n+14) { animation-delay: .8s; }
+  .is-active .cmp tbody tr:nth-child(n+18) { animation-delay: .95s; }
+  .is-active .cmp tbody tr:nth-child(n+22) { animation-delay: 1.1s; }
+  .is-active .tag.new, .is-active .tag.up { animation: pop .5s var(--ease) 1.3s both; }
+}
+.why { background: var(--night); color: #fff; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.why-k { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 700; color: var(--teal-bright); }
+.why-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.why-c { background: rgba(255,255,255,.07); border-radius: 12px; padding: 12px; min-width: 0; }
+.why-c b { display: block; font-family: var(--serif); font-size: 19px; color: #fff; margin-bottom: 4px; }
+.why-c span { font-size: 13px; line-height: 1.45; color: var(--mist); }
+.why-t { font-size: 13.5px; color: var(--mist); max-width: none; }
+.why-t b { color: #F2A65A; }
+@media (max-width: 600px) { .why-grid { grid-template-columns: 1fr; } .cmp { min-width: 0; font-size: 12px; } .cmp th, .cmp td { padding: 7px 7px; } .cmp thead th { font-size: 14px; } .cmp td:first-child { width: 30%; } .cmp td:nth-child(2) { width: 32%; } .tag { font-size: 9.5px; padding: 1px 5px; margin-left: 0; margin-top: 3px; } }
+
+
+.form-link { display: inline-flex; align-items: center; gap: 10px; background: var(--gold); color: var(--ink); font: 700 16px var(--sans); text-decoration: none; border-radius: 999px; padding: 14px 24px; box-shadow: 0 10px 24px rgba(212,162,58,.35); }
+.form-link:hover { filter: brightness(1.05); }
+.form-link:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+@media (prefers-reduced-motion: no-preference) { .is-active .form-link { animation: pop .6s var(--ease) 1.2s both, ringGold 2.4s ease-in-out 2s infinite; } }
+@keyframes ringGold { 0%, 100% { box-shadow: 0 10px 24px rgba(212,162,58,.35), 0 0 0 0 rgba(212,162,58,.45); } 50% { box-shadow: 0 10px 24px rgba(212,162,58,.35), 0 0 0 14px rgba(212,162,58,0); } }
+
+/* Controls */
+.chrome { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 10px;
+  padding-block: 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); pointer-events: none; }
+.chrome > * { pointer-events: auto; }
+.nav { width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(11,37,69,.85); color: #fff; font-size: 20px; cursor: pointer; display: grid; place-items: center; flex: none; }
+.nav:disabled { opacity: .3; cursor: default; }
+.nav:focus-visible, .notes-btn:focus-visible { outline: 3px solid var(--teal-bright); outline-offset: 2px; }
+.notes-btn { height: 44px; border-radius: 999px; border: 0; padding: 0 14px; background: rgba(11,37,69,.85); color: #fff; font: 600 12px var(--sans); letter-spacing: .06em; text-transform: uppercase; cursor: pointer; flex: none; }
+.progress { flex: 1; display: flex; gap: 4px; min-width: 0; }
+.progress span { flex: 1; height: 4px; border-radius: 4px; background: rgba(11,37,69,.15); overflow: hidden; }
+.progress span.on::after { content: ""; display: block; height: 100%; background: var(--teal); }
+.night-chrome .progress span { background: rgba(255,255,255,.2); }
+.night-chrome .nav, .night-chrome .notes-btn { background: rgba(255,255,255,.16); box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
+.night-chrome .progress span.on::after { background: var(--teal-bright); }
+.counter { font-size: 12px; font-weight: 600; color: var(--ink-soft); font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; }
+.night-chrome .counter { color: var(--mist); }
+.ribbon { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 5; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; background: rgba(255,255,255,.85); color: var(--ink); padding: 6px 12px; border-radius: 999px; white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
+
+/* Presenter notes */
+.notes { display: none; }
+.notes-panel { position: absolute; z-index: 6; left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(76px + env(safe-area-inset-bottom, 0px)); margin-inline: auto; max-width: 760px; max-height: 45%; overflow-y: auto; background: #FFFDF6; color: var(--ink); border-radius: 14px; padding: 14px 16px; box-shadow: 0 16px 40px rgba(11,37,69,.28); font-size: 14px; line-height: 1.55; }
+.notes-panel .nk { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; color: var(--coral); margin-bottom: 6px; }
+.notes-panel p { color: var(--ink); font-size: 14px; margin-top: 6px; max-width: none; }
+
+@keyframes draw { from { stroke-dashoffset: 1200; } to { stroke-dashoffset: 0; } }
+@keyframes pop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes rise { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+@keyframes beat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.25); } 30% { transform: scale(1); } 45% { transform: scale(1.18); } }
+@keyframes coinFall { 0% { opacity: 0; transform: translateY(-26px); } 20% { opacity: 1; } 75% { opacity: 1; transform: translateY(34px); } 100% { opacity: 0; transform: translateY(40px); } }
+@keyframes breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes startle { 0%, 100% { transform: rotate(0) scale(1); } 25% { transform: rotate(-6deg) scale(1.06); } 75% { transform: rotate(6deg) scale(1.06); } }
+@keyframes ring { 0%, 100% { box-shadow: 0 0 0 0 rgba(23,141,147,.4); } 50% { box-shadow: 0 0 0 22px rgba(23,141,147,0); } }
+
+@media (max-width: 600px) {
+  .slide { padding-block: 56px 92px; }
+  .donut-wrap, .pyr-wrap { grid-template-columns: 1fr; justify-items: center; }
+  .split { width: 100%; }
+  .options, .agenda, .qs { grid-template-columns: 1fr; }
+  .glance { grid-template-columns: 1fr; }
+  .glance.two { grid-template-columns: 1fr; }
+  .bars { height: 190px; gap: 4px; }
+  .bar-val { font-size: 10px; }
+  .tl-pt .day { font-size: 18px; }
+  .paths { gap: 10px; }
+  .path { padding: 14px 10px; }
+  .hrow { grid-template-columns: 92px minmax(0, 1fr) 52px; }
+  .hrow .val { font-size: 19px; }
+}
+`;
+      module.exports = { STORY_CSS };
+    }
+  });
+
+  // renderer/story/storyRuntime.js
+  var require_storyRuntime = __commonJS({
+    "renderer/story/storyRuntime.js"(exports, module) {
+      "use strict";
+      function storyRuntime() {
+        var cfg = JSON.parse(document.getElementById("story-data").textContent);
+        var slides = [].slice.call(document.querySelectorAll(".slide"));
+        var deck = document.getElementById("deck");
+        var progress = document.getElementById("progress");
+        var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var index = 0;
+        slides.forEach(function() {
+          progress.appendChild(document.createElement("span"));
+        });
+        function prepLines(root) {
+          root.querySelectorAll(".brand-mark .ring, .ecg path, .settled .check path, .done path, .cond-art .ln, .scene-art .ln").forEach(function(p) {
+            p.setAttribute("pathLength", "1200");
+            p.style.strokeDasharray = "1200";
+          });
+        }
+        prepLines(document);
+        (function people() {
+          var g = document.getElementById("peopleGrid");
+          if (!g) return;
+          var lit = [0, 2, 4, 6, 8, 11, 13, 15, 17, 19, 1, 3, 5, 7, 9, 10, 12, 14, 16, 18].slice(0, cfg.peopleOn || 9);
+          var out = "";
+          for (var i = 0; i < 20; i++) {
+            var x = 26 + i % 10 * 52, y = Math.floor(i / 10) * 60;
+            out += '<g class="p' + (lit.indexOf(i) >= 0 ? " on" : "") + '" style="animation-delay:' + (0.2 + i * 0.05).toFixed(2) + 's"><circle cx="' + x + '" cy="' + (y + 14) + '" r="9"/><path d="M' + (x - 15) + " " + (y + 52) + ' q15 -36 30 0z"/></g>';
+          }
+          g.innerHTML = out;
+        })();
+        var C = 2 * Math.PI * 88;
+        [].forEach.call(document.querySelectorAll(".donut .seg"), function(s) {
+          s.style.strokeDasharray = Number(s.dataset.frac) * C + " " + C;
+          s.style.strokeDashoffset = String(-Number(s.dataset.start) * C);
+        });
+        function sweepDonut(slide) {
+          if (reduce || !slide.animate) return;
+          [].forEach.call(slide.querySelectorAll(".donut .seg"), function(s, i) {
+            if (!s.animate) return;
+            s.animate(
+              [{ strokeDasharray: "0 " + C }, { strokeDasharray: Number(s.dataset.frac) * C + " " + C }],
+              { duration: 1300, delay: 300 + i * 250, easing: "cubic-bezier(.22,1,.36,1)", fill: "backwards" }
+            );
+          });
+        }
+        function countUp(slide) {
+          if (reduce) return;
+          [].forEach.call(slide.querySelectorAll("[data-count]"), function(el2) {
+            var end = Number(el2.dataset.count);
+            var prefix = el2.dataset.prefix || "";
+            var suffix = el2.dataset.suffix || "";
+            var small = el2.querySelector("small");
+            var tail = small ? small.outerHTML : "";
+            var finalVal = prefix + end.toLocaleString("en-MY") + suffix + tail;
+            var start = performance.now();
+            var dur = 1400;
+            function tick(now) {
+              var p = Math.min(1, (now - start) / dur);
+              el2.innerHTML = prefix + Math.round(end * (1 - Math.pow(1 - p, 3))).toLocaleString("en-MY") + suffix + tail;
+              if (p < 1) requestAnimationFrame(tick);
+            }
+            requestAnimationFrame(tick);
+            setTimeout(function() {
+              el2.innerHTML = finalVal;
+            }, dur + 250);
+          });
+        }
+        (function drawChart() {
+          var svg = document.getElementById("growth");
+          var sv = cfg.cashValue;
+          if (!svg || !sv || !sv.points || sv.points.length < 2) return;
+          var W = 640, H = 300, L = 74, R = 16, T = 28, B = 34;
+          var pts = sv.points;
+          var a0 = pts[0][0], a1 = pts[pts.length - 1][0];
+          var peak = 0;
+          pts.forEach(function(r) {
+            peak = Math.max(peak, r[1], r[2]);
+          });
+          var step = Math.pow(10, Math.floor(Math.log10(Math.max(peak, 1))));
+          var max = Math.ceil(peak / step) * step;
+          if (max / step < 3) {
+            step = step / 2;
+            max = Math.ceil(peak / step) * step;
+          }
+          var x = function(age2) {
+            return L + (age2 - a0) / Math.max(1, a1 - a0) * (W - L - R);
+          };
+          var y = function(v2) {
+            return T + (1 - v2 / max) * (H - T - B);
+          };
+          var label = function(v2) {
+            return v2 >= 1e6 ? "RM" + (v2 / 1e6).toLocaleString("en-MY") + "m" : v2 >= 1e3 ? "RM" + (v2 / 1e3).toLocaleString("en-MY") + "k" : v2 ? "RM" + v2 : "0";
+          };
+          var out = "";
+          for (var v = 0; v <= max + 1; v += step) {
+            out += '<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="axis" x="' + (L - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + label(v) + "</text>";
+          }
+          var ticks = 6;
+          for (var t = 0; t <= ticks; t++) {
+            var age = Math.round(a0 + (a1 - a0) * t / ticks);
+            out += '<text class="axis" x="' + x(age) + '" y="' + (H - 10) + '" text-anchor="middle">' + sv.axisLabel + " " + age + "</text>";
+          }
+          var path = function(i) {
+            return pts.map(function(r, k) {
+              return (k ? "L" : "M") + x(r[0]).toFixed(1) + " " + y(r[i]).toFixed(1);
+            }).join(" ");
+          };
+          out += '<path class="areaY" d="' + path(2) + " L" + x(a1) + " " + y(0) + " L" + x(a0) + " " + y(0) + 'Z"/>';
+          out += '<path class="lineY" pathLength="1200" stroke-dasharray="1200" d="' + path(2) + '"/>';
+          out += '<path class="lineX" pathLength="1200" stroke-dasharray="1200" d="' + path(1) + '"/>';
+          (sv.peaks || []).forEach(function(pk) {
+            out += '<circle class="peak" cx="' + x(pk[0]) + '" cy="' + y(pk[1]) + '" r="6"/><text class="peak-t" x="' + x(pk[0]) + '" y="' + (y(pk[1]) - 12) + '" text-anchor="middle">RM' + Number(pk[1]).toLocaleString("en-MY") + "</text>";
+          });
+          svg.innerHTML = out;
+        })();
+        var chosen = {};
+        var order = [];
+        var labels = {};
+        var sayText = {};
+        [].forEach.call(document.querySelectorAll(".chips[data-group]"), function(grp) {
+          var key = grp.dataset.group;
+          chosen[key] = grp.dataset.multi === "true" ? [] : "";
+          order.push(key);
+          labels[key] = grp.dataset.label || key;
+          [].forEach.call(grp.querySelectorAll(".chip[data-text]"), function(c) {
+            sayText[c.dataset.val] = c.dataset.text;
+          });
+        });
+        var limitInput = document.getElementById("mcLimit");
+        var limitBox = document.getElementById("limitBox");
+        if (limitInput) {
+          chosen.mcLimit = "";
+          labels.mcLimit = "Medical card limit";
+        }
+        function list(v) {
+          return Array.isArray(v) ? v : v ? [v] : [];
+        }
+        function hasCard() {
+          var ex = document.querySelector('.chips[data-group="ex"]');
+          return !!ex && !!ex.querySelector('.chip[data-card][aria-pressed="true"]');
+        }
+        function summaryLines() {
+          var out = [];
+          order.forEach(function(key) {
+            var vals = list(chosen[key]);
+            if (vals.length) out.push(labels[key] + ": " + vals.join(", "));
+            if (key === "ex" && limitInput && hasCard() && chosen.mcLimit) out.push("Medical card limit: RM" + Number(chosen.mcLimit).toLocaleString("en-MY"));
+          });
+          return out;
+        }
+        function renderSaid() {
+          var txt = "";
+          var pri = list(chosen.pri);
+          if (pri.length) txt += "You said what matters most: <b>" + pri.map(function(v) {
+            return sayText[v] || v;
+          }).join(", ") + "</b>.";
+          if (chosen.bud) txt += (txt ? " " : "") + "Comfortable monthly amount: <b>" + chosen.bud + "</b>.";
+          [].forEach.call(document.querySelectorAll("[data-said]"), function(el2) {
+            el2.innerHTML = txt || el2.dataset.said;
+          });
+          var lines = summaryLines();
+          var box = document.getElementById("sendSummary");
+          if (box) box.textContent = lines.length ? "For " + cfg.client + "\n" + lines.join("\n") : "No answers yet. Tap your answers on the earlier screens.";
+          if (limitBox) limitBox.hidden = !hasCard();
+        }
+        [].forEach.call(document.querySelectorAll(".chips[data-group]"), function(grp) {
+          var multi = grp.dataset.multi === "true";
+          var key = grp.dataset.group;
+          grp.addEventListener("click", function(e) {
+            var chip = e.target.closest(".chip");
+            if (!chip) return;
+            e.stopPropagation();
+            var on = chip.getAttribute("aria-pressed") !== "true";
+            [].forEach.call(grp.querySelectorAll(".chip"), function(c) {
+              if (!multi || on && c.hasAttribute("data-alone") !== chip.hasAttribute("data-alone")) c.setAttribute("aria-pressed", "false");
+            });
+            chip.setAttribute("aria-pressed", String(on));
+            var sel = [].map.call(grp.querySelectorAll('.chip[aria-pressed="true"]'), function(c) {
+              return c.dataset.val;
+            });
+            chosen[key] = multi ? sel : sel[0] || "";
+            renderSaid();
+          });
+        });
+        if (limitInput) limitInput.addEventListener("input", function() {
+          chosen.mcLimit = limitInput.value.replace(/[^\d]/g, "").slice(0, 9);
+          renderSaid();
+        });
+        var sendBtn = document.getElementById("sendBtn");
+        var sendStatus = document.getElementById("sendStatus");
+        function setStatus(msg, kind) {
+          sendStatus.textContent = msg;
+          sendStatus.className = "send-status" + (kind ? " " + kind : "");
+        }
+        if (sendBtn) sendBtn.addEventListener("click", function(e) {
+          e.stopPropagation();
+          var lines = summaryLines();
+          if (!lines.length) {
+            setStatus("Nothing to send yet. Tap some answers on the earlier screens first.", "warn");
+            return;
+          }
+          var answers = {};
+          Object.keys(chosen).forEach(function(k) {
+            if (k === "mcLimit" && !hasCard()) return;
+            var v = chosen[k];
+            if (Array.isArray(v) ? v.length : v) answers[k] = v;
+          });
+          sendBtn.disabled = true;
+          setStatus("Sending\u2026");
+          fetch(cfg.portal, { method: "POST", headers: { "Content-Type": "text/plain" }, credentials: "omit", body: JSON.stringify({ client: cfg.client, source: cfg.source, agentCode: cfg.agentFormCode || void 0, answers, summary: lines }) }).then(function(res) {
+            return res.json().catch(function() {
+              return {};
+            }).then(function(data) {
+              return { ok: res.ok, status: res.status, data };
+            });
+          }).then(function(r) {
+            if (r.ok && r.data.success) {
+              setStatus("Sent to " + cfg.agentShort + ". Thank you!", "ok");
+              sendBtn.textContent = "Send updated answers";
+            } else if (r.status === 400 && r.data.error) setStatus(r.data.error, "warn");
+            else setStatus("Could not send right now. Tap Copy answers, then paste them to " + cfg.agentShort + " on WhatsApp.", "warn");
+          }).catch(function() {
+            setStatus("Could not send right now. Tap Copy answers, then paste them to " + cfg.agentShort + " on WhatsApp.", "warn");
+          }).then(function() {
+            sendBtn.disabled = false;
+          });
+        });
+        var copyBtn = document.getElementById("copyBtn");
+        if (copyBtn) copyBtn.addEventListener("click", function(e) {
+          e.stopPropagation();
+          var lines = summaryLines();
+          var text = "For " + cfg.client + "\n" + (lines.length ? lines.join("\n") : "No answers yet");
+          var fallback = function() {
+            var r = document.createRange();
+            r.selectNodeContents(document.getElementById("sendSummary"));
+            var s = window.getSelection();
+            s.removeAllRanges();
+            s.addRange(r);
+            setStatus("Answers selected. Copy them with your keyboard or the share menu.", "");
+          };
+          try {
+            navigator.clipboard.writeText(text).then(function() {
+              setStatus("Answers copied.", "ok");
+            }, fallback);
+          } catch (err) {
+            fallback();
+          }
+        });
+        var sheet = document.getElementById("sheet");
+        var sheetBg = document.getElementById("sheetBg");
+        var sheetBody = document.getElementById("sheetBody");
+        var lastFocus = null;
+        function openSheet(id, from) {
+          var tpl = document.getElementById(id);
+          if (!tpl) return;
+          sheetBody.innerHTML = "";
+          sheetBody.appendChild(tpl.content.cloneNode(true));
+          lastFocus = from || null;
+          sheet.hidden = false;
+          sheetBg.hidden = false;
+          sheet.scrollTop = 0;
+          document.getElementById("sheetX").focus();
+        }
+        function closeSheet() {
+          if (sheet.hidden) return;
+          sheet.hidden = true;
+          sheetBg.hidden = true;
+          sheetBody.innerHTML = "";
+          if (lastFocus) lastFocus.focus();
+        }
+        [].forEach.call(document.querySelectorAll("[data-sheet]"), function(b) {
+          b.addEventListener("click", function(e) {
+            e.stopPropagation();
+            openSheet("sheet-" + b.dataset.sheet, b);
+          });
+        });
+        document.getElementById("sheetX").addEventListener("click", function(e) {
+          e.stopPropagation();
+          closeSheet();
+        });
+        sheetBg.addEventListener("click", function(e) {
+          e.stopPropagation();
+          closeSheet();
+        });
+        sheet.addEventListener("click", function(e) {
+          e.stopPropagation();
+        });
+        var panel = document.getElementById("notesPanel");
+        var notesBody = document.getElementById("notesBody");
+        var notesBtn = document.getElementById("notesBtn");
+        function renderNotes() {
+          var n = slides[index].querySelector(".notes");
+          notesBody.innerHTML = n ? n.innerHTML : "<p>No notes for this screen.</p>";
+        }
+        function toggleNotes() {
+          if (!panel || !notesBtn) return;
+          panel.hidden = !panel.hidden;
+          notesBtn.setAttribute("aria-pressed", String(!panel.hidden));
+          renderNotes();
+        }
+        if (notesBtn) notesBtn.addEventListener("click", function(e) {
+          e.stopPropagation();
+          toggleNotes();
+        });
+        if (panel) panel.addEventListener("click", function(e) {
+          e.stopPropagation();
+        });
+        function show(i) {
+          index = Math.max(0, Math.min(slides.length - 1, i));
+          slides.forEach(function(s, k) {
+            s.classList.toggle("is-active", k === index);
+            s.classList.toggle("is-past", k < index);
+          });
+          var cur = slides[index];
+          countUp(cur);
+          if (cur.querySelector(".donut")) sweepDonut(cur);
+          [].forEach.call(progress.children, function(p, k) {
+            p.classList.toggle("on", k <= index);
+          });
+          document.getElementById("counter").textContent = index + 1 + " / " + slides.length;
+          document.getElementById("prev").disabled = index === 0;
+          document.getElementById("next").disabled = index === slides.length - 1;
+          document.getElementById("chrome").classList.toggle("night-chrome", cur.classList.contains("night"));
+          document.getElementById("ribbon").hidden = index > 0;
+          if (panel && !panel.hidden) renderNotes();
+        }
+        var INTERACTIVE = "button, a, input, label, .chips, .form-card, .send-box, .sheet, .sheet-bg, .cmp-wrap";
+        document.getElementById("prev").addEventListener("click", function(e) {
+          e.stopPropagation();
+          show(index - 1);
+        });
+        document.getElementById("next").addEventListener("click", function(e) {
+          e.stopPropagation();
+          show(index + 1);
+        });
+        deck.addEventListener("click", function(e) {
+          if (e.target.closest(INTERACTIVE) || !sheet.hidden) return;
+          show(e.clientX < window.innerWidth * 0.3 ? index - 1 : index + 1);
+        });
+        document.addEventListener("keydown", function(e) {
+          if (e.target.closest && e.target.closest("input, textarea")) return;
+          if (e.key === "Escape") {
+            closeSheet();
+            return;
+          }
+          if (!sheet.hidden) return;
+          if (["ArrowRight", "PageDown", " "].indexOf(e.key) >= 0) {
+            e.preventDefault();
+            show(index + 1);
+          }
+          if (["ArrowLeft", "PageUp"].indexOf(e.key) >= 0) {
+            e.preventDefault();
+            show(index - 1);
+          }
+          if (e.key === "n" || e.key === "N") toggleNotes();
+        });
+        var sx = null;
+        deck.addEventListener("touchstart", function(e) {
+          sx = e.target.closest(INTERACTIVE) || !sheet.hidden ? null : e.touches[0].clientX;
+        }, { passive: true });
+        deck.addEventListener("touchend", function(e) {
+          if (sx == null) return;
+          var dx = e.changedTouches[0].clientX - sx;
+          sx = null;
+          if (Math.abs(dx) > 50) {
+            e.preventDefault();
+            show(index + (dx < 0 ? 1 : -1));
+          }
+        });
+        renderSaid();
+        show(0);
+      }
+      var STORY_RUNTIME_JS = `(${storyRuntime.toString()})();`;
+      module.exports = { STORY_RUNTIME_JS };
+    }
+  });
+
+  // renderer/story/storyModel.js
+  var require_storyModel = __commonJS({
+    "renderer/story/storyModel.js"(exports, module) {
+      "use strict";
+      var { formatDateLong } = require_formatters();
+      var MALAY_PREFIXES = /* @__PURE__ */ new Set(["muhammad", "muhamad", "mohammad", "mohamad", "mohamed", "mohd", "mohd.", "md", "md.", "ahmad", "abdul", "abd", "nur", "nurul", "siti", "wan", "nik", "tengku", "syed", "sharifah", "che", "puteri", "raja", "megat", "noor", "nor"]);
+      function titleCase(s) {
+        return String(s || "").toLowerCase().replace(/(^|[\s'-])([a-z])/g, (m, p, c) => p + c.toUpperCase()).replace(/\bBin\b/g, "Bin").replace(/\bBinti\b/g, "Binti");
+      }
+      function callName(fullName) {
+        const words = titleCase(fullName).split(/\s+/).filter(Boolean);
+        const cut = words.findIndex((w) => /^(bin|binti|bt|b\.|a\/l|a\/p)$/i.test(w));
+        const given = cut > 0 ? words.slice(0, cut) : words;
+        let i = 0;
+        while (i < given.length - 1 && MALAY_PREFIXES.has(given[i].toLowerCase())) i++;
+        return given[i] || words[0] || "";
+      }
+      function firstAmount(value) {
+        if (!value) return null;
+        const m = String(value).match(/RM\s*([\d,]+(?:\.\d+)?)/);
+        return m ? Number(m[1].replace(/,/g, "")) : null;
+      }
+      function money(v) {
+        if (typeof v === "number") return Number.isFinite(v) ? v : null;
+        return firstAmount(v);
+      }
+      function findItem(items, re) {
+        return (items || []).find((it) => re.test(it.label || "")) || null;
+      }
+      function coPayInfo(raw) {
+        const s = String(raw || "").trim();
+        if (!s || /^none$/i.test(s)) return { label: null, amount: null, kind: "none" };
+        const amount = money(s.replace(/^[^\d]*/, "RM"));
+        if (/smart\s*saver/i.test(s)) return { label: s.replace(/\s+/g, ""), amount, kind: "smartsaver" };
+        if (/deductible/i.test(s)) return { label: s, amount, kind: "deductible" };
+        return { label: s, amount, kind: "other" };
+      }
+      function sortedWaiting(list) {
+        const seen = /* @__PURE__ */ new Set();
+        return (list || []).filter((w) => w && Number.isFinite(w.days) && w.days > 0).sort((a, b) => a.days - b.days).filter((w) => {
+          const key = `${w.days}|${w.description}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+      function buildStoryModel(data, product) {
+        const d = data || {};
+        const meta = d.metadata || {};
+        const client = d.client || {};
+        const contributions = d.contributions || {};
+        const medical = d.medical || {};
+        const protection = d.protection || {};
+        const plan = d.plan || d.basicPlan || {};
+        const parent = client.parent && client.parent.fullName ? client.parent : null;
+        const isChild = !!parent || Number.isFinite(client.ageNextBirthday) && client.ageNextBirthday <= 17;
+        const unborn = isChild && (!client.fullName || /^child$/i.test(String(client.fullName).trim()));
+        const fullName = unborn ? "" : titleCase(client.fullName || "");
+        const parentName = parent ? titleCase(parent.fullName) : "";
+        const monthly = Number.isFinite(contributions.totalMonthlyContribution) ? contributions.totalMonthlyContribution : Number.isFinite(d.monthlyTotalAmountPayable) ? d.monthlyTotalAmountPayable : null;
+        const annual = Number.isFinite(contributions.totalAnnualContribution) ? contributions.totalAnnualContribution : Number.isFinite(d.totalAnnualContribution) ? d.totalAnnualContribution : monthly != null ? monthly * 12 : null;
+        const term = plan.basicPlanTerm || protection.basicPlanTerm || null;
+        const coverageToAge = medical.coverageToAge || plan.coverageToAge || null;
+        const totalOverTerm = Number.isFinite(contributions.totalContributionOverTerm) ? contributions.totalContributionOverTerm : null;
+        const items = medical.benefitItems || [];
+        const value = (re) => {
+          const it = findItem(items, re);
+          return it ? it.value : null;
+        };
+        const amount = (re) => firstAmount(value(re));
+        const annualLimit = money(medical.annualLimit);
+        const lifetimeFund = Number.isFinite(medical.lifetimeFundAmount) ? medical.lifetimeFundAmount : null;
+        const room = medical.roomAndBoard || {};
+        const tierMatch = String(medical.planName || "").match(/(\d{2,4})\s*$/);
+        const cv = protection.cashValue || {};
+        let cashPoints = null;
+        if (Array.isArray(cv.schedule) && cv.schedule.length >= 3) {
+          cashPoints = cv.schedule.filter((r) => Number.isFinite(r.year) && Number.isFinite(r.cashValueScenarioX) && Number.isFinite(r.cashValueScenarioY)).map((r) => [r.year, r.cashValueScenarioX, r.cashValueScenarioY]);
+        }
+        const lastRow = cashPoints && cashPoints.length ? cashPoints[cashPoints.length - 1] : null;
+        const cashAtEnd = {
+          x: Number.isFinite(cv.scenarioX) ? cv.scenarioX : lastRow ? lastRow[1] : null,
+          y: Number.isFinite(cv.scenarioY) ? cv.scenarioY : lastRow ? lastRow[2] : null
+        };
+        const projection = d.projection && Array.isArray(d.projection.projectionRows) ? d.projection.projectionRows.filter((r) => Number.isFinite(r.age) && Number.isFinite(r.currentContribution)) : [];
+        const breakdown = [];
+        if (monthly != null && Number.isFinite(contributions.medicTotalCareContribution)) {
+          breakdown.push({ key: "medical", amount: contributions.medicTotalCareContribution });
+          if (Number.isFinite(contributions.isaContribution)) breakdown.push({ key: "basic", amount: contributions.isaContribution });
+          if (Number.isFinite(contributions.wakalahCertificateCharge)) breakdown.push({ key: "wakalah", amount: contributions.wakalahCertificateCharge });
+          const rest = Math.round((monthly - breakdown.reduce((s, b) => s + b.amount, 0)) * 100) / 100;
+          if (rest > 0.5) breakdown.push({ key: "riders", amount: rest });
+          if (rest < -0.5) breakdown.length = 0;
+        }
+        return {
+          product,
+          productName: meta.productName || product.name,
+          quoteDateIso: meta.quotationDate && meta.quotationDate.iso,
+          quoteDate: meta.quotationDate && meta.quotationDate.iso ? formatDateLong(meta.quotationDate.iso) : null,
+          version: meta.quotationVersion || null,
+          agentCode: d.agent && d.agent.agentCode,
+          agentNameOnDocument: d.agent && d.agent.agentNameOnDocument,
+          isChild,
+          unborn,
+          fullName,
+          callName: unborn ? "" : callName(fullName),
+          parentName,
+          parentCallName: parentName ? callName(parentName) : "",
+          gender: client.gender || null,
+          age: Number.isFinite(client.ageNextBirthday) ? client.ageNextBirthday : null,
+          smoker: client.smokerStatus || null,
+          occupationClass: client.occupationClass || null,
+          monthly,
+          annual,
+          term,
+          coverageToAge,
+          totalOverTerm,
+          breakdown,
+          medical: {
+            riderName: medical.riderName || null,
+            planName: medical.planName || null,
+            tier: tierMatch ? tierMatch[1] : medical.planTier || null,
+            model: medical.coverageModel || (lifetimeFund ? "LIFETIME_MEDICAL_FUND" : annualLimit ? "ANNUAL_LIMIT" : null),
+            annualLimit,
+            lifetimeFund,
+            lifetimeLimitText: medical.lifetimeLimit || null,
+            coShare: medical.costSharingAfterExhaustion || null,
+            roomRate: Number.isFinite(room.amount) ? room.amount : amount(/room\s*(&|and)\s*board/i),
+            roomDays: Number.isFinite(room.maxDaysPerYear) ? room.maxDaysPerYear : null,
+            roomUnlimited: /unlimited/i.test(value(/room\s*(&|and)\s*board/i) || ""),
+            coPay: coPayInfo(medical.coPayment),
+            contribution: Number.isFinite(medical.contribution) ? medical.contribution : null,
+            outpatientCancer: amount(/outpatient cancer/i),
+            extraLimit: amount(/additional annual limit/i),
+            advancedTreatment: /advanced medical treatment/i.test(value(/outpatient cancer/i) || "") ? firstAmount((value(/outpatient cancer/i) || "").split(/advanced medical treatment/i)[1]) : null,
+            dengue: amount(/dengue/i),
+            childIllness: amount(/top child illness/i),
+            parentAllowance: amount(/parents? allowance/i),
+            govHospital: amount(/government hospital/i),
+            accidentEmergency: value(/emergency outpatient.*accident/i),
+            homeNursing: value(/home nursing/i),
+            lens: amount(/intraocular lens/i),
+            vaccination: amount(/vaccination/i),
+            secondOpinion: amount(/second medical opinion/i) || firstAmount((value(/dengue/i) || "").split(/second medical opinion/i)[1] || ""),
+            worldwide: /yes/i.test(value(/worldwide/i) || ""),
+            postHospDays: (String(value(/post-?hospitali[sz]ation/i) || "").match(/within (\d+) days/i) || [])[1] || null,
+            preHospDays: (String(value(/pre-?hospitali[sz]ation/i) || "").match(/within (\d+) days/i) || [])[1] || null,
+            waiting: sortedWaiting(medical.waitingPeriods)
+          },
+          protection: {
+            sumCovered: protection.basicSumCovered || plan.basicSumCovered || null,
+            death: protection.deathBenefit && Number.isFinite(protection.deathBenefit.amount) ? protection.deathBenefit.amount : null
+          },
+          cash: { points: cashPoints, atEnd: cashAtEnd },
+          projection,
+          inflationLow: d.projection ? d.projection.medicalInflationAssumptionLow : null,
+          inflationHigh: d.projection ? d.projection.medicalInflationAssumptionHigh : null
+        };
+      }
+      module.exports = { buildStoryModel, callName, titleCase, firstAmount };
+    }
+  });
+
+  // renderer/story/products/anugerahmax.js
+  var require_anugerahmax2 = __commonJS({
+    "renderer/story/products/anugerahmax.js"(exports, module) {
+      "use strict";
+      module.exports = {
+        id: "anugerahmax",
+        name: "PruBSN AnugerahMax",
+        match: (data) => /anugerahmax/i.test(data.metadata && data.metadata.productName || ""),
+        productPage: "https://www.prubsn.com.my/en/protection/prubsn-anugerahmax/",
+        breakdownLabels: {
+          medical: { title: "Medic TotalCare", text: "Your medical card" },
+          basic: { title: "AnugerahMax basic plan", text: "Death and total permanent disability cover" },
+          wakalah: { title: "Wakalah certificate charge", text: "Certificate administration and service" },
+          riders: { title: "Riders and add-ons", text: "Such as accident cover, as chosen in your quotation" }
+        }
+      };
+    }
+  });
+
+  // renderer/story/products/asas360.js
+  var require_asas3602 = __commonJS({
+    "renderer/story/products/asas360.js"(exports, module) {
+      "use strict";
+      module.exports = {
+        id: "asas360",
+        name: "PruBSN Asas360",
+        match: (data) => /asas\s*360/i.test(data.metadata && data.metadata.productName || ""),
+        productPage: "https://www.prubsn.com.my/en/protection/prubsn-asas-360"
+      };
+    }
+  });
+
+  // renderer/story/products/generic.js
+  var require_generic = __commonJS({
+    "renderer/story/products/generic.js"(exports, module) {
+      "use strict";
+      module.exports = {
+        id: "generic",
+        name: "PruBSN takaful plan",
+        match: () => false,
+        productPage: "https://www.prubsn.com.my/en/",
+        // Labels for the monthly breakdown donut (storyModel.js `breakdown` keys).
+        breakdownLabels: {
+          medical: { title: "Medical card", text: "Hospital and treatment bills" },
+          basic: { title: "Basic plan", text: "Death and total permanent disability cover" },
+          wakalah: { title: "Wakalah certificate charge", text: "Certificate administration and service" },
+          riders: { title: "Riders and add-ons", text: "Extra protection chosen in your quotation" }
+        }
+      };
+    }
+  });
+
+  // renderer/story/products/index.js
+  var require_products = __commonJS({
+    "renderer/story/products/index.js"(exports, module) {
+      "use strict";
+      var anugerahmax = require_anugerahmax2();
+      var asas360 = require_asas3602();
+      var generic = require_generic();
+      var PRODUCTS = [anugerahmax, asas360];
+      function productFor(data) {
+        const found = PRODUCTS.find((p) => p.match(data || {}));
+        return found ? { ...generic, ...found } : { ...generic, name: data && data.metadata && data.metadata.productName || generic.name };
+      }
+      module.exports = { PRODUCTS, productFor };
+    }
+  });
+
+  // renderer/story/scenes.js
+  var require_scenes = __commonJS({
+    "renderer/story/scenes.js"(exports, module) {
+      "use strict";
+      var esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      var fmt = (n) => Number(n).toLocaleString("en-MY", { maximumFractionDigits: 2 });
+      var rm = (n) => n == null ? "" : `RM${fmt(n)}`;
+      var rmShort = (n) => n >= 1e6 ? `RM${fmt(n / 1e6)}m` : n >= 1e3 ? `RM${fmt(n / 1e3)}k` : rm(n);
+      var notes = (...ps) => `<div class="notes">${ps.filter(Boolean).map((p) => `<p>${p}</p>`).join("")}</div>`;
+      var count = (n, prefix = "RM", suffix = "") => `data-count="${Math.round(n)}" data-prefix="${prefix}" data-suffix="${suffix}"`;
+      function section(label, inner, { night = false, photo = null, center = false } = {}, notesHtml = "") {
+        const cls = ["slide", night || photo ? "night" : "", photo ? "photo-bg" : ""].filter(Boolean).join(" ");
+        const style = photo ? ` style="--bg:url(${esc(photo)})"` : "";
+        return `<section class="${cls}" data-label="${esc(label)}"${style}><div class="inner${center ? " center" : ""}">${inner}</div>${notesHtml}</section>`;
+      }
+      function chips(group, label, options2, { multi = false, summary = label, extra = "" } = {}) {
+        const id = `lbl-${group}`;
+        return `<span class="chip-label" id="${id}">${esc(label)}</span>
+<div class="chips" role="group" aria-labelledby="${id}" data-group="${group}" data-label="${esc(summary)}"${multi ? ' data-multi="true"' : ""}>${options2.map((o) => {
+          const opt = typeof o === "string" ? { val: o } : o;
+          return `<button class="chip" type="button" aria-pressed="false" data-val="${esc(opt.val)}"${opt.text ? ` data-text="${esc(opt.text)}"` : ""}${opt.alone ? " data-alone" : ""}${opt.card ? " data-card" : ""}>${esc(opt.label || opt.val)}</button>`;
+        }).join("")}</div>${extra}`;
+      }
+      function limitOf(m) {
+        if (m.medical.model === "LIFETIME_MEDICAL_FUND" && m.medical.lifetimeFund) {
+          return { amount: m.medical.lifetimeFund, short: `${rm(m.medical.lifetimeFund)} medical fund`, long: `a ${rm(m.medical.lifetimeFund)} lifetime medical fund` };
+        }
+        if (m.medical.annualLimit) {
+          return { amount: m.medical.annualLimit, short: `${rm(m.medical.annualLimit)} a year`, long: `up to ${rm(m.medical.annualLimit)} a year` };
+        }
+        return null;
+      }
+      function coPayLine(m) {
+        const c = m.medical.coPay;
+        if (c.kind === "smartsaver" && c.amount) return { you: `the first <span class="hl">${rm(c.amount)}</span>`, fine: `after the ${esc(c.label)} co-payment of ${rm(c.amount)} per disability` };
+        if (c.kind === "deductible" && c.amount) return { you: `the <span class="hl">${rm(c.amount)}</span> deductible`, fine: `after the ${rm(c.amount)} deductible` };
+        if (c.label) return { you: "the co-payment", fine: `after the ${esc(c.label)} co-payment` };
+        return null;
+      }
+      function intro(m, ctx) {
+        return section("Intro", `
+<div class="brand">
+  <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true"><circle class="ring" cx="50" cy="50" r="40"/><path class="leaf" d="M50 26c12 10 14 26 0 40-14-14-12-30 0-40z"/></svg>
+  <div class="eyebrow">${esc(ctx.agent.agency)}</div>
+</div>
+<div class="tagline rv d1">${esc(ctx.agent.tagline)}</div>
+<div class="tap-hint rv d3">Tap to begin \u2192</div>`, { center: true }, notes("Keep this screen up while you say hello. Move on when they\u2019re relaxed.", "Press N or tap Notes any time to show or hide these notes."));
+      }
+      function cover(m, ctx) {
+        const hon = m.gender === "Female" ? "Puan" : m.gender === "Male" ? "Encik" : "";
+        let h1;
+        let forLine;
+        if (m.unborn) {
+          h1 = `Protection ready <span class="hl">before day one</span>`;
+          forLine = m.parentName ? `Tailor-made for <b>${esc(m.parentName)}</b> and her little one` : "Tailor-made for your little one";
+        } else if (m.isChild) {
+          h1 = `A takaful plan built around <span class="hl">${esc(m.callName)}</span>`;
+          forLine = m.parentName ? `Tailor-made for <b>${esc(m.fullName)}</b>, prepared for ${esc(m.parentName)}` : `Tailor-made for <b>${esc(m.fullName)}</b>`;
+        } else {
+          h1 = `A takaful plan built around <span class="hl">${esc(m.callName)}</span>`;
+          forLine = `Tailor-made for <b>${esc([hon, m.fullName].filter(Boolean).join(" "))}</b>`;
+        }
+        const facts = [
+          m.age != null && !m.unborn ? `${m.age} next birthday` : null,
+          m.occupationClass && !m.isChild ? `Occupation ${m.occupationClass.toLowerCase()}` : null,
+          m.quoteDate ? `Quotation dated ${m.quoteDate}` : null
+        ].filter(Boolean).join(" \xB7 ");
+        return section("Cover", `
+<svg class="cond-art" viewBox="0 0 160 170" aria-hidden="true">
+  <path class="soft" d="M80 10 l62 24 v44 c0 42 -28 68 -62 82 c-34 -14 -62 -40 -62 -82 v-44z"/>
+  <path class="ln" d="M80 10 l62 24 v44 c0 42 -28 68 -62 82 c-34 -14 -62 -40 -62 -82 v-44z"/>
+  <circle class="ln" cx="80" cy="62" r="15"/>
+  <path class="ln" d="M52 128 c0 -26 12 -42 28 -42 c16 0 28 16 28 42"/>
+  <path class="gold pulse" d="M80 150 c-7 -5 -11 -9 -11 -13 c0 -3 2 -5 5 -5 c2 0 4 1 6 3 c2 -2 4 -3 6 -3 c3 0 5 2 5 5 c0 4 -4 8 -11 13z"/>
+</svg>
+<span class="badge rv">\u2605 ${esc(m.productName)}${m.medical.planName ? ` \xB7 ${esc(m.medical.planName)}` : ""}</span>
+<h1 class="rv d1">${h1}</h1>
+<div class="cover-for rv d2">${forLine}</div>
+${facts ? `<p class="rv d2">${esc(facts)}</p>` : ""}
+<div class="agent-line rv d3">Prepared by ${esc(ctx.agent.name)} \xB7 ${esc(ctx.agent.agency)}</div>`, { center: true }, notes("Set expectations: \u201CI\u2019ll share some real numbers and a short story, then I want to hear from you. After that we go through your plan step by step, and the decision is yours.\u201D"));
+      }
+      function agenda(m) {
+        return section("Today", `
+<div class="eyebrow rv">How we\u2019ll spend our time</div>
+<h2 class="rv d1">Four parts, about 45 minutes</h2>
+<div class="agenda">
+  <div class="ag rv d2"><div class="n">1</div><div><b>What the numbers say</b><span>Protection in Malaysia and how fast medical costs are rising</span></div></div>
+  <div class="ag rv d3"><div class="n">2</div><div><b>A tale of two paths</b><span>Same ${rm(m.monthly)} a month, two very different outcomes</span></div></div>
+  <div class="ag rv d4"><div class="n">3</div><div><b>Your turn to talk</b><span>Your situation, your worries, your budget. I listen first.</span></div></div>
+  <div class="ag rv d5"><div class="n">4</div><div><b>Your plan, step by step</b><span>Hospital, limits, costs and options</span></div></div>
+</div>
+<div class="promise rv d6"><b>My promise:</b> you decide. My job is to make the choice clear, including the limits.</div>`, {}, notes("Say: \u201CIf anything doesn\u2019t fit your situation, stop me. This is a conversation, not a lecture.\u201D"));
+      }
+      function protectedStat() {
+        return section("Who is protected", `
+<div class="eyebrow rv">How many Malaysians are protected?</div>
+<svg class="people rv d1" viewBox="0 0 520 120" role="img" aria-label="20 figures, 9 highlighted: about 45 percent insured"><g id="peopleGrid"></g></svg>
+<div class="kb-fig num rv d2" ${count(45, "~", "%")}>~45%</div>
+<h2 class="rv d3">of Malaysians are insured, counting takaful. <span class="hl">More than half are not.</span></h2>
+<div class="glance two" style="width:100%">
+  <div class="tile rv d4"><div class="k">No protection at all</div><div class="v num" ${count(30, "", "%")}>30%</div><div class="s">of working Malaysians aged 25 to 40</div><div class="src">Zurich Malaysia survey, 1,201 people, late 2021</div></div>
+  <div class="tile rv d5"><div class="k">Takaful penetration</div><div class="v num">19.6%</div><div class="s">of Malaysians, takaful only, 2025</div><div class="src">Malaysian Takaful Association, June 2026</div></div>
+</div>
+<p class="fine rv d6">~45%: LIAM CEO Mark O\u2019Dell, April 2024. Less than half of workers have a company group plan (LIAM, Budget 2026 proposals), and group cover usually ends when the job ends.</p>`, { night: true, center: true }, notes("Ask before revealing: \u201COut of every 10 Malaysians, how many do you think have life insurance or family takaful?\u201D", "Accuracy: 45% is a spoken estimate from LIAM\u2019s CEO, not an official BNM statistic."));
+      }
+      function underinsured() {
+        return section("Underinsured", `
+<div class="eyebrow rv">Covered is not the same as enough</div>
+<h2 class="rv d1">Most insured families are <span class="hl">underinsured</span></h2>
+<div class="under rv d2">
+  <div class="under-track" aria-hidden="true"><div class="under-fill"></div></div>
+  <div class="under-labels"><span>Out of 100 insured families\u2026</span><span class="num"><b>94 to 98</b> don\u2019t have enough cover</span></div>
+</div>
+<div class="glance two">
+  <div class="tile navy rv d3"><div class="k">Chance of being underinsured</div><div class="v num">94\u201398%</div><div class="s">for an insured Malaysian family</div></div>
+  <div class="tile rv d4"><div class="k">Average shortfall</div><div class="v num">RM100k\u2013150k</div><div class="s">per family member</div></div>
+</div>
+<p class="fine rv d5">Source: Underinsurance Study by Universiti Kebangsaan Malaysia and the Life Insurance Association of Malaysia (2012/13), cited by Bank Negara Malaysia. It is still the main national study on underinsurance; medical costs have risen sharply since.</p>`, {}, notes("Key message: having a policy doesn\u2019t mean enough protection.", "Be upfront about the date: it\u2019s the latest big national study, and costs have risen since."));
+      }
+      function inflation() {
+        return section("Medical inflation", `
+<div class="eyebrow rv">Medical inflation, projected for 2026</div>
+<h2 class="rv d1">Malaysia\u2019s medical costs are rising <span class="hl">faster than the world\u2019s</span></h2>
+<div class="hbars rv d2" aria-label="Medical trend rate 2026: Malaysia 16 percent, Asia Pacific 11.3 percent, global 10.3 percent">
+  <div class="hrow"><span class="lbl">Malaysia</span><div class="htrack"><div class="hbar hi" style="width:100%"></div></div><span class="val num">16%</span></div>
+  <div class="hrow"><span class="lbl">Asia Pacific</span><div class="htrack"><div class="hbar" style="width:70.6%"></div></div><span class="val num">11.3%</span></div>
+  <div class="hrow"><span class="lbl">Global</span><div class="htrack"><div class="hbar lo" style="width:64.4%"></div></div><span class="val num">10.3%</span></div>
+</div>
+<p class="rv d3">Malaysia held at 15% for three years. 2026 is projected to be the highest since 2021.</p>
+<p class="fine rv d4">Medical trend rate = yearly rise in medical cost per insured person. Malaysia and Asia Pacific: Aon Global Medical Trend Rates Report 2026. Global: WTW Global Medical Trends Survey 2026.</p>`, {}, notes("If they mention the government\u2019s much lower figure (DOSM health inflation about 3% in 2025): that measures prices of a basket of health items; the medical trend rate measures total cost per insured patient. Both are true."));
+      }
+      function yourMedicalCost(m) {
+        const rows = m.projection;
+        if (rows.length < 3) return "";
+        const high = (r) => r.projected10pct || r.projected7pct || r.currentContribution;
+        const max = Math.max(...rows.map(high));
+        const pct = (v) => `${Math.max(4, v / max * 100).toFixed(1)}%`;
+        const who = m.unborn ? "your child" : m.callName;
+        return section("Your medical cost", `
+<div class="eyebrow rv">From your own quotation</div>
+<h2 class="rv d1">Medical cost keeps rising. Will savings keep up${who ? `, <span class="hl">${esc(who)}</span>` : ""}?</h2>
+<p class="rv d2">Your quotation projects the yearly cost of the medical plan if medical inflation continues.</p>
+<div class="bars bars5 rv d3" aria-label="Projected yearly medical plan contribution by age">
+${rows.slice(0, 6).map((r) => `<div class="bar-col"><div class="bar-val num">${rm(high(r))}</div><div class="bar-pair">${r.projected7pct ? `<div class="bar thin" style="height:${pct(r.projected7pct)}"></div><div class="bar thin hi" style="height:${pct(high(r))}"></div>` : `<div class="bar thin" style="height:${pct(r.currentContribution)}"></div>`}</div><div class="bar-age">Age ${r.age}</div></div>`).join("")}
+</div>
+<div class="legend rv d4"><span><i style="background:var(--teal)"></i>${esc(m.inflationLow || 7)}% medical inflation</span><span><i style="background:var(--coral)"></i>${esc(m.inflationHigh || 10)}% medical inflation</span></div>
+<p class="fine rv d5">Source: Takaful Contribution Projection Table for Medical Plan, PruBSN quotation${m.quoteDate ? ` dated ${esc(m.quoteDate)}` : ""}. Current cost ${rm(rows[0].currentContribution)} a year at age ${rows[0].age}. Values above the bars are the higher-inflation case. Illustration only.</p>`, {}, notes("This is their own quotation, not a generic number. Medical cost goes up whether or not they have a plan; the question is who pays it.", "Be honest that the plan\u2019s own medical charge rises too."));
+      }
+      function claims() {
+        return section("Claims", `
+<div class="eyebrow rv">Medical claims in Malaysia</div>
+<h2 class="rv d1">Families are using their cover <span class="hl">more than ever</span></h2>
+<div class="glance">
+  <div class="tile rv d2"><div class="k">Medical claims, 2025</div><div class="v num">RM9.4 bil</div><div class="s">paid by life insurers, more than half of all their payouts</div><div class="src">LIAM Annual Report 2025</div></div>
+  <div class="tile dark rv d3"><div class="k">In two years</div><div class="v num" ${count(56, "+", "%")}>+56%</div><div class="s">rise in medical claims, 2021 to 2023</div><div class="src">LIAM, PIAM and MTA, Nov 2024</div></div>
+  <div class="tile rv d4"><div class="k">Takaful benefits, 2025</div><div class="v num">RM10.6 bil</div><div class="s">paid by the takaful industry</div><div class="src">Malaysian Takaful Association, June 2026</div></div>
+</div>
+<p class="rv d5">Behind each ringgit is a family that didn\u2019t have to pay that bill alone.</p>`, { night: true }, notes("Share a real claim story of your own here. Short and real.", "Accuracy: RM10.6 bil is all takaful benefits, not just medical."));
+      }
+      function twoPaths(m) {
+        const lim = limitOf(m);
+        if (m.monthly == null || !lim) return "";
+        return section("Two paths", `
+<div class="eyebrow rv">Two paths, ${rm(m.monthly)} a month</div>
+<h2 class="rv d1">Same money, two choices. What happens when life doesn\u2019t wait?</h2>
+<div class="paths">
+  <div class="path bank rv d2">
+    <div class="path-k">Path A</div>
+    <div class="path-t">${rm(m.monthly)}/month \u2192 Savings jar</div>
+    <svg viewBox="0 0 200 160" aria-hidden="true">
+      <defs><clipPath id="jarClip"><path d="M70 52 h60 q8 0 8 10 v68 q0 14 -14 14 h-48 q-14 0 -14 -14 v-68 q0 -10 8 -10z"/></clipPath></defs>
+      <circle class="coin" cx="100" cy="10" r="6"/><circle class="coin c2" cx="92" cy="10" r="6"/><circle class="coin c3" cx="108" cy="10" r="6"/>
+      <g clip-path="url(#jarClip)"><rect class="jar-fill" x="56" y="104" width="90" height="44"/><g class="jar-stack"><ellipse cx="86" cy="136" rx="12" ry="4"/><ellipse cx="86" cy="130" rx="12" ry="4"/><ellipse cx="86" cy="124" rx="12" ry="4"/><ellipse cx="112" cy="136" rx="12" ry="4"/><ellipse cx="112" cy="130" rx="12" ry="4"/></g></g>
+      <path class="jar-glass" d="M70 52 h60 q8 0 8 10 v68 q0 14 -14 14 h-48 q-14 0 -14 -14 v-68 q0 -10 8 -10z"/><rect class="jar-lid" x="74" y="40" width="52" height="12" rx="4"/><path class="jar-shine" d="M76 64 v54"/><path class="jar-cap" d="M52 104 h96"/>
+    </svg>
+    <div class="cap">After one year: <b>${rm(m.annual)}</b> in the jar. Your protection is capped at what you saved.</div>
+  </div>
+  <div class="path fund rv d3">
+    <div class="path-k">Path B</div>
+    <div class="path-t">${rm(m.monthly)}/month \u2192 Tabarru\u2019 fund</div>
+    <svg viewBox="0 0 200 160" aria-hidden="true">
+      <g class="net"><path class="net-line" d="M100 22 L100 80"/><path class="net-line" d="M141 39 L100 80"/><path class="net-line" d="M158 80 L100 80"/><path class="net-line" d="M141 121 L100 80"/><path class="net-line" d="M59 121 L100 80"/><path class="net-line" d="M42 80 L100 80"/><path class="net-line" d="M59 39 L100 80"/><path class="net-out" d="M100 80 L100 136"/></g>
+      <g class="nodes">${[[100, 16, 0.2], [141, 33, 0.3], [158, 74, 0.4], [141, 115, 0.5], [100, 134, 0.6, 1], [59, 115, 0.7], [42, 74, 0.8], [59, 33, 0.9]].map(([x, y, dl, help]) => `<g class="node${help ? " help" : ""}" style="animation-delay:${dl}s"><circle cx="${x}" cy="${y}" r="${help ? 5.5 : 4.5}"/><path d="M${x - 7} ${y + 14} q7 -12 14 0"/></g>`).join("")}</g>
+      <circle class="fund-ring" cx="100" cy="80" r="17"/><circle class="fund-coin" cx="100" cy="80" r="17"/><path class="fund-mark" d="M104 72 q-4 -3 -8 0 q-4 4 4 7 q8 3 4 7 q-4 3 -8 0 M100 68 v24"/>
+    </svg>
+    <div class="cap">Your contribution joins a <b>Tabarru\u2019 fund</b> shared by many families. When one family needs help, the fund pays, here with a medical card of <b>${esc(lim.long)}</b>.</div>
+  </div>
+</div>
+<p class="fine rv d4">Illustration only. ${rm(m.monthly)} is your quoted monthly contribution. The medical card figure is from your quotation, subject to certificate terms.</p>`, {}, notes(`Ask: \u201CAfter one year, Path A has about ${rm(m.annual)} saved. Feels good, right? Now let\u2019s see what happens.\u201D`));
+      }
+      function moment(m, ctx) {
+        const bill = m.isChild ? 3e4 : 6e4;
+        return section("The moment", `
+<svg class="alarm-fig" viewBox="0 0 120 120" aria-hidden="true"><circle class="body" cx="60" cy="34" r="14"/><path class="body" d="M30 104 q30 -60 60 0"/><path class="body" d="M22 40 l-12 -8 M98 40 l12 -8 M60 6 v-6"/></svg>
+<div class="eyebrow rv d1">${m.isChild ? "One year later, a fever that won\u2019t come down" : "One year later, an accident on the way to work"}</div>
+<svg class="ecg rv d1" viewBox="0 0 520 80" aria-hidden="true"><path d="M0 40 h150 l14 -26 l16 54 l16 -64 l14 36 h40 l12 -16 l12 16 h242"/></svg>
+<h2 class="rv d2">The hospital needs</h2>
+<div class="big-red num rv d3" ${count(bill)}>${rm(bill)}</div>
+<p class="rv d4">Illustrative bill for a private hospital stay${m.isChild ? " with tests and treatment" : " with surgery"}.</p>`, { photo: ctx.photo(m.isChild ? "child-ward1" : "adult-ward1"), center: true }, notes("Pause after the number. Don\u2019t add drama; let it land."));
+      }
+      function pathA(m) {
+        if (m.annual == null) return "";
+        const bill = m.isChild ? 3e4 : 6e4;
+        return section("Path A", `
+<div class="eyebrow rv" style="color:var(--coral)">Path A: saved in the jar</div>
+<h2 class="rv d1">${rm(m.annual)} saved. ${rm(bill)} needed. The gap has to come from somewhere.</h2>
+<div class="steps">
+  <div class="step rv d2"><div class="n">1</div><div><b>Use all the savings</b><span>${rm(m.annual)} gone in one admission. Still ${rm(bill - m.annual)} short.</span></div></div>
+  <div class="step rv d3"><div class="n">2</div><div><b>Sell what you can</b><span>The car, the motorcycle, gold, often below their worth.</span></div></div>
+  <div class="step rv d4"><div class="n">3</div><div><b>Ask family and friends</b><span>During the hardest week of your life.</span></div></div>
+  <div class="step worst rv d5"><div class="n">4</div><div><b>Still short? Borrow</b><span>A personal loan or credit card, repaid with interest for years.</span></div></div>
+</div>`, {}, notes("Ask: \u201CWhich of these steps would be hardest for you?\u201D Listen. Don\u2019t answer for them."));
+      }
+      function pathB(m) {
+        const lim = limitOf(m);
+        if (!lim) return "";
+        const cp = coPayLine(m);
+        const who = m.isChild ? "You" : esc(m.callName || "You");
+        return section("Path B", `
+<div class="eyebrow rv">Path B: protected by takaful</div>
+<h2 class="rv d1">${cp ? `${who} pay${m.isChild || !m.callName ? "" : "s"} ${cp.you}.` : "The medical card steps in."}</h2>
+<div class="settled rv d2">
+  <svg class="check" viewBox="0 0 72 72" aria-hidden="true"><circle cx="36" cy="36" r="36"/><path d="M22 37 l10 10 l19 -21"/></svg>
+  <div class="fig">The medical card pays the rest of the eligible bill.</div>
+  <div>Cashless at PruBSN panel hospitals. No selling, no borrowing, no asking.</div>
+</div>
+<p class="fine rv d3">Illustration only. ${esc(m.medical.planName || "The medical card")} pays eligible charges ${esc(lim.long)}${cp ? ` ${cp.fine}` : ""}, subject to exclusions, waiting periods and certificate terms.</p>`, {}, notes("Be exact: \u201Celigible charges\u201D, and mention the co-payment or deductible in the same breath. That honesty is what makes you different."));
+      }
+      function doBoth(m) {
+        if (m.monthly == null) return "";
+        const total = Math.max(500, Math.ceil(m.monthly * 2.2 / 100) * 100);
+        const save = total - m.monthly;
+        const f = (m.monthly / total).toFixed(4);
+        return section("Do both", `
+<div class="eyebrow rv">The smart move</div>
+<h2 class="rv d1">The best plan isn\u2019t A or B. <span class="hl">It\u2019s both.</span></h2>
+<div class="donut-wrap">
+  <div class="donut rv d2">
+    <svg viewBox="0 0 220 220" aria-hidden="true"><circle class="track" cx="110" cy="110" r="88"/><circle class="seg" cx="110" cy="110" r="88" stroke="#0B2545" data-frac="${f}" data-start="0"/><circle class="seg" cx="110" cy="110" r="88" stroke="#D4A23A" data-frac="${(1 - f).toFixed(4)}" data-start="${f}"/></svg>
+    <div class="donut-total"><span class="k">Per month</span><span class="v num" ${count(total)}>${rm(total)}</span></div>
+  </div>
+  <div class="split">
+    <div class="split-row rv d3"><i style="background:#0B2545"></i><div><b class="num">${rm(m.monthly)} \xB7 Protection first</b><span>Example: this plan</span></div></div>
+    <div class="split-row rv d4"><i style="background:#D4A23A"></i><div><b class="num">${rm(save)} \xB7 Emergency savings</b><span>About ${rm(Math.round(save * 12 / 100) * 100)} after a year, for co-payments and daily costs</span></div></div>
+    <div class="split-row rv d5"><i style="background:#178D93"></i><div><b>Protect the big risks, save for the small ones</b><span>Takaful handles what savings can\u2019t. Savings handle what takaful doesn\u2019t.</span></div></div>
+  </div>
+</div>`, {}, notes(`You\u2019re not against saving; you\u2019re showing the order. ${rm(total)} is an example; adjust live to what they set aside.`));
+      }
+      function pyramid() {
+        const tiers = [["g0", "t0", "20,410 580,410 528,336 72,336", "lt", 381, 24, "Protection"], ["g1", "t1", "76,330 524,330 472,256 128,256", "lt", 301, 22, "Emergency fund"], ["g2", "t2", "132,250 468,250 416,176 184,176", "dk", 221, 20, "Savings &amp; goals"], ["g3", "t3", "188,170 412,170 360,96 240,96", "dk", 141, 19, "Investment"], ["g4", "t4", "244,90 356,90 300,16", "dk", 76, 15, "Legacy"]];
+        return section("Financial pyramid", `
+<div class="eyebrow rv">How to build family wealth</div>
+<h2 class="rv d1">Every strong pyramid starts with <span class="hl">protection</span></h2>
+<div class="pyr-wrap">
+  <svg class="pyramid rv d2" viewBox="0 0 600 420" role="img" aria-label="Financial pyramid, from the base up: protection, emergency fund, savings and goals, investment, legacy">${tiers.map(([g, t, pts, c, y, fs, txt]) => `<g class="tier ${g}"><polygon class="${t}" points="${pts}"/><text class="${c}" x="300" y="${y}" font-size="${fs}">${txt}</text></g>`).join("")}</svg>
+  <div class="split">
+    <div class="split-row rv d3"><i style="background:#D4A23A"></i><div><b>Legacy</b><span>Hibah and wasiat, so wealth passes on smoothly</span></div></div>
+    <div class="split-row rv d3"><i style="background:#A7D9DB"></i><div><b>Investment</b><span>Grow wealth once the base is safe</span></div></div>
+    <div class="split-row rv d4"><i style="background:#5FB7BB"></i><div><b>Savings &amp; goals</b><span>A home, education, Hajj</span></div></div>
+    <div class="split-row rv d4"><i style="background:#178D93"></i><div><b>Emergency fund</b><span>3 to 6 months of expenses</span></div></div>
+    <div class="split-row rv d5"><i style="background:#0B2545"></i><div><b>Protection</b><span>Medical, life and critical illness cover</span></div></div>
+  </div>
+</div>
+<div class="rule rv d6"><b>A simple guide:</b> keep protection to about 10% of monthly income, so it protects your lifestyle without taking it over.</div>`, {}, notes("If the base breaks (a big hospital bill), every layer above it falls with it, exactly like Path A.", "The 10% line is a guiding principle, not a regulation. Say it as your advice.", "Then: \u201CNow I\u2019d like to hear from you.\u201D"));
+      }
+      function aboutYou(m) {
+        const ex = chips("ex", m.isChild ? "What protection does the family have today? Choose any." : "What protection do you have today? Choose any.", [
+          { val: "Medical card", card: true },
+          { val: "Company group medical", card: true },
+          "Life cover",
+          "Critical illness",
+          { val: "None yet", alone: true }
+        ], { multi: true, summary: "Protection today" });
+        const limitBox = `<div class="limit-box" id="limitBox" hidden>
+  <label class="field" for="mcLimit"><span>Medical card limit (RM)</span><input id="mcLimit" type="text" inputmode="numeric" maxlength="9" placeholder="e.g. 100000"></label>
+  ${chips("lt", "Is that limit\u2026", [{ val: "Annual limit", label: "Per year" }, { val: "Lifetime limit", label: "For life" }, "Not sure"], { summary: "Limit type" })}
+</div>`;
+        const second = m.isChild ? chips("hosp", "If your child is admitted, which hospital would you choose?", ["Private hospital", "Government hospital", "Not sure yet"], { summary: "Preferred hospital" }) + chips("dep", "Who else depends on the family income? Choose any.", ["Parents", "Other children", { val: "No one else", alone: true }], { multi: true, summary: "Also depends on the income" }) : chips("commute", "How do you usually travel to work?", ["Car", "Motorcycle", "Public transport", { val: "Mostly work from home", label: "Mostly from home" }], { summary: "Travels to work by" }) + chips("dep", "Who depends on your income? Choose any.", ["Parents", "Spouse", "Children", { val: "No one yet", alone: true }], { multi: true, summary: "Depends on the income" });
+        return section("About you", `
+<div class="eyebrow rv">Your turn \xB7 about you</div>
+<h2 class="rv d1">Tell me a little about your situation</h2>
+<div class="form-card rv d2">${ex}${limitBox}</div>
+<div class="form-card rv d3">${second}</div>`, {}, notes("Let them tap the answers themselves. If they have a medical card, ask for its limit and whether it resets every year or is for life.", "Health questions on the proposal must be answered accurately; PruBSN decides the underwriting."));
+      }
+      function budgetBands(monthly) {
+        const base = Math.max(100, Math.floor((monthly || 200) / 100) * 100);
+        const lo = Math.max(100, base - 100);
+        return [`RM${lo}\u2013${lo + 100}`, `RM${lo + 100}\u2013${lo + 200}`, `RM${lo + 200}\u2013${lo + 300}`, `RM${lo + 300}+`];
+      }
+      function whatMatters(m) {
+        const pri = m.isChild ? [["A big hospital bill", "a big hospital bill"], ["Serious illness like cancer", "serious illness like cancer"], ["Common childhood illness (fever, dengue, HFMD)", "common childhood illness"], ["Medical costs rising every year", "medical costs rising every year"], ["Savings for their future", "savings for their future"]] : [["A big hospital bill", "a big hospital bill"], ["Cancer, heart attack or kidney failure", "cancer, heart attack or kidney failure"], ["Accidents on the road", "accidents on the road"], ["Medical costs rising every year", "medical costs rising every year"], ["Leaving debt for my family", "leaving debt for my family"]];
+        return section("What matters", `
+<div class="eyebrow rv">Your turn \xB7 what matters most</div>
+<h2 class="rv d1">Tap what matters to you</h2>
+<div class="chip-group rv d2">${chips("pri", "Biggest worries (choose any)", pri.map(([val, text]) => ({ val, text })), { multi: true, summary: "Biggest worries" })}</div>
+<div class="chip-group rv d3">${chips("bud", "Monthly amount you can keep up long term", budgetBands(m.monthly), { summary: "Monthly budget" })}</div>
+<div class="said rv d4" data-said="Your choices show here and on the options screen.">Your choices show here and on the options screen.</div>
+<p class="fine rv d5">Your taps stay on this screen only until you choose to send them.</p>`, {}, notes("Hand them the phone or tablet and let them tap. Then ask: \u201CIf you were admitted tomorrow, where would the money come from?\u201D"));
+      }
+      function contributionDonut(m) {
+        if (!m.breakdown.length || m.monthly == null) return "";
+        const colours = { medical: "#0B2545", basic: "#178D93", riders: "#C2553F", wakalah: "#D4A23A" };
+        const labels = m.product.breakdownLabels || {};
+        let start = 0;
+        const segs = m.breakdown.map((b) => {
+          const frac = b.amount / m.monthly;
+          const s = `<circle class="seg" cx="110" cy="110" r="88" stroke="${colours[b.key]}" data-frac="${frac.toFixed(4)}" data-start="${start.toFixed(4)}"/>`;
+          start += frac;
+          return s;
+        }).join("");
+        const lim = limitOf(m);
+        const rows = m.breakdown.map((b, i) => {
+          const l = labels[b.key] || { title: b.key, text: "" };
+          let text = l.text;
+          if (b.key === "medical" && lim) text = `${l.text}: ${lim.short}`;
+          if (b.key === "basic" && m.protection.death) text = `${rm(m.protection.death)} on death or total permanent disability`;
+          return `<div class="split-row rv d${3 + Math.floor(i / 2)}"><i style="background:${colours[b.key]}"></i><div><b class="num">${rm(b.amount)} \xB7 ${esc(l.title)}</b><span>${esc(text)}</span></div></div>`;
+        }).join("");
+        return section(`Your ${rm(m.monthly)}`, `
+<div class="eyebrow rv">How your contribution works</div>
+<h2 class="rv d1">${rm(m.monthly)} a month, <span class="hl">${m.breakdown.length} jobs</span></h2>
+<div class="donut-wrap">
+  <div class="donut rv d2"><svg viewBox="0 0 220 220" aria-hidden="true"><circle class="track" cx="110" cy="110" r="88"/>${segs}</svg><div class="donut-total"><span class="k">Total / month</span><span class="v num" ${count(m.monthly)}>${rm(m.monthly)}</span></div></div>
+  <div class="split">${rows}</div>
+</div>
+<p class="fine rv d6">From your PruBSN quotation${m.quoteDate ? ` dated ${esc(m.quoteDate)}` : ""}: ${rm(m.annual)} a year${m.term ? ` for ${m.term} years` : ""}${m.coverageToAge ? `, until age ${m.coverageToAge}` : ""}. Contributions go into your Individual Special Account (ISA), which pays the monthly Tabarru\u2019 and charges.</p>`, {}, notes("Most of the contribution is usually the medical card. Point out what each part does."));
+      }
+      function admitted(m, ctx) {
+        const lim = limitOf(m);
+        if (!lim) return "";
+        const tail = m.medical.model === "LIFETIME_MEDICAL_FUND" ? `Once the fund is used, eligible claims continue${m.medical.coShare ? ` with PruBSN paying ${m.medical.coShare.insurerPct}% and you ${m.medical.coShare.clientPct}%` : ""}.` : /no lifetime limit/i.test(m.medical.lifetimeLimitText || "") ? "No lifetime limit." : "";
+        return section("Admitted", `
+<svg class="scene-art" viewBox="0 0 280 200" aria-hidden="true"><rect class="soft" x="60" y="70" width="160" height="110" rx="6"/><path class="ln" d="M40 180 h200 M60 180 v-110 l80 -44 l80 44 v110 M120 180 v-40 h40 v40"/><path class="ln" d="M140 74 v32 M124 90 h32"/><circle class="gold pulse" cx="140" cy="90" r="5"/></svg>
+<div class="step-k rv d1">${esc(m.medical.riderName || "Medical card")} \xB7 Step 1 \xB7 ${m.isChild ? "Your child is admitted" : "You\u2019re admitted"}</div>
+<h2 class="rv d2">The moment ${m.isChild ? "your child is" : "you\u2019re"} admitted, your <span class="hl">${esc(lim.short)}</span> starts working.</h2>
+<p class="rv d3">${esc(tail)} Cashless at PruBSN panel hospitals.</p>`, { photo: ctx.photo("lobby"), center: true }, notes("Walk through this like a story: \u201CImagine you\u2019re admitted next year.\u201D Then go step by step."));
+      }
+      function room(m, ctx) {
+        if (!m.medical.roomRate) return "";
+        const days = m.medical.roomDays ? `up to <span class="hl">${m.medical.roomDays} days</span> a year` : m.medical.roomUnlimited ? 'with <span class="hl">no limit on days</span>' : "";
+        return section("The room", `
+<svg class="scene-art" viewBox="0 0 280 200" aria-hidden="true"><rect class="soft" x="50" y="110" width="180" height="40" rx="8"/><path class="ln" d="M40 170 v-80 M40 130 h200 v40 M50 110 h180 a10 10 0 0 1 10 10 M60 110 a14 14 0 0 1 28 0"/><path class="ln" d="M220 40 v50 M206 54 h28"/><circle class="gold" cx="220" cy="40" r="6"/></svg>
+<div class="kb-fig num rv d1" ${count(m.medical.roomRate)}>${rm(m.medical.roomRate)}<small>/day</small></div>
+<div class="step-k rv d2">Step 2 \xB7 ${m.isChild ? "The room" : "Your room"}</div>
+<h2 class="rv d3">Hospital room and board${days ? `, ${days}` : ""}.</h2>
+<p class="rv d4">ICU and CCU are covered as charged. A more expensive room means paying the difference.</p>`, { photo: ctx.photo(m.isChild ? "child-ward2" : "adult-ward2"), center: true }, notes(`${rm(m.medical.roomRate)} a day is the room the plan pays for.`));
+      }
+      function treatment(m, ctx) {
+        const pre = m.medical.preHospDays;
+        const post = m.medical.postHospDays;
+        const around = pre || post ? ` Tests and treatment${pre ? ` ${pre} days before` : ""}${pre && post ? " and" : ""}${post ? ` ${post} days after` : ""} the stay, and day surgery.` : " Day surgery too.";
+        return section("Treatment", `
+<svg class="scene-art" viewBox="0 0 280 200" aria-hidden="true"><ellipse class="soft" cx="140" cy="60" rx="70" ry="22"/><path class="ln" d="M140 10 v28 M70 60 a70 22 0 0 0 140 0 a70 22 0 0 0 -140 0"/><path class="ln" d="M20 150 h70 l12 -30 l16 56 l16 -70 l14 44 h112"/><circle class="gold pulse" cx="140" cy="60" r="7"/></svg>
+<div class="step-k rv d1">Step 3 \xB7 Tests, treatment and surgery</div>
+<h2 class="rv d2">Surgery and in-hospital treatment are covered <span class="hl">as charged</span>.</h2>
+<p class="rv d3">Specialist visits and related hospital services too.${esc(around)}</p>`, { photo: ctx.photo("theatre"), center: true }, notes("\u201CAs charged\u201D means the actual reasonable bill for eligible treatment, within the plan\u2019s limit."));
+      }
+      function clinic(m, ctx) {
+        const amt = m.medical.childIllness || m.medical.dengue;
+        if (!amt) return "";
+        const what = m.medical.childIllness ? "Dengue, HFMD and common childhood illnesses" : "Dengue, influenza, measles, chikungunya or HFMD";
+        return section("At the clinic", `
+<svg class="scene-art" viewBox="0 0 280 200" aria-hidden="true"><circle class="soft" cx="140" cy="158" r="20"/><path class="ln" d="M130 146 V40 a10 10 0 0 1 20 0 V146 a20 20 0 1 1 -20 0z"/><path class="ln" d="M150 60 h12 M150 80 h12 M150 100 h12 M150 120 h12"/><path class="ln" d="M140 150 V92"/><circle class="gold pulse" cx="140" cy="158" r="10"/><path class="ln" d="M60 70 q-14 20 0 40 M78 78 q-8 12 0 24 M220 70 q14 20 0 40 M202 78 q8 12 0 24"/></svg>
+<div class="kb-fig num rv d1" ${count(amt)}>${rm(amt)}<small>/illness</small></div>
+<div class="step-k rv d2">Step 4 \xB7 Treated at the clinic</div>
+<h2 class="rv d3">${what}, treated <span class="hl">without admission</span>.</h2>
+<p class="rv d4">Outpatient treatment up to ${rm(amt)} per illness${m.medical.parentAllowance ? `, plus ${rm(m.medical.parentAllowance)} a day parent allowance` : ""}.</p>`, { night: true, photo: m.isChild ? ctx.photo("clinic") : null, center: true }, notes("Most people don\u2019t know a medical card can pay for outpatient treatment of these illnesses.", "Check the certificate for the per-year limit on how many illnesses this covers."));
+      }
+      function serious(m, ctx) {
+        const med = m.medical;
+        if (!med.outpatientCancer && !med.extraLimit) return "";
+        const h2 = med.extraLimit && med.annualLimit ? `Cancer, heart attack or kidney failure? Your yearly limit grows by <span class="hl">${rm(med.extraLimit)}</span>.` : `Cancer or kidney failure? Outpatient treatment up to <span class="hl">${rm(med.outpatientCancer)}</span>.`;
+        const bar = med.extraLimit && med.annualLimit ? `<div class="limit-track rv d3" aria-hidden="true"><div class="limit-base" style="width:${(med.annualLimit / (med.annualLimit + med.extraLimit) * 100).toFixed(1)}%"></div><div class="limit-boost" style="width:${(med.extraLimit / (med.annualLimit + med.extraLimit) * 100).toFixed(1)}%"></div></div><div class="limit-labels rv d3"><span>${rm(med.annualLimit)} base</span><span>${rm(med.annualLimit + med.extraLimit)} a year</span></div>` : "";
+        const extra = [
+          med.extraLimit && med.outpatientCancer ? `Outpatient cancer treatment and kidney dialysis up to <b style="color:#FFFFFF">${rm(med.outpatientCancer)}</b> per lifetime.` : "",
+          med.advancedTreatment ? `Advanced medical treatment up to ${rm(med.advancedTreatment)} per lifetime.` : "",
+          med.secondOpinion ? `Second medical opinion up to ${rm(med.secondOpinion)} a year.` : ""
+        ].filter(Boolean).join(" ");
+        return section("If it\u2019s serious", `
+<svg class="scene-art" viewBox="0 0 280 200" aria-hidden="true"><path class="soft" d="M140 20 l70 26 v50 c0 46 -32 74 -70 88 c-38 -14 -70 -42 -70 -88 v-50z"/><path class="ln" d="M140 20 l70 26 v50 c0 46 -32 74 -70 88 c-38 -14 -70 -42 -70 -88 v-50z"/><path class="ln" d="M140 72 v56 M112 100 h56"/><circle class="gold pulse" cx="140" cy="100" r="6"/></svg>
+<div class="step-k rv d1">Step 5 \xB7 If it\u2019s serious</div>
+<h2 class="rv d2">${h2}</h2>
+${bar}
+${extra ? `<p class="rv d4">${extra}</p>` : ""}`, { photo: ctx.photo("cancer"), center: true }, notes("Keep the tone calm and factual.", med.extraLimit ? "The extra limit applies after a first diagnosis and has a waiting period; check the certificate wording." : ""));
+      }
+      function alsoCovered(m) {
+        const med = m.medical;
+        const cells = [
+          med.govHospital ? ["Government hospital", "Daily cash allowance", `${rm(med.govHospital)} a day`] : null,
+          med.accidentEmergency ? ["Accident emergency", "Outpatient treatment after an accident", /as charged/i.test(med.accidentEmergency) ? "As charged" : (med.accidentEmergency.match(/RM[\d,]+[^()]*/) || [""])[0].trim()] : null,
+          med.homeNursing ? ["Home nursing care", "After a hospital stay", /180 days/.test(med.homeNursing) ? "Up to 180 days per lifetime" : "Included"] : null,
+          med.vaccination ? ["Vaccinations", "Such as Hajj/Umrah and flu", `${rm(med.vaccination)} a year`] : null,
+          med.lens ? ["Intraocular lens", "For cataract surgery", `Up to ${rm(med.lens)} per lifetime`] : null,
+          med.secondOpinion && !(med.outpatientCancer || med.extraLimit) ? ["Second opinion", "From another specialist", `${rm(med.secondOpinion)} a year`] : null,
+          med.worldwide ? ["Worldwide emergency", "Medical assistance abroad", "Included"] : null
+        ].filter((c) => c && c[2]).slice(0, 6);
+        if (cells.length < 3) return "";
+        return section("Also covered", `
+<div class="eyebrow rv">Everything else it covers</div>
+<h2 class="rv d1">Your medical card, in plain terms</h2>
+<div class="cover-grid">${cells.map((c, i) => `<div class="cv rv d${2 + Math.floor(i / 2)}"><b>${esc(c[0])}</b><span>${esc(c[1])}</span><em>${esc(c[2])}</em></div>`).join("")}</div>
+<p class="fine rv d5">${esc(med.planName || "Medical card")}${med.coPay.label ? `, ${esc(med.coPay.label)}` : ""}, from your PruBSN quotation${m.quoteDate ? ` dated ${esc(m.quoteDate)}` : ""}. Subject to waiting periods, exclusions and certificate terms.</p>`, {}, notes("Quick scene. Point to one or two items that fit them."));
+      }
+      function howLimitWorks(m) {
+        const med = m.medical;
+        const cp = coPayLine(m);
+        if (med.model === "LIFETIME_MEDICAL_FUND" && med.lifetimeFund) {
+          const share = med.coShare;
+          return section("How the fund works", `
+<div class="eyebrow rv">${esc(med.riderName || "Medical card")} \xB7 how the fund works</div>
+<h2 class="rv d1">A <span class="hl">${rm(med.lifetimeFund)}</span> medical fund, and no hard stop</h2>
+<div class="limit-track rv d2" aria-hidden="true"><div class="limit-base" style="width:70%"></div><div class="limit-boost" style="width:30%"></div></div>
+<div class="limit-labels rv d2"><span>${rm(med.lifetimeFund)} fund pays first</span><span>${share ? `then ${share.insurerPct}% / ${share.clientPct}%` : "then shared"}</span></div>
+<div class="split">
+  <div class="split-row rv d3"><i style="background:#178D93"></i><div><b>The fund pays eligible bills first</b><span>Hospital stays, surgery and outpatient treatment covered by the plan draw from the ${rm(med.lifetimeFund)} fund.</span></div></div>
+  ${share ? `<div class="split-row rv d4"><i style="background:#D4A23A"></i><div><b>After the fund is used, cover continues</b><span>PruBSN pays ${share.insurerPct}% and you pay ${share.clientPct}% of eligible claims, so a big illness doesn\u2019t end the cover.</span></div></div>` : ""}
+  ${cp ? `<div class="split-row rv d5"><i style="background:#C2553F"></i><div><b>${esc(med.coPay.label)}</b><span>You pay ${cp.you.replace(/<[^>]+>/g, "")} before the plan pays, as set out in the certificate.</span></div></div>` : ""}
+</div>
+<p class="fine rv d6">${esc(med.lifetimeLimitText || "")}. From your PruBSN quotation${m.quoteDate ? ` dated ${esc(m.quoteDate)}` : ""}. Charges are not guaranteed and may change with notice.</p>`, {}, notes("Compare with what they told you about their current card."));
+        }
+        if (!med.annualLimit) return "";
+        const boosted = med.extraLimit ? med.annualLimit + med.extraLimit : null;
+        const max = boosted || med.annualLimit;
+        const bar = (v, lbl, gold) => `<div class="bar-col"><div class="bar-val num">${rmShort(v)}</div><div class="bar-pair"><div class="bar${gold ? " gold" : ""}" style="height:${(v / max * 100).toFixed(1)}%"></div></div><div class="bar-age">${lbl}</div></div>`;
+        const bars = boosted ? [bar(med.annualLimit, "Year 1"), bar(med.annualLimit, "Year 2"), bar(med.annualLimit, "Year 3"), bar(med.annualLimit, "Year 4"), bar(boosted, "After diagnosis*", true), bar(boosted, "Every year after", true)] : [1, 2, 3, 4, 5, 6].map((y) => bar(med.annualLimit, `Year ${y}`));
+        return section("How the limit works", `
+<div class="eyebrow rv">${esc(med.riderName || "Medical card")} \xB7 how the limit works</div>
+<h2 class="rv d1">${rm(med.annualLimit)} every year${/no lifetime limit/i.test(med.lifetimeLimitText || "") ? ', and <span class="hl">no lifetime limit</span>' : ""}</h2>
+<div class="bars bars6 rv d2" aria-label="Annual limit renewing every year">${bars.join("")}</div>
+<div class="split">
+  <div class="split-row rv d3"><i style="background:#178D93"></i><div><b>Renews every certificate year</b><span>Use it this year and it\u2019s back to ${rm(med.annualLimit)} next year.</span></div></div>
+  ${cp ? `<div class="split-row rv d4"><i style="background:#D4A23A"></i><div><b>${esc(med.coPay.label)}</b><span>You pay ${cp.you.replace(/<[^>]+>/g, "")} per disability; some benefits are exempt, as listed in the certificate.</span></div></div>` : ""}
+  <div class="split-row rv d5"><i style="background:#C2553F"></i><div><b>The plan\u2019s medical charge is not guaranteed</b><span>It can rise with age and medical inflation, with written notice.</span></div></div>
+</div>
+${boosted ? `<p class="fine rv d6">*An extra ${rm(med.extraLimit)} a year applies after a first diagnosis of cancer, heart attack or kidney failure, after its waiting period. From your PruBSN quotation.</p>` : ""}`, {}, notes("A lifetime limit gets used up; an annual limit comes back every year."));
+      }
+      function waiting(m) {
+        const w = m.medical.waiting;
+        if (!w.length) return "";
+        const tidy = (s) => String(s || "").replace(/^after the effective date of the rider( or the date it is revived)?( for)?\s*/i, "").replace(/\s*\(if applicable\)\.?/gi, "").replace(/\.$/, "");
+        const pts = [{ day: "Day 1", b: "Accidents", s: "Covered from the start." }];
+        w.forEach((p) => {
+          const text = tidy(p.description);
+          if (pts.length < 4 && !pts.some((x) => x.day === `Day ${p.days}`)) pts.push({ day: `Day ${p.days}`, b: text.charAt(0).toUpperCase() + text.slice(1), s: "" });
+        });
+        return section("Waiting periods", `
+<div class="eyebrow rv">Before your card kicks in</div>
+<h2 class="rv d1">Waiting periods you should know about</h2>
+<div class="timeline${pts.length === 4 ? " tl4" : ""} rv d2"><div class="tl-line"></div><div class="tl-fill"></div><div class="tl-points">${pts.map((p) => `<div class="tl-pt"><div class="dot"></div><div class="day">${esc(p.day)}</div><b>${esc(p.b)}</b>${p.s ? `<span>${esc(p.s)}</span>` : ""}</div>`).join("")}</div></div>
+<p class="fine rv d3">Counted from the certificate\u2019s effective date. ${w.length > pts.length - 1 ? `Other waiting periods: ${w.slice(pts.length - 1).map((p) => `${p.days} days for ${tidy(p.description)}`).map(esc).join("; ")}. ` : ""}Pre-existing conditions are not covered. Full terms are in the certificate document.</p>`, {}, notes("The sooner the certificate starts, the sooner these clocks start. Say it as a fact, not pressure."));
+      }
+      function account(m) {
+        const pts = m.cash.points;
+        if (pts && pts.length >= 3) {
+          let px = pts[0], py = pts[0];
+          pts.forEach((r) => {
+            if (r[1] > px[1]) px = r;
+            if (r[2] > py[2]) py = r;
+          });
+          return section("Your account", `
+<div class="eyebrow rv">Non-guaranteed cash value</div>
+<h2 class="rv d1">How the account could grow</h2>
+<svg class="chart rv d2" id="growth" viewBox="0 0 640 300" role="img" aria-label="Cash value by certificate year, Scenario Y peaks about ${rm(py[2])}"></svg>
+<div class="scen rv d3"><div><i style="background:var(--ink)"></i><span class="num">Scenario Y \xB7 up to about ${rm(py[2])}</span></div><div><i style="background:var(--teal)"></i><span class="num">Scenario X \xB7 up to about ${rm(px[1])}</span></div></div>
+<p class="fine rv d4">Cash value from the quotation\u2019s illustration table, by certificate year. Not guaranteed. ${m.protection.death ? `Death / TPD benefit from ${rm(m.protection.death)}.` : ""}</p>`, {}, notes("Be clear this is a protection plan first. The account keeps the cover running."));
+        }
+        const { x, y } = m.cash.atEnd;
+        if (x == null && y == null) return "";
+        return section("Your account", `
+<div class="eyebrow rv">Non-guaranteed cash value</div>
+<h2 class="rv d1">What could be left in the account${m.coverageToAge ? ` at age ${m.coverageToAge}` : ""}</h2>
+<div class="glance two">
+  ${y != null ? `<div class="tile dark rv d2"><div class="k">Scenario Y</div><div class="v num" ${count(y)}>${rm(y)}</div><div class="s">Higher investment return, not guaranteed</div></div>` : ""}
+  ${x != null ? `<div class="tile rv d3"><div class="k">Scenario X</div><div class="v num" ${count(x)}>${rm(x)}</div><div class="s">Lower investment return, not guaranteed</div></div>` : ""}
+</div>
+<p class="fine rv d4">From the quotation\u2019s illustration. The account pays the monthly Tabarru\u2019 and charges, which rise with age and medical inflation, so extra contributions may be needed later.${m.protection.death ? ` Death / TPD benefit: ${rm(m.protection.death)}.` : ""}</p>`, {}, notes("Be clear this is a protection plan first. The account is what keeps the cover running."));
+      }
+      function options(models) {
+        if (models.length < 2) return "";
+        const first = models[0];
+        const rowsDef = [
+          ["Medical card", [
+            ["Medical plan", (m) => m.medical.planName, "text"],
+            ["Medical limit", (m) => m.medical.model === "LIFETIME_MEDICAL_FUND" ? m.medical.lifetimeFund : m.medical.annualLimit, "more", (m, v) => m.medical.model === "LIFETIME_MEDICAL_FUND" ? `${rm(v)} lifetime fund` : `${rm(v)} a year`],
+            ["Room & board", (m) => m.medical.roomRate, "more", (m, v) => `${rm(v)}/day${m.medical.roomDays ? `, ${m.medical.roomDays} days a year` : m.medical.roomUnlimited ? ", unlimited days" : ""}`],
+            ["Co-payment", (m) => m.medical.coPay.label || "None", "text"],
+            ["Outpatient dengue & infectious disease", (m) => m.medical.dengue, "more", (m, v) => `${rm(v)} per illness`],
+            ["Government hospital cash", (m) => m.medical.govHospital, "more", (m, v) => `${rm(v)}/day`]
+          ]],
+          ["Serious illness", [
+            ["Extra yearly limit for cancer, heart attack or kidney failure", (m) => m.medical.extraLimit, "more", (m, v) => `+${rm(v)}`],
+            ["Outpatient cancer & dialysis", (m) => m.medical.outpatientCancer, "more", (m, v) => `${rm(v)} per lifetime`],
+            ["Advanced medical treatment", (m) => m.medical.advancedTreatment, "more", (m, v) => `${rm(v)} per lifetime`],
+            ["Second medical opinion", (m) => m.medical.secondOpinion, "more", (m, v) => `${rm(v)} a year`]
+          ]],
+          ["Cost & long term", [
+            ["Monthly contribution", (m) => m.monthly, "cost", (m, v) => rm(v)],
+            ["Death / TPD (basic plan)", (m) => m.protection.death, "more", (m, v) => rm(v)],
+            ["Covered until", (m) => m.coverageToAge, "text", (m, v) => `Age ${v}`],
+            ["Total contribution over the term", (m) => m.totalOverTerm, "cost", (m, v) => rm(v)],
+            ["Cash value at the end (Scenario Y, not guaranteed)", (m) => m.cash.atEnd.y, "more", (m, v) => rm(v)]
+          ]]
+        ];
+        const tag = (kind, base, v) => {
+          if (v == null) return "";
+          if (base == null) return "";
+          if (kind === "text") return String(v) === String(base) ? "" : ' <i class="tag up">Different</i>';
+          if (v === base) return ' <i class="tag same">Same</i>';
+          if (kind === "cost") return v > base ? ' <i class="tag down">Costs more</i>' : ' <i class="tag up">Costs less</i>';
+          return v > base ? ' <i class="tag up">Higher</i>' : ' <i class="tag down">Lower</i>';
+        };
+        const body = rowsDef.map(([grp, rows]) => {
+          const kept = rows.filter(([, get]) => models.some((m) => get(m) != null));
+          if (!kept.length) return "";
+          return `<tr class="grp"><td colspan="${models.length + 1}">${esc(grp)}</td></tr>${kept.map(([label, get, kind, show]) => {
+            const base = get(first);
+            return `<tr><td>${esc(label)}</td>${models.map((m, i) => {
+              const v = get(m);
+              if (v == null) return '<td class="none">Not listed</td>';
+              const shown = show ? show(m, v) : v;
+              return `<td>${esc(shown)}${i ? tag(kind, base, v) : ""}</td>`;
+            }).join("")}</tr>`;
+          }).join("")}`;
+        }).join("");
+        const diffs = models.slice(1).map((m, i) => {
+          const more = m.monthly != null && first.monthly != null ? m.monthly - first.monthly : null;
+          return more == null ? "" : `Option ${i + 2} is ${rm(Math.abs(more))} ${more >= 0 ? "more" : "less"} a month than Option 1${m.totalOverTerm && first.totalOverTerm ? ` (${rm(Math.abs(m.totalOverTerm - first.totalOverTerm))} ${m.totalOverTerm >= first.totalOverTerm ? "more" : "less"} over the term)` : ""}.`;
+        }).filter(Boolean).join(" ");
+        return section("Your options", `
+<div class="eyebrow rv">Your options</div>
+<h2 class="rv d1">${models.length} options, <span class="hl">side by side</span></h2>
+<div class="said rv d1" data-said="Tell me what matters most and I\u2019ll show which option fits.">Tell me what matters most and I\u2019ll show which option fits.</div>
+<div class="cmp-wrap rv d2"><table class="cmp">
+  <thead><tr><th scope="col">Benefit</th>${models.map((m, i) => `<th scope="col" class="${i ? "o2" : "o1"}">Option ${i + 1}<span>${rm(m.monthly)} / month</span></th>`).join("")}</tr></thead>
+  <tbody>${body}</tbody>
+</table></div>
+${diffs ? `<p class="rv d3"><b>The trade-off:</b> ${esc(diffs)} A plan you can keep paying beats a bigger plan that lapses.</p>` : ""}
+<div class="chip-group rv d4">${chips("opt", "Which option feels right for you?", [...models.map((m, i) => ({ val: `Option ${i + 1} \xB7 ${m.medical.planName || m.productName} \xB7 ${rm(m.monthly)}`, label: `Option ${i + 1} \xB7 ${rm(m.monthly)}` })), "Still deciding"], { summary: "Preferred option" })}</div>
+<p class="fine rv d5">From your PruBSN quotations. Contributions, Tabarru\u2019 and medical charges are not guaranteed. Tags compare each option with Option 1. \u201CNot listed\u201D means the figure isn\u2019t in that quotation\u2019s summary; check the full quotation.</p>`, {}, notes("Don\u2019t read every row. Point to the coloured tags: green is more, red is less or costs more.", "Link back to their worries and budget. Be honest about the trade-off."));
+      }
+      function glance(m) {
+        const lim = limitOf(m);
+        const tiles = [
+          m.monthly != null ? `<div class="k">Monthly</div><div class="v num" ${count(m.monthly)}>${rm(m.monthly)}</div><div class="s">Contribution today</div>` : null,
+          m.coverageToAge ? `<div class="k">Covered until</div><div class="v num">Age ${m.coverageToAge}</div><div class="s">${m.term ? `${m.term}-year term` : ""}</div>` : null,
+          lim ? `<div class="k">Medical ${m.medical.model === "LIFETIME_MEDICAL_FUND" ? "fund" : "limit"}</div><div class="v num" ${count(lim.amount)}>${rm(lim.amount)}</div><div class="s">${m.medical.model === "LIFETIME_MEDICAL_FUND" ? "Lifetime, then cost-sharing" : "A year"}</div>` : null,
+          m.medical.roomRate ? `<div class="k">Room & board</div><div class="v num" ${count(m.medical.roomRate)}>${rm(m.medical.roomRate)}</div><div class="s">A day</div>` : null,
+          m.protection.death ? `<div class="k">Death / TPD</div><div class="v num" ${count(m.protection.death)}>${rm(m.protection.death)}</div><div class="s">Basic plan</div>` : null,
+          m.cash.atEnd.y != null ? `<div class="k">Cash value at the end</div><div class="v num">${rm(m.cash.atEnd.y)}</div><div class="s">Scenario Y, not guaranteed</div>` : null
+        ].filter(Boolean);
+        if (tiles.length < 3) return "";
+        return section("At a glance", `
+<div class="eyebrow rv">The full picture</div>
+<h2 class="rv d1">${m.term ? `${m.term} years, at a glance` : "Your plan, at a glance"}</h2>
+<div class="glance">${tiles.map((t, i) => `<div class="tile${i === 2 ? " dark" : ""} rv d${2 + i}">${t}</div>`).join("")}</div>
+${m.totalOverTerm ? `<p class="fine rv d8">Total contribution${m.term ? ` over ${m.term} years` : ""}: ${rm(m.totalOverTerm)} at today\u2019s rate. The medical charge is not guaranteed and may rise. From your PruBSN quotation${m.quoteDate ? ` dated ${esc(m.quoteDate)}` : ""}.</p>` : ""}`, {});
+      }
+      function nextSteps(m, ctx) {
+        const a = ctx.agent;
+        return section("Next steps", `
+<div class="done rv"><svg viewBox="0 0 44 44" aria-hidden="true"><path d="M10 23 l8 8 l16 -18"/></svg></div>
+<h2 class="rv d1">Let\u2019s protect what you\u2019ve worked for, before life asks you to.</h2>
+<div class="next-list">
+  <div class="rv d2">Choose the option that fits your answers and budget</div>
+  <div class="rv d3">Fill in the proposal with complete, accurate health answers</div>
+  <div class="rv d4">PruBSN reviews it, then the certificate is issued</div>
+  <div class="rv d5">First contribution, and your waiting periods start</div>
+</div>
+<div class="send-box rv d5">
+  <div class="send-summary" id="sendSummary">No answers yet. Tap your answers on the earlier screens.</div>
+  <div class="send-actions">
+    <button class="send-btn" type="button" id="sendBtn">Send my answers to ${esc(a.short)}</button>
+    <button class="copy-btn" type="button" id="copyBtn">Copy answers</button>
+  </div>
+  <div class="send-status" id="sendStatus" role="status" aria-live="polite"></div>
+</div>
+${a.formUrl ? `<a class="form-link rv d6" href="${esc(a.formUrl)}" target="_blank" rel="noopener">Ready? Fill in your application form <span aria-hidden="true">\u2192</span></a>` : ""}
+<div class="agent rv d6"><div class="av">${esc((a.short || a.name || "?").charAt(0))}</div><div><b>${esc(a.name)}</b><span>${a.code ? `Takaful Agent ${esc(a.code)} \xB7 ` : ""}${esc(a.agency)}</span></div></div>
+<div class="tagline rv d7">${esc(a.tagline)}</div>`, { center: true }, notes("Read the summary back before tapping Send. Answers go to Presentation answers in your portal.", "Close without pressure: \u201CIf you want to think it over, I understand. Shall I follow up on Monday?\u201D"));
+      }
+      function sources(models) {
+        const pages = [...new Map(models.map((m) => [m.product.productPage, m])).values()];
+        return section("Sources", `
+<div class="eyebrow rv">Sources</div>
+<h2 class="rv d1">Where the numbers come from</h2>
+<div class="src-list rv d2">
+  <a href="https://www.thestar.com.my/news/nation/2024/04/22/less-than-half-of-malaysians-are-insured-as-we-become-an-ageing-society" target="_blank" rel="noopener">~45% insured, LIAM CEO<span>The Star, 22 Apr 2024</span></a>
+  <a href="https://www.theborneopost.com/2022/10/24/one-in-three-working-malaysians-still-not-personally-protected/" target="_blank" rel="noopener">30% of working 25\u201340s unprotected, Zurich survey<span>Borneo Post, 24 Oct 2022</span></a>
+  <a href="https://www.thestar.com.my/business/business-news/2026/06/10/takaful-industry-grows-473-in-2025-gross-contributions-reach-rm1638bil-in-2025" target="_blank" rel="noopener">Takaful penetration 19.6%, RM10.6 bil benefits, MTA<span>The Star, 10 Jun 2026</span></a>
+  <a href="https://theedgemalaysia.com/article/cover-story-closing-insurance-family-takaful-protection-gap" target="_blank" rel="noopener">UKM\u2013LIAM underinsurance study (94\u201398%, RM100k\u2013150k)<span>The Edge Malaysia</span></a>
+  <a href="https://www.thestar.com.my/news/nation/2025/10/30/interactive-malaysia039s-medical-inflation-to-rise-to-16-in-2026-says-aon" target="_blank" rel="noopener">Malaysia 16%, Asia Pacific 11.3%, Aon 2026<span>The Star, 30 Oct 2025</span></a>
+  <a href="https://www.wtwco.com/en-gb/news/2025/11/double-digit-healthcare-cost-increases-projected-to-persist-into-2026-and-beyond" target="_blank" rel="noopener">Global 10.3%, WTW Global Medical Trends 2026<span>WTW, Nov 2025</span></a>
+  <a href="https://www.freemalaysiatoday.com/category/nation/2026/04/14/medical-claims-hit-rm9-4bil-up-5-3-in-2025" target="_blank" rel="noopener">RM9.4 bil medical claims 2025; +56% 2021\u20132023<span>FMT, 14 Apr 2026</span></a>
+  ${pages.map((m) => `<a href="${esc(m.product.productPage)}" target="_blank" rel="noopener">${esc(m.product.name)} product page<span>Plan figures: your PruBSN quotation${m.quoteDate ? ` dated ${esc(m.quoteDate)}` : ""}${m.version ? `, version ${esc(m.version)}` : ""}</span></a>`).join("")}
+</div>`, {}, notes("Keep this for questions. Always check the issued certificate for final terms."));
+      }
+      var SCENES = [
+        intro,
+        cover,
+        agenda,
+        protectedStat,
+        underinsured,
+        inflation,
+        yourMedicalCost,
+        claims,
+        twoPaths,
+        moment,
+        pathA,
+        pathB,
+        doBoth,
+        pyramid,
+        aboutYou,
+        whatMatters,
+        contributionDonut,
+        admitted,
+        room,
+        treatment,
+        clinic,
+        serious,
+        alsoCovered,
+        howLimitWorks,
+        waiting,
+        account,
+        (m, ctx) => options(ctx.models),
+        glance,
+        nextSteps,
+        (m, ctx) => sources(ctx.models)
+      ];
+      module.exports = { SCENES, esc, rm, limitOf, budgetBands };
+    }
+  });
+
+  // renderer/renderStory.js
+  var require_renderStory = __commonJS({
+    "renderer/renderStory.js"(exports, module) {
+      "use strict";
+      var { STORY_CSS } = require_storyStyles();
+      var { STORY_RUNTIME_JS } = require_storyRuntime();
+      var { buildStoryModel } = require_storyModel();
+      var { productFor } = require_products();
+      var { SCENES, esc } = require_scenes();
+      var { getAgentConfig } = require_agents();
+      var STORY_RENDERER_VERSION2 = "story-v1";
+      var DEFAULT_ASSET_BASE = "https://syakirbadry-tech.github.io/quotation-generator/browser-tool/assets/story/";
+      var DEFAULT_PORTAL = "https://prubsn-submission-service.syakirbadry.workers.dev/presentation-answers";
+      var STORY_AGENTS = {
+        "8LT00006": {
+          short: "Syakir",
+          formUrl: "https://syakirbadry-tech.github.io/Client-Form/client-detail-form.html"
+        }
+      };
+      function agentProfile(model, overrides = {}) {
+        const code = model.agentCode || null;
+        const formal = getAgentConfig(code) || {};
+        const extra = STORY_AGENTS[code] || {};
+        const name = formal.name || (model.agentNameOnDocument ? model.agentNameOnDocument.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase()) : "Your takaful agent");
+        return {
+          code,
+          name,
+          short: extra.short || name.split(/\s+/)[0],
+          agency: formal.agency || "PruBSN",
+          tagline: "Anda Inspirasi Kami",
+          formUrl: extra.formUrl || "",
+          formCode: "",
+          ...overrides
+        };
+      }
+      function renderStoryHtml2(quotations, options = {}) {
+        const list = (Array.isArray(quotations) ? quotations : [quotations]).filter((q) => q && q.data).slice(0, 3);
+        if (!list.length) throw new Error("renderStoryHtml needs at least one parsed quotation.");
+        const models = list.map((q) => buildStoryModel(q.data, productFor(q.data)));
+        const m = models[0];
+        const agent = agentProfile(m, options.agent);
+        const assetBase = options.assetBase || DEFAULT_ASSET_BASE;
+        const ctx = { models, agent, photo: (name) => `${assetBase}${name}.jpg` };
+        let scenes = SCENES.map((scene) => scene(m, ctx)).filter(Boolean).join("\n");
+        scenes = scenes.replace('class="slide', 'class="slide is-active');
+        if (!options.presenterNotes) scenes = scenes.replace(/<div class="notes">[\s\S]*?<\/div>/g, "");
+        const who = m.unborn ? m.parentName ? `${m.parentCallName}\u2019s baby` : "Your baby" : m.callName;
+        const title = `${who ? `${who}\u2019s ` : ""}${m.product.name} plan`;
+        const clientLabel = m.unborn ? m.parentName ? `${m.parentName} (for her baby)` : "Unborn child" : m.fullName || "Client";
+        const ribbon = `Prepared for ${clientLabel}${m.quoteDate ? ` \xB7 PruBSN quotation dated ${m.quoteDate}` : ""}`;
+        const cfg = {
+          client: clientLabel,
+          source: `${m.product.name} story presentation`,
+          agentShort: agent.short,
+          agentFormCode: agent.formCode || "",
+          portal: options.portalUrl || DEFAULT_PORTAL,
+          peopleOn: 9,
+          cashValue: m.cash.points && m.cash.points.length >= 3 ? {
+            axisLabel: "Year",
+            points: m.cash.points,
+            peaks: [m.cash.points.reduce((a, r) => r[2] > a[2] ? r : a), m.cash.points.reduce((a, r) => r[1] > a[1] ? r : a)].map((r, i) => [r[0], r[i === 0 ? 2 : 1]])
+          } : null
+        };
+        const json = JSON.stringify(cfg).replace(/</g, "\\u003c");
+        return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="generator" content="${STORY_RENDERER_VERSION2}">
+<title>${esc(title)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500&display=swap">
+<style>${STORY_CSS}
+[hidden]{display:none!important}
+.slide:not(.night) .limit-labels{color:var(--ink-soft)}</style>
+</head>
+<body id="pq-story">
+<div class="deck" id="deck">
+  <div class="ribbon" id="ribbon">${esc(ribbon)}</div>
+${scenes}
+  <div class="sheet-bg" id="sheetBg" hidden></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
+    <button class="sheet-x" id="sheetX" type="button" aria-label="Close">\xD7</button>
+    <div id="sheetBody"></div>
+  </div>
+  ${options.presenterNotes ? '<div class="notes-panel" id="notesPanel" hidden><div class="nk">Presenter notes \xB7 press N to hide</div><div id="notesBody"></div></div>' : ""}
+  <div class="chrome" id="chrome">
+    <button class="nav" id="prev" type="button" aria-label="Previous">\u2039</button>
+    <div class="progress" id="progress" aria-hidden="true"></div>
+    <span class="counter" id="counter"></span>
+    ${options.presenterNotes ? '<button class="notes-btn" id="notesBtn" type="button" aria-pressed="false">Notes</button>' : ""}
+    <button class="nav" id="next" type="button" aria-label="Next">\u203A</button>
+  </div>
+</div>
+<script type="application/json" id="story-data">${json}<\/script>
+<script>${STORY_RUNTIME_JS}<\/script>
+</body>
+</html>`;
+      }
+      module.exports = { renderStoryHtml: renderStoryHtml2, STORY_RENDERER_VERSION: STORY_RENDERER_VERSION2, buildStoryModel };
+    }
+  });
+
   // browser-tool/app.js
   var { extractPagesFromPdf } = require_pdfTextSource_browser();
   var { parseQuotation, normalizeAndValidate } = require_parser();
@@ -4436,6 +6492,7 @@ ${continueButtonHtml}
   var { buildPrefillData } = require_buildPrefillData();
   var { composeClientDocument } = require_composeClientDocument();
   var { publishQuotation } = require_publishQuotation();
+  var { renderStoryHtml, STORY_RENDERER_VERSION } = require_renderStory();
   var MAX_QUOTATIONS = 3;
   var MAX_PDF_BYTES = 50 * 1024 * 1024;
   var KNOWN_MERGED_BENEFIT_VALUES = {
@@ -4542,7 +6599,9 @@ ${continueButtonHtml}
     validUntilIso: "",
     generatedDocs: [],
     // [{ fileName, html }] one per quotation, filled in on Generate
-    comparisonHtml: null
+    comparisonHtml: null,
+    story: { status: "idle", url: null, error: null }
+    // the story presentation's client link
   };
   var el = {
     stages: {
@@ -4581,6 +6640,15 @@ ${continueButtonHtml}
     downloadBtn: document.getElementById("download-btn"),
     printBtn: document.getElementById("print-btn"),
     outputBackBtn: document.getElementById("output-back-btn"),
+    storyHelp: document.getElementById("story-help"),
+    storyPresentBtn: document.getElementById("story-present-btn"),
+    storyLinkBtn: document.getElementById("story-link-btn"),
+    storyDownloadBtn: document.getElementById("story-download-btn"),
+    storyStatus: document.getElementById("story-status"),
+    storyLinkRow: document.getElementById("story-link-row"),
+    storyLinkInput: document.getElementById("story-link-input"),
+    storyCopyBtn: document.getElementById("story-copy-btn"),
+    storyOpenBtn: document.getElementById("story-open-btn"),
     outputStartOverBtn: document.getElementById("output-start-over-btn")
   };
   function showStage(stage) {
@@ -4899,9 +6967,78 @@ ${continueButtonHtml}
       state.quotations.map(() => ({ acknowledged: true }))
     ) : null;
     state.activeOutputIndex = 0;
+    resetStory();
     renderOutputStage();
     showStage("output");
     publishAllGeneratedDocs();
+  });
+  function storyInputs() {
+    return state.quotations.map((q) => ({ data: q.data }));
+  }
+  function storyPlanLabel(q) {
+    const d = q.data || {};
+    const plan = d.medical && d.medical.planName || d.metadata && d.metadata.productName || q.fileName;
+    const c = d.contributions || {};
+    const monthly = Number.isFinite(c.totalMonthlyContribution) ? c.totalMonthlyContribution : d.monthlyTotalAmountPayable;
+    return Number.isFinite(monthly) ? `${plan}, RM${monthly}/month` : plan;
+  }
+  function resetStory() {
+    state.story = { status: "idle", url: null, error: null };
+    const n = state.quotations.length;
+    el.storyHelp.textContent = n > 1 ? `Uses all ${n} quotations in upload order: the first (${storyPlanLabel(state.quotations[0])}) tells the story, and all ${n} appear side by side as Option 1 to ${n}. Upload the plan you recommend first.` : "Built from this quotation. Upload 2 or 3 quotations together to add an options comparison scene.";
+    renderStoryStatus();
+  }
+  function renderStoryStatus() {
+    const st = state.story || { status: "idle" };
+    el.storyLinkBtn.disabled = st.status === "pending";
+    if (st.status === "pending") {
+      el.storyStatus.innerHTML = '<div class="banner banner-info"><span class="spinner" aria-hidden="true"></span> Making the story link\u2026</div>';
+    } else if (st.status === "failed") {
+      el.storyStatus.innerHTML = `<div class="banner banner-error">Could not make the story link: ${escapeHtml(String(st.error || "unknown error").replace(/\.+$/, ""))}.</div>`;
+    } else if (st.status === "success") {
+      el.storyStatus.innerHTML = '<div class="banner banner-ok">Story link ready. The client sees the deck without your notes.</div>';
+    } else {
+      el.storyStatus.innerHTML = "";
+    }
+    el.storyLinkRow.hidden = st.status !== "success";
+    if (st.status === "success") el.storyLinkInput.value = st.url;
+  }
+  function openHtmlInNewTab(html) {
+    const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+    const win = window.open(url, "_blank");
+    if (!win) alert("Please allow pop-ups for this site to open the presentation.");
+    setTimeout(() => URL.revokeObjectURL(url), 6e4);
+  }
+  el.storyPresentBtn.addEventListener("click", () => {
+    openHtmlInNewTab(renderStoryHtml(storyInputs(), { presenterNotes: true }));
+  });
+  el.storyDownloadBtn.addEventListener("click", () => {
+    const name = (state.quotations[0].data.client.fullName || "client").replace(/[^a-z0-9]+/gi, "_");
+    downloadHtml(renderStoryHtml(storyInputs()), `${name}_story.html`);
+  });
+  el.storyLinkBtn.addEventListener("click", async () => {
+    state.story = { status: "pending" };
+    renderStoryStatus();
+    const result = await publishQuotation(state.quotations[0].data, renderStoryHtml(storyInputs()), STORY_RENDERER_VERSION);
+    state.story = result.status === "success" ? { status: "success", url: result.url } : { status: "failed", error: result.error };
+    renderStoryStatus();
+  });
+  el.storyCopyBtn.addEventListener("click", async () => {
+    if (!state.story || state.story.status !== "success") return;
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard API unavailable");
+      await navigator.clipboard.writeText(state.story.url);
+      el.storyCopyBtn.textContent = "\u2713 Story link copied";
+    } catch (e) {
+      el.storyCopyBtn.textContent = "Could not copy - select the link above manually";
+      el.storyLinkInput.select();
+    }
+    setTimeout(() => {
+      el.storyCopyBtn.textContent = "Copy Story Link";
+    }, 2500);
+  });
+  el.storyOpenBtn.addEventListener("click", () => {
+    if (state.story && state.story.status === "success") window.open(state.story.url, "_blank");
   });
   function renderPublishBlock(doc) {
     if (!doc) {
@@ -5038,6 +7175,7 @@ ${continueButtonHtml}
     state.activeOutputIndex = 0;
     state.generatedDocs = [];
     state.comparisonHtml = null;
+    state.story = { status: "idle", url: null, error: null };
     el.quotationNumberInput.value = "";
     el.validUntilInput.value = "";
     el.ackCheckbox.checked = false;

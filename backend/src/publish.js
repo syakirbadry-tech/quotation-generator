@@ -34,7 +34,9 @@
 
 export const MAX_PUBLISH_PAYLOAD_BYTES = 2 * 1024 * 1024; // a rendered quotation document is tens of KB, not MB - generous but not 20MB-generous
 const UNIQUE_ID_ATTEMPTS = 5;
-const RENDERER_MARKER = 'id="pq-doc"';
+// Every document this project renders carries one of these: the client
+// quotation (renderNarrativeQuotation.js) or the story deck (renderStory.js).
+const RENDERER_MARKERS = ['id="pq-doc"', 'id="pq-story"'];
 
 /**
  * Same transformation the browser-tool applies to a client's name for
@@ -73,7 +75,7 @@ export function validatePublishPayload(payload) {
   if (!payload.generatedHtml || typeof payload.generatedHtml !== 'string') {
     return 'Payload is missing generatedHtml.';
   }
-  if (!payload.generatedHtml.includes(RENDERER_MARKER)) {
+  if (!RENDERER_MARKERS.some((marker) => payload.generatedHtml.includes(marker))) {
     return 'generatedHtml does not look like a quotation this renderer produced.';
   }
   if (byteLength(payload.generatedHtml) > MAX_PUBLISH_PAYLOAD_BYTES) {
