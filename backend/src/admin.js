@@ -49,6 +49,7 @@
 
 import { checkRateLimit } from './rateLimit.js';
 import { handleVb } from './vb.js';
+import { handleAdminAnswers } from './answers.js';
 import {
   airtableFetch, formulaString, isEmail, findUserByEmail, getUser, listUsers, createUser, updateUser, publicUser, suggestFormCode,
 } from './users.js';
@@ -546,6 +547,15 @@ export async function handleAdmin(request, env, path) {
       } catch (err) {
         console.error('VB error:', err && err.message);
         return fail('Could not reach the VB database. Please try again.', 'vb_error', 502, env);
+      }
+    }
+
+    if (path === '/admin/presentation-answers' || path.startsWith('/admin/presentation-answers/')) {
+      try {
+        return await handleAdminAnswers(request, env, path, viewer, { json, fail });
+      } catch (err) {
+        console.error('Presentation answers error:', err && err.message);
+        return fail('Could not reach the answers database. Please try again.', 'answers_error', 502, env);
       }
     }
 
