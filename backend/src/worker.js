@@ -33,6 +33,7 @@ import { validatePublishPayload, slugify, insertQuotation, getQuotationById, not
 import { handleAdmin } from './admin.js';
 import { findUserByFormCode, isFormCode } from './users.js';
 import { handleScanIc } from './icScan.js';
+import { handlePublicAnswers } from './answers.js';
 
 const AIRTABLE_TIMEOUT_MS = 15000;
 
@@ -95,6 +96,17 @@ async function applyAgentCode(env, payload) {
     if (user && user.email) payload.agent = { ...(payload.agent || {}), name: user.name, email: user.email };
   } catch (err) {
     console.error('Agent code lookup failed:', err && err.message);
+  }
+}
+
+/** Best-effort agent lookup for /presentation-answers: an unknown code or Airtable hiccup just leaves the answers untagged. */
+async function lookupAgent(env, code) {
+  if (!isFormCode(code) || !env.AIRTABLE_USERS_TABLE_ID || !env.AIRTABLE_PAT) return null;
+  try {
+    return await withTimeout(findUserByFormCode(env, code), 5000);
+  } catch (err) {
+    console.error('Agent code lookup failed:', err && err.message);
+    return null;
   }
 }
 
@@ -269,6 +281,9 @@ async function fetchHandler(request, env) {
     if (path === '/publish') {
       if (request.method !== 'POST') return fail('Method not allowed - use POST.', 'method_not_allowed', 405, env);
       return await handlePublish(request, env);
+    }
+    if (path === '/presentation-answers') {
+      return await handlePublicAnswers(request, env, { json, fail, clientIp: getClientIp(request), checkRateLimit, lookupAgent });
     }
     if (path.startsWith('/q/') || path.startsWith('/app/')) {
       if (request.method !== 'GET') return fail('Method not allowed - use GET.', 'method_not_allowed', 405, env);
