@@ -48,6 +48,7 @@ console.log('\n=== validatePublishPayload ===');
   ok('missing clientName is rejected', validatePublishPayload({ ...base, clientName: undefined }));
   ok('missing generatedHtml is rejected', validatePublishPayload({ ...base, generatedHtml: undefined }));
   ok('generatedHtml missing the pq-doc marker is rejected (not this renderer\'s own output)', validatePublishPayload({ ...base, generatedHtml: '<div>not a quotation</div>' }));
+  check('a story deck (pq-story marker) passes', validatePublishPayload({ ...base, generatedHtml: '<body id="pq-story"><div class="deck"></div></body>' }), null);
   ok('missing quotationJson is rejected', validatePublishPayload({ ...base, quotationJson: undefined }));
   ok('quotationJson as an array is rejected (must be an object)', validatePublishPayload({ ...base, quotationJson: [] }));
   ok('missing rendererVersion is rejected', validatePublishPayload({ ...base, rendererVersion: undefined }));

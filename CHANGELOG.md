@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file, derived from the project's tagged releases and git history.
 
+## [Unreleased] — 2026-11-13 (story presentation)
+
+**Added:**
+- `renderer/renderStory.js` + `renderer/story/` — the animated story presentation, generated from the same parsed quotation(s): opening market statistics (sourced), the two-paths story, the client's own tap-to-answer questions, the plan step by step, an options comparison when 2-3 quotations are uploaded, and a Send button that delivers the client's answers to the portal's Presentation answers page (`POST /presentation-answers`).
+  - Product-neutral: scenes read the parser's shared `medical` / `protection` blocks. Product wording lives in `renderer/story/products/` (AnugerahMax, Asas360, generic fallback); adding a product is one profile file.
+  - Never invents a figure: a scene whose facts aren't in the quotation is skipped; comparison cells the parser couldn't place read "Not listed", not "Not included"; no computed "total over the term" where the quotation doesn't print one.
+  - Presenter notes only in the agent's copy ("Present now"); client downloads and links never carry them.
+  - Story photos in `browser-tool/assets/story/`, served from GitHub Pages so published decks can load them.
+- Browser tool: a **Story Presentation** panel on the output stage — Present now (with notes), Make client link, Download HTML.
+- `backend/src/publish.js`: `/publish` also accepts story decks (`id="pq-story"` marker). **Needs a Worker redeploy.**
+- `test/renderer/story.test.js` (synthetic data only).
+
 ## [Unreleased] — 2026-07-21 (renderer replacement)
 
 **Client-facing quotation renderer replaced** to match a newly-supplied official reference template (a long-form, scroll-narrated design - supplied directly by the user, not committed to this repo, as the sole source of truth for layout/copy/visual design). Not yet tagged.
