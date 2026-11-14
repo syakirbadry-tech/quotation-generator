@@ -40,6 +40,20 @@ jobs:
       - name: Build browser tool
         run: npm run build:browser-tool
 
+      # The site root is browser-tool/, so the tool lives at /quotation-generator/.
+      # Keep the older /quotation-generator/browser-tool/ address working: story
+      # decks already sent to clients load their photos from there, and old
+      # bookmarks redirect to the tool.
+      - name: Keep the old /browser-tool/ address working
+        run: |
+          mkdir -p browser-tool/browser-tool
+          cp -r browser-tool/assets browser-tool/browser-tool/assets
+          cat > browser-tool/browser-tool/index.html <<'HTML'
+          <!doctype html><meta charset="utf-8"><title>PruBSN Quotation Generator</title>
+          <script>location.replace('../' + location.search + location.hash);</script>
+          <a href="../">Open the Quotation Generator</a>
+          HTML
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
