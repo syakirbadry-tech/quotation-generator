@@ -28,7 +28,8 @@ const STORY_RENDERER_VERSION = 'story-v1';
 
 // Story photos are served from the tool's own GitHub Pages site, so a
 // published deck (which lives on the Worker's origin) can still load them.
-const DEFAULT_ASSET_BASE = 'https://syakirbadry-tech.github.io/quotation-generator/assets/story/';
+// /browser-tool/assets/ exists under both ways Pages can publish this repo (see AssetManager.js).
+const DEFAULT_ASSET_BASE = 'https://syakirbadry-tech.github.io/quotation-generator/browser-tool/assets/story/';
 const DEFAULT_PORTAL = 'https://prubsn-submission-service.syakirbadry.workers.dev/presentation-answers';
 
 // Presentation-only details per agent code (the parser's AGENTS config

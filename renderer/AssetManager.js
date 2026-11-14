@@ -59,8 +59,10 @@ const manifest = require('../browser-tool/assets/images/image-manifest.json');
  * Example once real images exist:
  *   const BASE_PATH = 'https://syakirbadry-tech.github.io/quotation-generator/assets/images/';
  */
-// The tool is served from this address (Pages publishes browser-tool/ as the site root).
-const BASE_PATH = 'https://syakirbadry-tech.github.io/quotation-generator/';
+// /browser-tool/ works however GitHub Pages is publishing this repo: the
+// branch build serves the repo as-is, and the Actions build (pages.yml)
+// copies the assets to /browser-tool/assets/ too.
+const BASE_PATH = 'https://syakirbadry-tech.github.io/quotation-generator/browser-tool/';
 
 const DEFAULT_IMAGE_PATH = 'default.jpg';
 
