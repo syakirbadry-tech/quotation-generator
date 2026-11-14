@@ -95,7 +95,7 @@ async function run() {
   check('public CORS', r.cors, '*');
   r = await send(good, 'text/plain');
   check('text/plain accepted', r.status, 200);
-  r = await send({ ...good, client: 'Agent Client', agentCode: 'ain' });
+  r = await send({ ...good, client: 'Agent Client', agentCode: 'ain', vbId: '11111111-2222-3333-4444-555555555555' });
   check('with agent code (200)', r.status, 200);
   r = await send('{nope');
   check('bad JSON 400', [r.status, r.body.code], [400, 'invalid_json']);
@@ -115,6 +115,8 @@ async function run() {
   r = await admin(owner, '/admin/presentation-answers');
   check('owner sees all 3', [r.status, r.body.answers.length], [200, 3]);
   check('newest first, tagged with agent', [r.body.answers[0].client, r.body.answers[0].agentName, r.body.answers[0].agentEmail], ['Agent Client', 'Ain Agent', 'ain@example.com']);
+  check('tagged with the VB prospect', [r.body.answers[0].vbId, r.body.answers[1].vbId], ['11111111-2222-3333-4444-555555555555', null]);
+  check('a malformed vbId is dropped', validateAnswers({ ...good, vbId: "x' OR 1=1" }).value.vbId, '');
   const untagged = r.body.answers[2];
   check('answers round-trip', untagged.answers, good.answers);
   check('summary round-trip', untagged.summary, good.summary);

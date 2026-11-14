@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file, derived from the project's tagged releases and git history.
 
+## [Unreleased] — 2026-11-14 (ASG Portal link)
+
+**Added:**
+- `browser-tool/portalLink.js` — opened from the ASG Portal (same site, same tab) the tool uses the portal sign-in. With `?vb=<prospect id>` it shows who the quotation is for and saves the published quotation link, product and monthly contribution, then the story link, onto that VB name. Opened on its own, the tool works exactly as before.
+- Story decks made from the portal carry the VB id (answers show on that VB name) and the signed-in agent's own client-form link.
+- `PATCH /admin/vb/:id` action `quote` (quotation/story links must be this Worker's own `/q/` links); VB prospects return `quoteUrl`, `storyUrl`, `quotedProduct`, `quotedMonthly`, `quotedAt`. Presentation answers accept and return `vbId`.
+- `backend/src/schemaColumns.js` — adds new columns to tables created by earlier versions. **Needs a Worker redeploy.**
+
 ## [Unreleased] — 2026-11-13 (story presentation)
 
 **Added:**

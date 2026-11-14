@@ -17,6 +17,11 @@
  * file or anything it calls (the one exception, deliberately isolated:
  * destinations/AirtableDestination.js, which only ever runs inside the
  * generated CLIENT document, not this agent tool).
+ *
+ * Later additions that do talk to the network, each isolated in its own
+ * module and never sending the PDF: publishQuotation.js (publishes the
+ * finished document) and portalLink.js (ASG Portal sign-in and saving the
+ * published links onto the client's VB name).
  */
 
 'use strict';
@@ -31,6 +36,7 @@ const { buildPrefillData } = require('./application/buildPrefillData.js');
 const { composeClientDocument } = require('./application/composeClientDocument.js');
 const { publishQuotation } = require('./publishQuotation.js');
 const { renderStoryHtml, STORY_RENDERER_VERSION } = require('../renderer/renderStory.js');
+const portal = require('./portalLink.js');
 
 const MAX_QUOTATIONS = 3;
 // A real PruBSN Product Illustration is a few MB at most (the sample used
@@ -257,6 +263,9 @@ const el = {
   downloadBtn: document.getElementById('download-btn'),
   printBtn: document.getElementById('print-btn'),
   outputBackBtn: document.getElementById('output-back-btn'),
+  portalBar: document.getElementById('portal-bar'),
+  portalFor: document.getElementById('portal-for'),
+  portalSave: document.getElementById('portal-save'),
   storyHelp: document.getElementById('story-help'),
   storyPresentBtn: document.getElementById('story-present-btn'),
   storyLinkBtn: document.getElementById('story-link-btn'),
@@ -652,6 +661,12 @@ async function publishAllGeneratedDocs() {
     state.generatedDocs.map(async (doc) => {
       const result = await publishQuotation(doc.data, doc.html, RENDERER_VERSION);
       doc.publish = result;
+      // The first (recommended) quotation's link goes onto the client's VB name.
+      if (result.status === 'success' && doc === state.generatedDocs[0]) {
+        const c = doc.data.contributions || {};
+        const monthly = Number.isFinite(c.totalMonthlyContribution) ? c.totalMonthlyContribution : doc.data.monthlyTotalAmountPayable;
+        saveToVb({ quoteUrl: result.url, product: doc.data.metadata && doc.data.metadata.productName, monthly });
+      }
       // Only re-render if this doc is still the one on screen - avoids a
       // slow, since-abandoned publish call clobbering a newer render
       // (e.g. the agent already clicked "Start a new quotation").
@@ -702,6 +717,18 @@ function storyInputs() {
   return state.quotations.map((q) => ({ data: q.data }));
 }
 
+// The signed-in agent's own form link and code, and the VB name, travel
+// into the deck so the client's form and answers come back to them.
+function storyOptions(extra = {}) {
+  const opts = { ...extra };
+  if (portalState.session) {
+    const code = portalState.session.user && portalState.session.user.formCode;
+    opts.agent = { formUrl: portal.clientFormUrl(portalState.session), ...(code ? { formCode: code } : {}) };
+  }
+  if (portalState.prospect) opts.vbId = portalState.prospect.id;
+  return opts;
+}
+
 function storyPlanLabel(q) {
   const d = q.data || {};
   const plan = (d.medical && d.medical.planName) || (d.metadata && d.metadata.productName) || q.fileName;
@@ -743,20 +770,21 @@ function openHtmlInNewTab(html) {
 }
 
 el.storyPresentBtn.addEventListener('click', () => {
-  openHtmlInNewTab(renderStoryHtml(storyInputs(), { presenterNotes: true }));
+  openHtmlInNewTab(renderStoryHtml(storyInputs(), storyOptions({ presenterNotes: true })));
 });
 
 el.storyDownloadBtn.addEventListener('click', () => {
   const name = (state.quotations[0].data.client.fullName || 'client').replace(/[^a-z0-9]+/gi, '_');
-  downloadHtml(renderStoryHtml(storyInputs()), `${name}_story.html`);
+  downloadHtml(renderStoryHtml(storyInputs(), storyOptions()), `${name}_story.html`);
 });
 
 el.storyLinkBtn.addEventListener('click', async () => {
   state.story = { status: 'pending' };
   renderStoryStatus();
-  const result = await publishQuotation(state.quotations[0].data, renderStoryHtml(storyInputs()), STORY_RENDERER_VERSION);
+  const result = await publishQuotation(state.quotations[0].data, renderStoryHtml(storyInputs(), storyOptions()), STORY_RENDERER_VERSION);
   state.story = result.status === 'success' ? { status: 'success', url: result.url } : { status: 'failed', error: result.error };
   renderStoryStatus();
+  if (result.status === 'success') saveToVb({ storyUrl: result.url });
 });
 
 el.storyCopyBtn.addEventListener('click', async () => {
@@ -943,3 +971,51 @@ function resetAll() {
 }
 
 showStage('upload');
+
+
+// --- ASG Portal link ---------------------------------------------------
+// Opened from the portal (same site, same tab) the agent is already signed
+// in. With ?vb=<id> the published links are saved onto that VB name.
+
+const portalState = { session: portal.readSession(), vbId: portal.vbIdFromUrl(location.href), prospect: null };
+
+function setPortalSave(text, warn) {
+  el.portalSave.textContent = text;
+  el.portalSave.className = `portal-save${warn ? ' warn' : ''}`;
+}
+
+async function saveToVb(links) {
+  if (!portalState.session || !portalState.prospect) return;
+  setPortalSave('Saving to VB…');
+  try {
+    await portal.saveQuoteLinks(portalState.session, portalState.prospect.id, links);
+    setPortalSave(`✓ Saved to ${portalState.prospect.name}’s VB`);
+  } catch (err) {
+    setPortalSave(`Not saved to VB: ${err.message}`, true);
+  }
+}
+
+(async function initPortal() {
+  if (!portalState.session && !portalState.vbId) return; // opened on its own: works exactly as before
+  el.portalBar.hidden = false;
+  if (!portalState.session) {
+    el.portalFor.textContent = 'Sign in to the ASG Portal first, then open this from VB to link the quotation to your client.';
+    return;
+  }
+  const who = portalState.session.user && portalState.session.user.name;
+  if (!portalState.vbId) {
+    el.portalFor.textContent = who ? `Signed in as ${who}` : 'Signed in';
+    return;
+  }
+  el.portalFor.textContent = 'Loading your VB client…';
+  try {
+    portalState.prospect = await portal.fetchProspect(portalState.session, portalState.vbId);
+    if (!portalState.prospect) {
+      el.portalFor.textContent = 'That VB name was not found in your list. Quotations will not be saved to VB.';
+      return;
+    }
+    el.portalFor.replaceChildren(document.createTextNode('Quotation for '), Object.assign(document.createElement('b'), { textContent: portalState.prospect.name }), document.createTextNode(' · links save to VB automatically'));
+  } catch (err) {
+    el.portalFor.textContent = `Could not load VB: ${err.message}`;
+  }
+})();

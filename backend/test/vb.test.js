@@ -115,6 +115,36 @@ async function run() {
     check('malformed id -> 404', (await call(ain, '/admin/vb/not-an-id', 'PATCH', { action: 'contacted' })).status, 404);
   }
 
+  console.log('\n=== quotation links (Quotation Generator) ===');
+  {
+    const made = await call(ain, '/admin/vb', 'POST', { name: 'Quote Client' });
+    const qid = made.body.prospect.id;
+    check('new prospect has no links yet', [made.body.prospect.quoteUrl, made.body.prospect.storyUrl], [null, null]);
+    const q = await call(ain, `/admin/vb/${qid}`, 'PATCH', { action: 'quote', quoteUrl: 'https://worker.example/q/quote-client-1a2b3c4d', product: 'PruBSN AnugerahMax', monthly: 208 });
+    check('saves quotation link, product and monthly', [q.status, q.body.prospect.quoteUrl, q.body.prospect.quotedProduct, q.body.prospect.quotedMonthly], [200, 'https://worker.example/q/quote-client-1a2b3c4d', 'PruBSN AnugerahMax', 208]);
+    const st = await call(ain, `/admin/vb/${qid}`, 'PATCH', { action: 'quote', storyUrl: 'https://worker.example/q/quote-client-9z8y7x6w' });
+    check('story link added, quotation link kept', [st.body.prospect.storyUrl, st.body.prospect.quoteUrl], ['https://worker.example/q/quote-client-9z8y7x6w', 'https://worker.example/q/quote-client-1a2b3c4d']);
+    check('stage unchanged by a quotation', st.body.prospect.stage, 1);
+    check('link to another site refused', (await call(ain, `/admin/vb/${qid}`, 'PATCH', { action: 'quote', storyUrl: 'https://evil.example/q/x' })).status, 400);
+    check('non-/q/ path refused', (await call(ain, `/admin/vb/${qid}`, 'PATCH', { action: 'quote', quoteUrl: 'https://worker.example/admin/vb' })).status, 400);
+    check('empty quote action refused', (await call(ain, `/admin/vb/${qid}`, 'PATCH', { action: 'quote' })).status, 400);
+    check('someone else cannot save links', (await call(bee, `/admin/vb/${qid}`, 'PATCH', { action: 'quote', storyUrl: 'https://worker.example/q/a-1' })).status, 404);
+    await call(ain, `/admin/vb/${qid}`, 'DELETE');
+  }
+
+  console.log('\n=== older database gets the new columns ===');
+  {
+    const old = createSqliteD1();
+    await old.prepare(`CREATE TABLE vb_prospects (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, owner_name TEXT NOT NULL, name TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', stage INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL, contacted_at TEXT, appointment_at TEXT, approved_at TEXT, product TEXT, premium REAL, frequency TEXT,
+      tpc REAL, cases REAL, updated_at TEXT NOT NULL)`).run();
+    await old.prepare(`INSERT INTO vb_prospects (id, owner_email, owner_name, name, created_at, updated_at) VALUES ('11111111-2222-3333-4444-555555555555', 'admin', 'Owner', 'Existing Name', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z')`).run();
+    const res = await worker.fetch(new Request('https://worker.example/admin/vb', { headers: { Authorization: `Bearer ${owner}`, Origin: ORIGIN } }), { ...env, QUOTATIONS_DB: old });
+    const body = await res.json();
+    check('existing names still load after the upgrade', [res.status, body.prospects.map((p) => [p.name, p.storyUrl])], [200, [['Existing Name', null]]]);
+  }
+
   console.log('\n=== guards ===');
   check('signed-out -> 401', (await call('nope', '/admin/vb')).status, 401);
   {
