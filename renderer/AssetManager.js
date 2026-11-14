@@ -59,7 +59,8 @@ const manifest = require('../browser-tool/assets/images/image-manifest.json');
  * Example once real images exist:
  *   const BASE_PATH = 'https://syakirbadry-tech.github.io/quotation-generator/assets/images/';
  */
-const BASE_PATH = '';
+// The tool is served from this address (Pages publishes browser-tool/ as the site root).
+const BASE_PATH = 'https://syakirbadry-tech.github.io/quotation-generator/';
 
 const DEFAULT_IMAGE_PATH = 'default.jpg';
 

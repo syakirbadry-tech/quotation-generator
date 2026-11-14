@@ -2319,12 +2319,12 @@
         hero: {},
         plans: {},
         coverage: {},
-        roomBoard: {},
-        hospital: {},
+        roomBoard: { default: "room-board/ward.jpg" },
+        hospital: { default: "hospital/lobby.jpg" },
         accident: {},
-        surgery: {},
-        recovery: {},
-        financial: {},
+        surgery: { default: "surgery/theatre.jpg" },
+        recovery: { default: "recovery/ward.jpg" },
+        financial: { default: "financial/cancer.jpg" },
         waitingPeriod: {},
         cashValue: {},
         guarantee: {},
@@ -2338,7 +2338,7 @@
     "renderer/AssetManager.js"(exports, module) {
       "use strict";
       var manifest = require_image_manifest();
-      var BASE_PATH = "";
+      var BASE_PATH = "https://syakirbadry-tech.github.io/quotation-generator/";
       var DEFAULT_IMAGE_PATH = "default.jpg";
       function resolveUrl(relativePath) {
         return `${BASE_PATH}assets/images/${relativePath}`;
