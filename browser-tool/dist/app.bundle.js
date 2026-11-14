@@ -5318,34 +5318,49 @@ p { margin: 0; font-size: clamp(16px, 2vw, 19px); line-height: 1.55; color: var(
             });
             chosen[key] = multi ? sel : sel[0] || "";
             renderSaid();
+            queueSave();
           });
         });
         if (limitInput) limitInput.addEventListener("input", function() {
           chosen.mcLimit = limitInput.value.replace(/[^\d]/g, "").slice(0, 9);
           renderSaid();
+          queueSave();
         });
-        var sendBtn = document.getElementById("sendBtn");
         var sendStatus = document.getElementById("sendStatus");
+        var copyBtn = document.getElementById("copyBtn");
         function setStatus(msg, kind) {
-          sendStatus.textContent = msg;
-          sendStatus.className = "send-status" + (kind ? " " + kind : "");
-        }
-        if (sendBtn) sendBtn.addEventListener("click", function(e) {
-          e.stopPropagation();
-          var lines = summaryLines();
-          if (!lines.length) {
-            setStatus("Nothing to send yet. Tap some answers on the earlier screens first.", "warn");
-            return;
+          if (sendStatus) {
+            sendStatus.textContent = msg;
+            sendStatus.className = "send-status" + (kind ? " " + kind : "");
           }
+        }
+        function newId() {
+          if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+          return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0;
+            return (c === "x" ? r : r & 3 | 8).toString(16);
+          });
+        }
+        var sendId = newId();
+        var saveTimer = null;
+        var lastSaved = "";
+        function payload() {
           var answers = {};
           Object.keys(chosen).forEach(function(k) {
             if (k === "mcLimit" && !hasCard()) return;
             var v = chosen[k];
             if (Array.isArray(v) ? v.length : v) answers[k] = v;
           });
-          sendBtn.disabled = true;
-          setStatus("Sending\u2026");
-          fetch(cfg.portal, { method: "POST", headers: { "Content-Type": "text/plain" }, credentials: "omit", body: JSON.stringify({ client: cfg.client, source: cfg.source, agentCode: cfg.agentFormCode || void 0, vbId: cfg.vbId || void 0, answers, summary: lines }) }).then(function(res) {
+          return { client: cfg.client, source: cfg.source, agentCode: cfg.agentFormCode || void 0, vbId: cfg.vbId || void 0, sendId, answers, summary: summaryLines() };
+        }
+        function saveNow(keepalive) {
+          clearTimeout(saveTimer);
+          var body = payload();
+          if (!body.summary.length) return;
+          var text = JSON.stringify(body);
+          if (text === lastSaved) return;
+          setStatus("Saving\u2026");
+          fetch(cfg.portal, { method: "POST", headers: { "Content-Type": "text/plain" }, credentials: "omit", keepalive: !!keepalive, body: text }).then(function(res) {
             return res.json().catch(function() {
               return {};
             }).then(function(data) {
@@ -5353,17 +5368,29 @@ p { margin: 0; font-size: clamp(16px, 2vw, 19px); line-height: 1.55; color: var(
             });
           }).then(function(r) {
             if (r.ok && r.data.success) {
-              setStatus("Sent to " + cfg.agentShort + ". Thank you!", "ok");
-              sendBtn.textContent = "Send updated answers";
-            } else if (r.status === 400 && r.data.error) setStatus(r.data.error, "warn");
-            else setStatus("Could not send right now. Tap Copy answers, then paste them to " + cfg.agentShort + " on WhatsApp.", "warn");
+              lastSaved = text;
+              setStatus("\u2713 Saved for " + cfg.agentShort, "ok");
+              if (copyBtn) copyBtn.hidden = true;
+            } else if (r.status === 409) {
+              sendId = newId();
+              lastSaved = "";
+              saveNow();
+            } else {
+              setStatus(r.status === 400 && r.data.error ? r.data.error : "Could not save right now. Tap Copy answers, then paste them to " + cfg.agentShort + " on WhatsApp.", "warn");
+              if (copyBtn) copyBtn.hidden = false;
+            }
           }).catch(function() {
-            setStatus("Could not send right now. Tap Copy answers, then paste them to " + cfg.agentShort + " on WhatsApp.", "warn");
-          }).then(function() {
-            sendBtn.disabled = false;
+            setStatus("Could not save right now. Tap Copy answers, then paste them to " + cfg.agentShort + " on WhatsApp.", "warn");
+            if (copyBtn) copyBtn.hidden = false;
           });
+        }
+        function queueSave() {
+          clearTimeout(saveTimer);
+          saveTimer = setTimeout(saveNow, 2e3);
+        }
+        document.addEventListener("visibilitychange", function() {
+          if (document.visibilityState === "hidden" && saveTimer) saveNow(true);
         });
-        var copyBtn = document.getElementById("copyBtn");
         if (copyBtn) copyBtn.addEventListener("click", function(e) {
           e.stopPropagation();
           var lines = summaryLines();
@@ -6033,7 +6060,7 @@ ${rows.slice(0, 6).map((r) => `<div class="bar-col"><div class="bar-val num">${r
         const lo = Math.max(100, base - 100);
         return [`RM${lo}\u2013${lo + 100}`, `RM${lo + 100}\u2013${lo + 200}`, `RM${lo + 200}\u2013${lo + 300}`, `RM${lo + 300}+`];
       }
-      function whatMatters(m) {
+      function whatMatters(m, ctx) {
         const pri = m.isChild ? [["A big hospital bill", "a big hospital bill"], ["Serious illness like cancer", "serious illness like cancer"], ["Common childhood illness (fever, dengue, HFMD)", "common childhood illness"], ["Medical costs rising every year", "medical costs rising every year"], ["Savings for their future", "savings for their future"]] : [["A big hospital bill", "a big hospital bill"], ["Cancer, heart attack or kidney failure", "cancer, heart attack or kidney failure"], ["Accidents on the road", "accidents on the road"], ["Medical costs rising every year", "medical costs rising every year"], ["Leaving debt for my family", "leaving debt for my family"]];
         return section("What matters", `
 <div class="eyebrow rv">Your turn \xB7 what matters most</div>
@@ -6041,7 +6068,7 @@ ${rows.slice(0, 6).map((r) => `<div class="bar-col"><div class="bar-val num">${r
 <div class="chip-group rv d2">${chips("pri", "Biggest worries (choose any)", pri.map(([val, text]) => ({ val, text })), { multi: true, summary: "Biggest worries" })}</div>
 <div class="chip-group rv d3">${chips("bud", "Monthly amount you can keep up long term", budgetBands(m.monthly), { summary: "Monthly budget" })}</div>
 <div class="said rv d4" data-said="Your choices show here and on the options screen.">Your choices show here and on the options screen.</div>
-<p class="fine rv d5">Your taps stay on this screen only until you choose to send them.</p>`, {}, notes("Hand them the phone or tablet and let them tap. Then ask: \u201CIf you were admitted tomorrow, where would the money come from?\u201D"));
+<p class="fine rv d5">Your answers are saved for ${esc(ctx.agent.short)} as you tap, so the plan can be prepared around them.</p>`, {}, notes("Hand them the phone or tablet and let them tap. Then ask: \u201CIf you were admitted tomorrow, where would the money come from?\u201D"));
       }
       function contributionDonut(m) {
         if (!m.breakdown.length || m.monthly == null) return "";
@@ -6315,14 +6342,13 @@ ${m.totalOverTerm ? `<p class="fine rv d8">Total contribution${m.term ? ` over $
 <div class="send-box rv d5">
   <div class="send-summary" id="sendSummary">No answers yet. Tap your answers on the earlier screens.</div>
   <div class="send-actions">
-    <button class="send-btn" type="button" id="sendBtn">Send my answers to ${esc(a.short)}</button>
-    <button class="copy-btn" type="button" id="copyBtn">Copy answers</button>
+    <button class="copy-btn" type="button" id="copyBtn" hidden>Copy answers</button>
   </div>
   <div class="send-status" id="sendStatus" role="status" aria-live="polite"></div>
 </div>
 ${a.formUrl ? `<a class="form-link rv d6" href="${esc(a.formUrl)}" target="_blank" rel="noopener">Ready? Fill in your application form <span aria-hidden="true">\u2192</span></a>` : ""}
 <div class="agent rv d6"><div class="av">${esc((a.short || a.name || "?").charAt(0))}</div><div><b>${esc(a.name)}</b><span>${a.code ? `Takaful Agent ${esc(a.code)} \xB7 ` : ""}${esc(a.agency)}</span></div></div>
-<div class="tagline rv d7">${esc(a.tagline)}</div>`, { center: true }, notes("Read the summary back before tapping Send. Answers go to Presentation answers in your portal.", "Close without pressure: \u201CIf you want to think it over, I understand. Shall I follow up on Monday?\u201D"));
+<div class="tagline rv d7">${esc(a.tagline)}</div>`, { center: true }, notes("Read the summary back to them. Their answers save by themselves as they tap, to Presentation answers in your portal (and their VB name).", "Close without pressure: \u201CIf you want to think it over, I understand. Shall I follow up on Monday?\u201D"));
       }
       function sources(models) {
         const pages = [...new Map(models.map((m) => [m.product.productPage, m])).values()];

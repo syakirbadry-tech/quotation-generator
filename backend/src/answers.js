@@ -32,7 +32,10 @@ const MAX_VALUE = 200;
 const MAX_LINES = 20;
 const MAX_LINE = 300;
 const MAX_LISTED = 300;
-const SENDS_PER_MINUTE = 10;
+// Decks save automatically a couple of seconds after each tap, so allow a busy session.
+const SENDS_PER_MINUTE = 30;
+// An auto-saving deck keeps updating its own row (sendId) for this long.
+const UPDATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const KEY_RE = /^[A-Za-z][A-Za-z0-9_]{0,29}$/;
 // 10+ digits in a row, allowing spaces or dashes between them: IC (12), bank and card numbers.
 const LONG_NUMBER_RE = /\d(?:[\s-]?\d){9,}/;
@@ -77,6 +80,9 @@ export function validateAnswers(body) {
   const agentCode = typeof body.agentCode === 'string' ? body.agentCode.trim() : '';
   // Only a tag for the agent's own VB page; a wrong id simply matches nothing.
   const vbId = typeof body.vbId === 'string' && /^[0-9a-f-]{36}$/.test(body.vbId) ? body.vbId : '';
+  // A deck that saves as the client taps sends the same random id every
+  // time, so its one row is updated instead of a new row per tap.
+  const sendId = typeof body.sendId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(body.sendId) ? body.sendId : '';
 
   const raw = body.answers;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: 'answers must be an object.' };
@@ -114,7 +120,7 @@ export function validateAnswers(body) {
   if (everything.some((t) => LONG_NUMBER_RE.test(t))) {
     return { error: 'Please leave out IC, bank or card numbers - those go in the application form only.' };
   }
-  return { value: { client, source, agentCode, vbId, answers, summary } };
+  return { value: { client, source, agentCode, vbId, sendId, answers, summary } };
 }
 
 function toAnswer(row) {
@@ -162,11 +168,26 @@ export async function handlePublicAnswers(request, env, { json, fail, clientIp, 
   const { value, error } = validateAnswers(body);
   if (error) return fail(error, 'invalid_payload', 400, env);
 
-  const agent = value.agentCode ? await lookupAgent(env, value.agentCode) : null;
-  const id = crypto.randomUUID();
+  const db = env.QUOTATIONS_DB;
+  await ensureSchema(db);
   const createdAt = new Date().toISOString();
-  await ensureSchema(env.QUOTATIONS_DB);
-  await env.QUOTATIONS_DB.prepare(
+  if (value.sendId) {
+    // Update the deck's own row - only a recent one, for the same client
+    // and deck, so an old or guessed id can't overwrite someone else's.
+    const row = await db.prepare('SELECT created_at, client, source FROM presentation_answers WHERE id = ?').bind(value.sendId).first();
+    if (row) {
+      const fresh = Date.now() - Date.parse(row.created_at) < UPDATE_WINDOW_MS;
+      if (!fresh || row.client !== value.client || row.source !== value.source) {
+        return fail('These answers can no longer be updated - please refresh the page.', 'stale_send', 409, env);
+      }
+      await db.prepare('UPDATE presentation_answers SET answers_json = ?, summary_json = ? WHERE id = ?')
+        .bind(JSON.stringify(value.answers), JSON.stringify(value.summary), value.sendId).run();
+      return json({ success: true, id: value.sendId, createdAt: row.created_at, updated: true }, 200, env);
+    }
+  }
+  const agent = value.agentCode ? await lookupAgent(env, value.agentCode) : null;
+  const id = value.sendId || crypto.randomUUID();
+  await db.prepare(
     'INSERT INTO presentation_answers (id, created_at, client, source, agent_email, agent_name, answers_json, summary_json, vb_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(id, createdAt, value.client, value.source, (agent && agent.email) || '', (agent && agent.name) || '', JSON.stringify(value.answers), JSON.stringify(value.summary), value.vbId).run();
   return json({ success: true, id, createdAt }, 200, env);

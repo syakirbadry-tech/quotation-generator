@@ -329,7 +329,7 @@ function budgetBands(monthly) {
   return [`RM${lo}–${lo + 100}`, `RM${lo + 100}–${lo + 200}`, `RM${lo + 200}–${lo + 300}`, `RM${lo + 300}+`];
 }
 
-function whatMatters(m) {
+function whatMatters(m, ctx) {
   const pri = m.isChild
     ? [['A big hospital bill', 'a big hospital bill'], ['Serious illness like cancer', 'serious illness like cancer'], ['Common childhood illness (fever, dengue, HFMD)', 'common childhood illness'], ['Medical costs rising every year', 'medical costs rising every year'], ['Savings for their future', 'savings for their future']]
     : [['A big hospital bill', 'a big hospital bill'], ['Cancer, heart attack or kidney failure', 'cancer, heart attack or kidney failure'], ['Accidents on the road', 'accidents on the road'], ['Medical costs rising every year', 'medical costs rising every year'], ['Leaving debt for my family', 'leaving debt for my family']];
@@ -339,7 +339,7 @@ function whatMatters(m) {
 <div class="chip-group rv d2">${chips('pri', 'Biggest worries (choose any)', pri.map(([val, text]) => ({ val, text })), { multi: true, summary: 'Biggest worries' })}</div>
 <div class="chip-group rv d3">${chips('bud', 'Monthly amount you can keep up long term', budgetBands(m.monthly), { summary: 'Monthly budget' })}</div>
 <div class="said rv d4" data-said="Your choices show here and on the options screen.">Your choices show here and on the options screen.</div>
-<p class="fine rv d5">Your taps stay on this screen only until you choose to send them.</p>`, {}, notes('Hand them the phone or tablet and let them tap. Then ask: “If you were admitted tomorrow, where would the money come from?”'));
+<p class="fine rv d5">Your answers are saved for ${esc(ctx.agent.short)} as you tap, so the plan can be prepared around them.</p>`, {}, notes('Hand them the phone or tablet and let them tap. Then ask: “If you were admitted tomorrow, where would the money come from?”'));
 }
 
 // ---------- Your plan ----------
@@ -637,14 +637,13 @@ function nextSteps(m, ctx) {
 <div class="send-box rv d5">
   <div class="send-summary" id="sendSummary">No answers yet. Tap your answers on the earlier screens.</div>
   <div class="send-actions">
-    <button class="send-btn" type="button" id="sendBtn">Send my answers to ${esc(a.short)}</button>
-    <button class="copy-btn" type="button" id="copyBtn">Copy answers</button>
+    <button class="copy-btn" type="button" id="copyBtn" hidden>Copy answers</button>
   </div>
   <div class="send-status" id="sendStatus" role="status" aria-live="polite"></div>
 </div>
 ${a.formUrl ? `<a class="form-link rv d6" href="${esc(a.formUrl)}" target="_blank" rel="noopener">Ready? Fill in your application form <span aria-hidden="true">→</span></a>` : ''}
 <div class="agent rv d6"><div class="av">${esc((a.short || a.name || '?').charAt(0))}</div><div><b>${esc(a.name)}</b><span>${a.code ? `Takaful Agent ${esc(a.code)} · ` : ''}${esc(a.agency)}</span></div></div>
-<div class="tagline rv d7">${esc(a.tagline)}</div>`, { center: true }, notes('Read the summary back before tapping Send. Answers go to Presentation answers in your portal.', 'Close without pressure: “If you want to think it over, I understand. Shall I follow up on Monday?”'));
+<div class="tagline rv d7">${esc(a.tagline)}</div>`, { center: true }, notes('Read the summary back to them. Their answers save by themselves as they tap, to Presentation answers in your portal (and their VB name).', 'Close without pressure: “If you want to think it over, I understand. Shall I follow up on Monday?”'));
 }
 
 function sources(models) {
