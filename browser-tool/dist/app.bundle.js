@@ -2338,7 +2338,7 @@
     "renderer/AssetManager.js"(exports, module) {
       "use strict";
       var manifest = require_image_manifest();
-      var BASE_PATH = "https://syakirbadry-tech.github.io/quotation-generator/";
+      var BASE_PATH = "https://syakirbadry-tech.github.io/quotation-generator/browser-tool/";
       var DEFAULT_IMAGE_PATH = "default.jpg";
       function resolveUrl(relativePath) {
         return `${BASE_PATH}assets/images/${relativePath}`;
@@ -6387,7 +6387,7 @@ ${a.formUrl ? `<a class="form-link rv d6" href="${esc(a.formUrl)}" target="_blan
       var { SCENES, esc } = require_scenes();
       var { getAgentConfig } = require_agents();
       var STORY_RENDERER_VERSION2 = "story-v1";
-      var DEFAULT_ASSET_BASE = "https://syakirbadry-tech.github.io/quotation-generator/assets/story/";
+      var DEFAULT_ASSET_BASE = "https://syakirbadry-tech.github.io/quotation-generator/browser-tool/assets/story/";
       var DEFAULT_PORTAL = "https://prubsn-submission-service.syakirbadry.workers.dev/presentation-answers";
       var STORY_AGENTS = {
         "8LT00006": {
