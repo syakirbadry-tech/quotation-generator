@@ -83,7 +83,8 @@ ok('carries the publish marker', client.includes('id="pq-story"'));
 ok('first scene is active', /<section class="slide is-active[^"]*" data-label="Intro"/.test(client));
 ok('shows the quoted monthly figure', client.includes(`RM${model.monthly.toLocaleString('en-MY')}`));
 ok('single quotation has no options scene', !scenes(client).includes('Your options'));
-ok('Send posts to the portal', client.includes('presentation-answers'));
+ok('answers save to the portal by themselves', client.includes('presentation-answers') && client.includes('queueSave'));
+ok('no Send button', !client.includes('id="sendBtn"'));
 const runtime = client.match(/<script>([\s\S]*)<\/script>/)[1];
 ok('inlined runtime is valid JavaScript', (() => { try { new Function(runtime); return true; } catch (e) { return false; } })());
 

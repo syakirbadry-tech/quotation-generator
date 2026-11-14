@@ -3,7 +3,7 @@
  *
  * The script inlined into every generated story deck: scene navigation,
  * reveal and count-up animation, donuts, the cash value chart, the
- * client's tap-to-answer questions, and Send / Copy answers.
+ * client's tap-to-answer questions (saved automatically), and Copy answers.
  *
  * It is product-agnostic. Everything client- or product-specific comes
  * from the deck's own JSON block (<script id="story-data">) and from the
@@ -179,39 +179,64 @@ function storyRuntime() {
       var sel = [].map.call(grp.querySelectorAll('.chip[aria-pressed="true"]'), function (c) { return c.dataset.val; });
       chosen[key] = multi ? sel : (sel[0] || '');
       renderSaid();
+      queueSave();
     });
   });
-  if (limitInput) limitInput.addEventListener('input', function () { chosen.mcLimit = limitInput.value.replace(/[^\d]/g, '').slice(0, 9); renderSaid(); });
+  if (limitInput) limitInput.addEventListener('input', function () { chosen.mcLimit = limitInput.value.replace(/[^\d]/g, '').slice(0, 9); renderSaid(); queueSave(); });
 
-  // ---------- Send / Copy ----------
-  var sendBtn = document.getElementById('sendBtn');
+  // ---------- Auto-save ----------
+  // The client's answers save by themselves a couple of seconds after each
+  // tap - no Send button. One random id per opening of the deck, so the
+  // portal keeps one row for this session and updates it.
   var sendStatus = document.getElementById('sendStatus');
-  function setStatus(msg, kind) { sendStatus.textContent = msg; sendStatus.className = 'send-status' + (kind ? ' ' + kind : ''); }
-
-  if (sendBtn) sendBtn.addEventListener('click', function (e) {
-    e.stopPropagation();
-    var lines = summaryLines();
-    if (!lines.length) { setStatus('Nothing to send yet. Tap some answers on the earlier screens first.', 'warn'); return; }
+  var copyBtn = document.getElementById('copyBtn');
+  function setStatus(msg, kind) { if (sendStatus) { sendStatus.textContent = msg; sendStatus.className = 'send-status' + (kind ? ' ' + kind : ''); } }
+  function newId() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) { var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); });
+  }
+  var sendId = newId();
+  var saveTimer = null;
+  var lastSaved = '';
+  function payload() {
     var answers = {};
     Object.keys(chosen).forEach(function (k) {
       if (k === 'mcLimit' && !hasCard()) return;
       var v = chosen[k];
       if (Array.isArray(v) ? v.length : v) answers[k] = v;
     });
-    sendBtn.disabled = true;
-    setStatus('Sending…');
-    fetch(cfg.portal, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, credentials: 'omit', body: JSON.stringify({ client: cfg.client, source: cfg.source, agentCode: cfg.agentFormCode || undefined, vbId: cfg.vbId || undefined, answers: answers, summary: lines }) })
+    return { client: cfg.client, source: cfg.source, agentCode: cfg.agentFormCode || undefined, vbId: cfg.vbId || undefined, sendId: sendId, answers: answers, summary: summaryLines() };
+  }
+  function saveNow(keepalive) {
+    clearTimeout(saveTimer);
+    var body = payload();
+    if (!body.summary.length) return;
+    var text = JSON.stringify(body);
+    if (text === lastSaved) return;
+    setStatus('Saving…');
+    fetch(cfg.portal, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, credentials: 'omit', keepalive: !!keepalive, body: text })
       .then(function (res) { return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, status: res.status, data: data }; }); })
       .then(function (r) {
-        if (r.ok && r.data.success) { setStatus('Sent to ' + cfg.agentShort + '. Thank you!', 'ok'); sendBtn.textContent = 'Send updated answers'; }
-        else if (r.status === 400 && r.data.error) setStatus(r.data.error, 'warn');
-        else setStatus('Could not send right now. Tap Copy answers, then paste them to ' + cfg.agentShort + ' on WhatsApp.', 'warn');
+        if (r.ok && r.data.success) {
+          lastSaved = text;
+          setStatus('✓ Saved for ' + cfg.agentShort, 'ok');
+          if (copyBtn) copyBtn.hidden = true;
+        } else if (r.status === 409) {
+          sendId = newId(); lastSaved = ''; saveNow();
+        } else {
+          setStatus(r.status === 400 && r.data.error ? r.data.error : 'Could not save right now. Tap Copy answers, then paste them to ' + cfg.agentShort + ' on WhatsApp.', 'warn');
+          if (copyBtn) copyBtn.hidden = false;
+        }
       })
-      .catch(function () { setStatus('Could not send right now. Tap Copy answers, then paste them to ' + cfg.agentShort + ' on WhatsApp.', 'warn'); })
-      .then(function () { sendBtn.disabled = false; });
-  });
+      .catch(function () {
+        setStatus('Could not save right now. Tap Copy answers, then paste them to ' + cfg.agentShort + ' on WhatsApp.', 'warn');
+        if (copyBtn) copyBtn.hidden = false;
+      });
+  }
+  function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 2000); }
+  // Save straight away if the page is closed or hidden before the timer runs.
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden' && saveTimer) saveNow(true); });
 
-  var copyBtn = document.getElementById('copyBtn');
   if (copyBtn) copyBtn.addEventListener('click', function (e) {
     e.stopPropagation();
     var lines = summaryLines();

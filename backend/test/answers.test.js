@@ -97,6 +97,16 @@ async function run() {
   check('text/plain accepted', r.status, 200);
   r = await send({ ...good, client: 'Agent Client', agentCode: 'ain', vbId: '11111111-2222-3333-4444-555555555555' });
   check('with agent code (200)', r.status, 200);
+  const sid = '9a8b7c6d-1111-4222-8333-944455556666';
+  r = await send({ ...good, client: 'Auto Client', sendId: sid, answers: { pri: ['Cancer'] }, summary: ['Biggest worries: Cancer'] });
+  check('auto-save creates its row with the sendId', [r.status, r.body.id, r.body.updated], [200, sid, undefined]);
+  r = await send({ ...good, client: 'Auto Client', sendId: sid, answers: { pri: ['Cancer'], bud: 'RM200-300' }, summary: ['Biggest worries: Cancer', 'Monthly budget: RM200-300'] });
+  check('next auto-save updates the same row', [r.status, r.body.id, r.body.updated], [200, sid, true]);
+  r = await send({ ...good, client: 'Someone Else', sendId: sid });
+  check('another client cannot overwrite that row', [r.status, r.body.code], [409, 'stale_send']);
+  const rows = await env.QUOTATIONS_DB.prepare('SELECT summary_json FROM presentation_answers WHERE id = ?').bind(sid).all();
+  check('one row holds the latest answers', rows.results.map((x) => JSON.parse(x.summary_json).length), [2]);
+  await env.QUOTATIONS_DB.prepare('DELETE FROM presentation_answers WHERE id = ?').bind(sid).run();
   r = await send('{nope');
   check('bad JSON 400', [r.status, r.body.code], [400, 'invalid_json']);
   r = await send({ ...good, answers: { note: '900101-14-5678' } });
