@@ -64,6 +64,7 @@ function agentProfile(model, overrides = {}) {
  * @param {object} [options.agent] overrides for the agent profile (name, short, agency, formUrl, formCode, tagline)
  * @param {string} [options.assetBase] where the story photos are served from
  * @param {string} [options.portalUrl] where Send posts the client's answers
+ * @param {string} [options.vbId] the portal VB prospect this deck is for, so the client's answers show on that name
  * @returns {string} a complete HTML document
  */
 function renderStoryHtml(quotations, options = {}) {
@@ -89,6 +90,7 @@ function renderStoryHtml(quotations, options = {}) {
     source: `${m.product.name} story presentation`,
     agentShort: agent.short,
     agentFormCode: agent.formCode || '',
+    vbId: /^[0-9a-f-]{36}$/.test(options.vbId || '') ? options.vbId : '',
     portal: options.portalUrl || DEFAULT_PORTAL,
     peopleOn: 9,
     cashValue: m.cash.points && m.cash.points.length >= 3 ? {

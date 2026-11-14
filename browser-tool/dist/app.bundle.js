@@ -5345,7 +5345,7 @@ p { margin: 0; font-size: clamp(16px, 2vw, 19px); line-height: 1.55; color: var(
           });
           sendBtn.disabled = true;
           setStatus("Sending\u2026");
-          fetch(cfg.portal, { method: "POST", headers: { "Content-Type": "text/plain" }, credentials: "omit", body: JSON.stringify({ client: cfg.client, source: cfg.source, agentCode: cfg.agentFormCode || void 0, answers, summary: lines }) }).then(function(res) {
+          fetch(cfg.portal, { method: "POST", headers: { "Content-Type": "text/plain" }, credentials: "omit", body: JSON.stringify({ client: cfg.client, source: cfg.source, agentCode: cfg.agentFormCode || void 0, vbId: cfg.vbId || void 0, answers, summary: lines }) }).then(function(res) {
             return res.json().catch(function() {
               return {};
             }).then(function(data) {
@@ -6431,6 +6431,7 @@ ${a.formUrl ? `<a class="form-link rv d6" href="${esc(a.formUrl)}" target="_blan
           source: `${m.product.name} story presentation`,
           agentShort: agent.short,
           agentFormCode: agent.formCode || "",
+          vbId: /^[0-9a-f-]{36}$/.test(options.vbId || "") ? options.vbId : "",
           portal: options.portalUrl || DEFAULT_PORTAL,
           peopleOn: 9,
           cashValue: m.cash.points && m.cash.points.length >= 3 ? {
@@ -6482,6 +6483,70 @@ ${scenes}
     }
   });
 
+  // browser-tool/portalLink.js
+  var require_portalLink = __commonJS({
+    "browser-tool/portalLink.js"(exports, module) {
+      "use strict";
+      var API_BASE = "https://prubsn-submission-service.syakirbadry.workers.dev";
+      var PORTAL_URL = "https://syakirbadry-tech.github.io/Client-Form/admin/";
+      var SESSION_KEY = "prubsn-admin-session";
+      var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+      function readSession() {
+        try {
+          const s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
+          if (!s || !s.token || !s.expiresAt || s.expiresAt * 1e3 <= Date.now()) return null;
+          return s;
+        } catch (e) {
+          return null;
+        }
+      }
+      function vbIdFromUrl(href) {
+        try {
+          const id = new URL(href).searchParams.get("vb") || "";
+          return UUID_RE.test(id) ? id : null;
+        } catch (e) {
+          return null;
+        }
+      }
+      async function call(session, path, method = "GET", body) {
+        const headers = { Authorization: `Bearer ${session.token}` };
+        if (body !== void 0) headers["Content-Type"] = "application/json";
+        let res;
+        try {
+          res = await fetch(API_BASE + path, { method, headers, body: body === void 0 ? void 0 : JSON.stringify(body), cache: "no-store", credentials: "omit" });
+        } catch (e) {
+          throw new Error("Could not reach the portal. Check your connection.");
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          const err = new Error(data.error || `Portal request failed (HTTP ${res.status}).`);
+          err.status = res.status;
+          throw err;
+        }
+        return data;
+      }
+      async function fetchProspect(session, vbId) {
+        const { prospects } = await call(session, "/admin/vb");
+        return prospects.find((p) => p.id === vbId) || null;
+      }
+      async function saveQuoteLinks(session, vbId, { quoteUrl, storyUrl, product, monthly } = {}) {
+        const body = { action: "quote" };
+        if (quoteUrl) body.quoteUrl = quoteUrl;
+        if (storyUrl) body.storyUrl = storyUrl;
+        if (product) body.product = product;
+        if (Number.isFinite(monthly) && monthly > 0) body.monthly = monthly;
+        const { prospect } = await call(session, `/admin/vb/${vbId}`, "PATCH", body);
+        return prospect;
+      }
+      function clientFormUrl(session) {
+        const base = "https://syakirbadry-tech.github.io/Client-Form/client-detail-form.html";
+        const code = session && session.user && session.user.formCode;
+        return code ? `${base}?agent=${encodeURIComponent(code)}` : base;
+      }
+      module.exports = { readSession, vbIdFromUrl, fetchProspect, saveQuoteLinks, clientFormUrl, PORTAL_URL };
+    }
+  });
+
   // browser-tool/app.js
   var { extractPagesFromPdf } = require_pdfTextSource_browser();
   var { parseQuotation, normalizeAndValidate } = require_parser();
@@ -6493,6 +6558,7 @@ ${scenes}
   var { composeClientDocument } = require_composeClientDocument();
   var { publishQuotation } = require_publishQuotation();
   var { renderStoryHtml, STORY_RENDERER_VERSION } = require_renderStory();
+  var portal = require_portalLink();
   var MAX_QUOTATIONS = 3;
   var MAX_PDF_BYTES = 50 * 1024 * 1024;
   var KNOWN_MERGED_BENEFIT_VALUES = {
@@ -6640,6 +6706,9 @@ ${scenes}
     downloadBtn: document.getElementById("download-btn"),
     printBtn: document.getElementById("print-btn"),
     outputBackBtn: document.getElementById("output-back-btn"),
+    portalBar: document.getElementById("portal-bar"),
+    portalFor: document.getElementById("portal-for"),
+    portalSave: document.getElementById("portal-save"),
     storyHelp: document.getElementById("story-help"),
     storyPresentBtn: document.getElementById("story-present-btn"),
     storyLinkBtn: document.getElementById("story-link-btn"),
@@ -6942,6 +7011,11 @@ ${scenes}
       state.generatedDocs.map(async (doc) => {
         const result = await publishQuotation(doc.data, doc.html, RENDERER_VERSION);
         doc.publish = result;
+        if (result.status === "success" && doc === state.generatedDocs[0]) {
+          const c = doc.data.contributions || {};
+          const monthly = Number.isFinite(c.totalMonthlyContribution) ? c.totalMonthlyContribution : doc.data.monthlyTotalAmountPayable;
+          saveToVb({ quoteUrl: result.url, product: doc.data.metadata && doc.data.metadata.productName, monthly });
+        }
         if (state.generatedDocs.includes(doc) && state.stage === "output") {
           renderOutputStage();
         }
@@ -6974,6 +7048,15 @@ ${scenes}
   });
   function storyInputs() {
     return state.quotations.map((q) => ({ data: q.data }));
+  }
+  function storyOptions(extra = {}) {
+    const opts = { ...extra };
+    if (portalState.session) {
+      const code = portalState.session.user && portalState.session.user.formCode;
+      opts.agent = { formUrl: portal.clientFormUrl(portalState.session), ...code ? { formCode: code } : {} };
+    }
+    if (portalState.prospect) opts.vbId = portalState.prospect.id;
+    return opts;
   }
   function storyPlanLabel(q) {
     const d = q.data || {};
@@ -7010,18 +7093,19 @@ ${scenes}
     setTimeout(() => URL.revokeObjectURL(url), 6e4);
   }
   el.storyPresentBtn.addEventListener("click", () => {
-    openHtmlInNewTab(renderStoryHtml(storyInputs(), { presenterNotes: true }));
+    openHtmlInNewTab(renderStoryHtml(storyInputs(), storyOptions({ presenterNotes: true })));
   });
   el.storyDownloadBtn.addEventListener("click", () => {
     const name = (state.quotations[0].data.client.fullName || "client").replace(/[^a-z0-9]+/gi, "_");
-    downloadHtml(renderStoryHtml(storyInputs()), `${name}_story.html`);
+    downloadHtml(renderStoryHtml(storyInputs(), storyOptions()), `${name}_story.html`);
   });
   el.storyLinkBtn.addEventListener("click", async () => {
     state.story = { status: "pending" };
     renderStoryStatus();
-    const result = await publishQuotation(state.quotations[0].data, renderStoryHtml(storyInputs()), STORY_RENDERER_VERSION);
+    const result = await publishQuotation(state.quotations[0].data, renderStoryHtml(storyInputs(), storyOptions()), STORY_RENDERER_VERSION);
     state.story = result.status === "success" ? { status: "success", url: result.url } : { status: "failed", error: result.error };
     renderStoryStatus();
+    if (result.status === "success") saveToVb({ storyUrl: result.url });
   });
   el.storyCopyBtn.addEventListener("click", async () => {
     if (!state.story || state.story.status !== "success") return;
@@ -7185,4 +7269,43 @@ ${scenes}
     showStage("upload");
   }
   showStage("upload");
+  var portalState = { session: portal.readSession(), vbId: portal.vbIdFromUrl(location.href), prospect: null };
+  function setPortalSave(text, warn) {
+    el.portalSave.textContent = text;
+    el.portalSave.className = `portal-save${warn ? " warn" : ""}`;
+  }
+  async function saveToVb(links) {
+    if (!portalState.session || !portalState.prospect) return;
+    setPortalSave("Saving to VB\u2026");
+    try {
+      await portal.saveQuoteLinks(portalState.session, portalState.prospect.id, links);
+      setPortalSave(`\u2713 Saved to ${portalState.prospect.name}\u2019s VB`);
+    } catch (err) {
+      setPortalSave(`Not saved to VB: ${err.message}`, true);
+    }
+  }
+  (async function initPortal() {
+    if (!portalState.session && !portalState.vbId) return;
+    el.portalBar.hidden = false;
+    if (!portalState.session) {
+      el.portalFor.textContent = "Sign in to the ASG Portal first, then open this from VB to link the quotation to your client.";
+      return;
+    }
+    const who = portalState.session.user && portalState.session.user.name;
+    if (!portalState.vbId) {
+      el.portalFor.textContent = who ? `Signed in as ${who}` : "Signed in";
+      return;
+    }
+    el.portalFor.textContent = "Loading your VB client\u2026";
+    try {
+      portalState.prospect = await portal.fetchProspect(portalState.session, portalState.vbId);
+      if (!portalState.prospect) {
+        el.portalFor.textContent = "That VB name was not found in your list. Quotations will not be saved to VB.";
+        return;
+      }
+      el.portalFor.replaceChildren(document.createTextNode("Quotation for "), Object.assign(document.createElement("b"), { textContent: portalState.prospect.name }), document.createTextNode(" \xB7 links save to VB automatically"));
+    } catch (err) {
+      el.portalFor.textContent = `Could not load VB: ${err.message}`;
+    }
+  })();
 })();

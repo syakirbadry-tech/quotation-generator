@@ -15,8 +15,10 @@
  * see SCHEMA - also in migrations/0002_create_vb.sql for reference).
  */
 
+import { addMissingColumns } from './schemaColumns.js';
+
 export const STAGES = [1, 2, 3, 4];
-export const PAYMENTS_PER_YEAR = { Monthly: 12, Quarterly: 4, 'Half-yearly': 2, Yearly: 1 };
+const PAYMENTS_PER_YEAR = { Monthly: 12, Quarterly: 4, 'Half-yearly': 2, Yearly: 1 };
 // A policy with TPC of at least this counts as one contest case; anything below counts as half.
 export const FULL_CASE_TPC = 1800;
 const MAX_PROSPECTS_LISTED = 2000;
@@ -47,10 +49,16 @@ const SCHEMA = [
   'CREATE INDEX IF NOT EXISTS idx_vb_prospects_owner ON vb_prospects(owner_email)',
 ];
 
+// Added after the table first shipped: the client's latest quotation and
+// story presentation links from the Quotation Generator.
+const LATER_COLUMNS = [['quote_url', 'TEXT'], ['story_url', 'TEXT'], ['quoted_product', 'TEXT'], ['quoted_monthly', 'REAL'], ['quoted_at', 'TEXT']];
+
 const ready = new WeakMap();
 function ensureSchema(db) {
   if (!ready.has(db)) {
-    const p = db.batch(SCHEMA.map((sql) => db.prepare(sql))).catch((err) => { ready.delete(db); throw err; });
+    const p = db.batch(SCHEMA.map((sql) => db.prepare(sql)))
+      .then(() => addMissingColumns(db, 'vb_prospects', LATER_COLUMNS))
+      .catch((err) => { ready.delete(db); throw err; });
     ready.set(db, p);
   }
   return ready.get(db);
@@ -95,6 +103,11 @@ function toProspect(row) {
     frequency: row.frequency,
     tpc: row.tpc,
     cases: row.cases,
+    quoteUrl: row.quote_url || null,
+    storyUrl: row.story_url || null,
+    quotedProduct: row.quoted_product || null,
+    quotedMonthly: row.quoted_monthly ?? null,
+    quotedAt: row.quoted_at || null,
   };
 }
 
@@ -140,6 +153,19 @@ async function overview(db, viewer, now) {
     }));
   }
   return body;
+}
+
+/**
+ * A link the Quotation Generator published on this same Worker
+ * (https://<worker>/q/<id>), or null for anything else - VB never stores
+ * an arbitrary URL that would later be shown as a button.
+ */
+function ownQuoteLink(value, request) {
+  if (value === undefined || value === null || value === '') return null;
+  let u;
+  try { u = new URL(String(value)); } catch (e) { return undefined; }
+  const origin = new URL(request.url).origin;
+  return u.origin === origin && /^\/q\/[a-z0-9-]{1,120}$/.test(u.pathname) && !u.search && !u.hash ? u.href : undefined;
 }
 
 function validTime(value) {
@@ -223,6 +249,23 @@ export async function handleVb(request, env, path, viewer, h, now = new Date()) 
         product, premium, frequency: body.frequency, tpc, cases: casesOf(tpc), stage: 4,
         approved_at: current.approved_at || nowIso, contacted_at: current.contacted_at || nowIso,
       });
+      break;
+    }
+    case 'quote': {
+      // From the Quotation Generator after it publishes. Only the fields sent are changed.
+      const quoteUrl = ownQuoteLink(body.quoteUrl, request);
+      const storyUrl = ownQuoteLink(body.storyUrl, request);
+      if (quoteUrl === undefined || storyUrl === undefined) return fail('That is not a quotation link from this portal.', 'invalid_link', 400, env);
+      if (quoteUrl) set.quote_url = quoteUrl;
+      if (storyUrl) set.story_url = storyUrl;
+      if (body.product !== undefined) set.quoted_product = text(body.product, 'product') || null;
+      if (body.monthly !== undefined) {
+        const monthly = Number(body.monthly);
+        if (!(monthly > 0 && monthly <= 1000000)) return fail('Please send the monthly contribution as a number.', 'invalid_monthly', 400, env);
+        set.quoted_monthly = Math.round(monthly * 100) / 100;
+      }
+      if (!Object.keys(set).length) return fail('Nothing to save.', 'invalid_payload', 400, env);
+      set.quoted_at = nowIso;
       break;
     }
     default:

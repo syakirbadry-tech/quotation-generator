@@ -23,6 +23,8 @@
  * also in migrations/0003_create_presentation_answers.sql for reference).
  */
 
+import { addMissingColumns } from './schemaColumns.js';
+
 const MAX_BODY_BYTES = 8 * 1024;
 const MAX_KEYS = 20;
 const MAX_ARRAY = 12;
@@ -49,10 +51,15 @@ const SCHEMA = [
   'CREATE INDEX IF NOT EXISTS idx_presentation_answers_agent ON presentation_answers(agent_email)',
 ];
 
+// Added later: the VB prospect a deck was made for (from the Quotation Generator).
+const LATER_COLUMNS = [['vb_id', "TEXT NOT NULL DEFAULT ''"]];
+
 const ready = new WeakMap();
 function ensureSchema(db) {
   if (!ready.has(db)) {
-    const p = db.batch(SCHEMA.map((sql) => db.prepare(sql))).catch((err) => { ready.delete(db); throw err; });
+    const p = db.batch(SCHEMA.map((sql) => db.prepare(sql)))
+      .then(() => addMissingColumns(db, 'presentation_answers', LATER_COLUMNS))
+      .catch((err) => { ready.delete(db); throw err; });
     ready.set(db, p);
   }
   return ready.get(db);
@@ -68,6 +75,8 @@ export function validateAnswers(body) {
   const source = body.source === undefined ? '' : (typeof body.source === 'string' ? tidy(body.source) : null);
   if (source === null || source.length > 80) return { error: 'source must be text of up to 80 characters.' };
   const agentCode = typeof body.agentCode === 'string' ? body.agentCode.trim() : '';
+  // Only a tag for the agent's own VB page; a wrong id simply matches nothing.
+  const vbId = typeof body.vbId === 'string' && /^[0-9a-f-]{36}$/.test(body.vbId) ? body.vbId : '';
 
   const raw = body.answers;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: 'answers must be an object.' };
@@ -105,7 +114,7 @@ export function validateAnswers(body) {
   if (everything.some((t) => LONG_NUMBER_RE.test(t))) {
     return { error: 'Please leave out IC, bank or card numbers - those go in the application form only.' };
   }
-  return { value: { client, source, agentCode, answers, summary } };
+  return { value: { client, source, agentCode, vbId, answers, summary } };
 }
 
 function toAnswer(row) {
@@ -118,6 +127,7 @@ function toAnswer(row) {
     agentEmail: row.agent_email,
     answers: JSON.parse(row.answers_json),
     summary: JSON.parse(row.summary_json),
+    vbId: row.vb_id || null,
   };
 }
 
@@ -157,8 +167,8 @@ export async function handlePublicAnswers(request, env, { json, fail, clientIp, 
   const createdAt = new Date().toISOString();
   await ensureSchema(env.QUOTATIONS_DB);
   await env.QUOTATIONS_DB.prepare(
-    'INSERT INTO presentation_answers (id, created_at, client, source, agent_email, agent_name, answers_json, summary_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(id, createdAt, value.client, value.source, (agent && agent.email) || '', (agent && agent.name) || '', JSON.stringify(value.answers), JSON.stringify(value.summary)).run();
+    'INSERT INTO presentation_answers (id, created_at, client, source, agent_email, agent_name, answers_json, summary_json, vb_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(id, createdAt, value.client, value.source, (agent && agent.email) || '', (agent && agent.name) || '', JSON.stringify(value.answers), JSON.stringify(value.summary), value.vbId).run();
   return json({ success: true, id, createdAt }, 200, env);
 }
 

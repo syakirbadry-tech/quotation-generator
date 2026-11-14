@@ -200,7 +200,7 @@ function storyRuntime() {
     });
     sendBtn.disabled = true;
     setStatus('Sending…');
-    fetch(cfg.portal, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, credentials: 'omit', body: JSON.stringify({ client: cfg.client, source: cfg.source, agentCode: cfg.agentFormCode || undefined, answers: answers, summary: lines }) })
+    fetch(cfg.portal, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, credentials: 'omit', body: JSON.stringify({ client: cfg.client, source: cfg.source, agentCode: cfg.agentFormCode || undefined, vbId: cfg.vbId || undefined, answers: answers, summary: lines }) })
       .then(function (res) { return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, status: res.status, data: data }; }); })
       .then(function (r) {
         if (r.ok && r.data.success) { setStatus('Sent to ' + cfg.agentShort + '. Thank you!', 'ok'); sendBtn.textContent = 'Send updated answers'; }
